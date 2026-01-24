@@ -66,6 +66,20 @@ hexadecimal format, as embedded in the compiled firmware.
   to define SPI_DRIVER_SELECT as 2
 * Open and build ZXTeensyIF1.ino
 
+## Loading the KiCad project
+
+The PCB folder contains a KiCad 9.0.2 project, based on liveboxandy "ZX Interface 1 Recreated" KiCad
+project. Without that project, I'd have had to spend considerable time getting the board outline and
+aligning the sockets etc.
+
+It uses,
+
+* https://github.com/XenGi/teensy_library as teensy_library-master
+* https://github.com/XenGi/teensy.pretty as teensy.pretty-master
+    * Set XGENGI_TEENSY_LIBRARY path in Symbol Libraries etc.
+* https://github.com/sparkfun/SparkFun-KiCad-Libraries
+    * Set SPARKFUN_KICAD_LIBRARY path in Symbol Libraries etc.
+
 ## DivMMC and ZX Interface 1 support
 
 Technically, the DivMMC and ZX Interface 1 cannot be active simultaneously. The DivMMC ports and

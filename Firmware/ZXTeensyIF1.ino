@@ -1,5 +1,5 @@
 
-// Must be set in SdFat/SdFatConfig.h
+// Must be set in SdFat/src/SdFatConfig.h
 #define SPI_DRIVER_SELECT 2
 
 //#define ENABLE_ALLRAM

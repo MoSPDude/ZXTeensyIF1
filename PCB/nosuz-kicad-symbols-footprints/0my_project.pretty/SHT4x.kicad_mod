@@ -1,0 +1,123 @@
+(footprint "SHT4x"
+	(version 20241229)
+	(generator "pcbnew")
+	(generator_version "9.0")
+	(layer "F.Cu")
+	(descr "SHT4x Relative Humidity and Temperature Sensor")
+	(tags "humidity temperature sensore")
+	(property "Reference" "REF**"
+		(at 0 -1.9 0)
+		(layer "F.SilkS")
+		(uuid "c2f6cd97-fcf7-4369-a8e8-6a02504700ba")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.16)
+			)
+		)
+	)
+	(property "Value" "SHT4x"
+		(at 0 2.05 0)
+		(layer "F.Fab")
+		(hide yes)
+		(uuid "acb11048-98cc-4b06-860c-6f577b568e2f")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.16)
+			)
+		)
+	)
+	(property "Datasheet" ""
+		(at 0 0 0)
+		(layer "F.Fab")
+		(hide yes)
+		(uuid "e899f311-149e-42ec-ad05-f9e101edeb7d")
+		(effects
+			(font
+				(size 1.27 1.27)
+				(thickness 0.16)
+			)
+		)
+	)
+	(property "Description" "SHT4x Relative Humidity and Temperature Sensor"
+		(at 0 0 0)
+		(layer "F.Fab")
+		(hide yes)
+		(uuid "338f8a15-24b3-4a38-a567-f9e884a254fd")
+		(effects
+			(font
+				(size 1.27 1.27)
+				(thickness 0.16)
+			)
+		)
+	)
+	(attr through_hole)
+	(fp_line
+		(start -0.75 -0.75)
+		(end 0.75 -0.75)
+		(stroke
+			(width 0.16)
+			(type solid)
+		)
+		(layer "F.SilkS")
+		(uuid "4255b216-daf7-4519-a8c3-81cb5ed9227a")
+	)
+	(fp_line
+		(start -0.75 0.75)
+		(end 0.75 0.75)
+		(stroke
+			(width 0.16)
+			(type solid)
+		)
+		(layer "F.SilkS")
+		(uuid "221b27ea-cfd5-4961-a62d-da5c339634b2")
+	)
+	(fp_circle
+		(center -1.05 -1.05)
+		(end -0.891886 -1.05)
+		(stroke
+			(width 0.16)
+			(type solid)
+		)
+		(fill yes)
+		(layer "F.SilkS")
+		(uuid "5902873d-52c4-4ff0-bff8-96236edb3c3d")
+	)
+	(fp_rect
+		(start -1.5 -1.5)
+		(end 1.5 1.5)
+		(stroke
+			(width 0.05)
+			(type default)
+		)
+		(fill no)
+		(layer "F.CrtYd")
+		(uuid "a496c172-5ed3-4ddd-8f37-7859b29bbb83")
+	)
+	(pad "1" smd rect
+		(at -0.7 -0.4)
+		(size 0.6 0.3)
+		(layers "F.Cu" "F.Mask" "F.Paste")
+		(uuid "34ce1474-35c8-4330-8ea3-ef1c85c19cf4")
+	)
+	(pad "2" smd rect
+		(at -0.7 0.4)
+		(size 0.6 0.3)
+		(layers "F.Cu" "F.Mask" "F.Paste")
+		(uuid "3c886a37-a6f0-4a95-b313-c62a89ef9897")
+	)
+	(pad "3" smd rect
+		(at 0.7 0.4)
+		(size 0.6 0.3)
+		(layers "F.Cu" "F.Mask" "F.Paste")
+		(uuid "3f3a2b16-1980-4de6-8188-8b33395ec4dc")
+	)
+	(pad "4" smd rect
+		(at 0.7 -0.4)
+		(size 0.6 0.3)
+		(layers "F.Cu" "F.Mask" "F.Paste")
+		(uuid "7d378ba9-52c0-44a3-9fb6-16e4f073e2fc")
+	)
+	(embedded_fonts no)
+)
