@@ -21,7 +21,7 @@ A Teensy 4.1 powered DivMMC and ZX Interface 1 clone,
     * Provides the Interface 1 ROM, Multiface 128 ROM and DivMMC ROM
 * External ROM support
     * ZX Interface 1 edge connector supports other ROM based hardware
-    * eg. Retroleum diagnostic card, real ZX Interface 2 hardware etc.
+    * eg. Retroleum SMART card, real ZX Interface 2 hardware etc.
 
 The ZX Interface 1 v2 ROM is included in compiled firmware, and as noted on other
 sources "Amstrad have kindly given their permission for the redistribution
@@ -61,8 +61,9 @@ At the moment, the firmware looks for fixed ROM filenames on the SD card to load
 create a menu like the ZXPicoIF2Lite has.
 
 Otherwise, the soft ROM functions correctly - banking the DivMMC, Multiface 128, Interface 1 or
-Spectrum soft ROMs as required. eg. when testing the external ROM support, the Retroleum card 
-correctly sees the 128K soft ROM loaded on to my 48K Spectrum.
+Spectrum soft ROMs as required. eg. when testing the external ROM support, the Retroleum SMART card
+(https://blog.retroleum.co.uk/smart-card-for-zx-spectrum/) diagostics correctly sees the 128K soft
+ROM loaded on to my 48K Spectrum.
 
 When the DivMMC is enabled, restarting the machine with ".128" will disable the DivMMC and enable
 the Interface 1.
