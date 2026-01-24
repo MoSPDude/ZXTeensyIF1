@@ -119,6 +119,8 @@ It uses,
     * Set XGENGI_TEENSY_LIBRARY path in Symbol Libraries etc.
 * https://github.com/sparkfun/SparkFun-KiCad-Libraries
     * Set SPARKFUN_KICAD_LIBRARY path in Symbol Libraries etc.
+* https://github.com/nosuz/kicad-symbols-footprints
+    * Place as ./nosuz-kicad-symbols-footprints in the project directory
 
 ## DivMMC and ZX Interface 1 support
 
