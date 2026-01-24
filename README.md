@@ -17,7 +17,7 @@ A Teensy 4.1 powered DivMMC and ZX Interface 1 clone,
 * Soft ROM emulation
     * Override the internal Spectrum ROM with ROMs from SD card
     * Supports 16KB (48K Spectrum), 32KB (128K Spectrum) and 64KB (+2A/+3 Spectrum) ROMs
-        * The +2A/+3 soft ROM support requires banking changes (see below)
+        * The +2A/+3 soft ROM support requires port decoding changes (see below)
     * Provides the Interface 1 ROM, Multiface 128 ROM and DivMMC ROM
 * External ROM support
     * ZX Interface 1 edge connector supports other ROM based hardware
@@ -28,7 +28,7 @@ sources "Amstrad have kindly given their permission for the redistribution
 of their copyrighted material but retain that copyright"
 
 This is a project that I started with a view of wanting a DivMMC clone that works with a
-ZX Interface 1 attached ZX Max 128 issue 3 - as I own a ZX Microdrive as well as a ZXPicoMD
+ZX Interface 1 attached to my ZX Max 128 - as I own a ZX Microdrive as well as a ZXPicoMD
 (https://github.com/TomDDG/ZXPicoMD) ... and didn't want to keep disconnecting the ZX
 Interface 1.
 
@@ -83,9 +83,9 @@ the Interface 1.
     * Need to revise some footprints
     * My PCBs had silkscreen that stated v0.1
 * v0.1 veroboard prototype (not uploaded)
-    * Teensy 4.1 and level shifter on Veroboard
+    * Teensy 4.1 and level shifters on Veroboard
         * Soft ROM and Multiface 128 behaviour working
-    * Modded ZX Interface 1 to add "IORQ inhibit" (see below)
+    * Modded ZX Interface 1 to add "nIORQ inhibit" (see below)
 
 ### Firmware
 
@@ -110,8 +110,8 @@ hexadecimal format, as embedded in the compiled firmware.
 ## Loading the KiCad project
 
 The PCB folder contains a KiCad 9.0.2 project, based on liveboxandy "ZX Interface 1 Recreated" KiCad
-project. Without that project, I'd have had to spend considerable time getting the board outline and
-aligning the sockets etc.
+7 project. Without that project, I'd have had to spend considerable time getting the board outline
+and aligning the sockets etc.
 
 It uses,
 
@@ -123,16 +123,22 @@ It uses,
 * https://github.com/nosuz/kicad-symbols-footprints
     * Place as ./nosuz-kicad-symbols-footprints in the project directory
 
+Freerouting (https://github.com/freerouting/freerouting) was used to perform the initial routing,
+especially with getting the address and data lines out to the level shifters and the Interface 1
+ULA.
+
 ## DivMMC and ZX Interface 1 support
 
 Technically, the DivMMC and ZX Interface 1 cannot be active simultaneously. The DivMMC ports and
-ZX Interface 1 IO ports clash directly. (More info at
-https://worldofspectrum.org/faq/reference/48kreference.htm#PortF7 )
+ZX Interface 1 I/O ports clash directly. (More info at
+https://worldofspectrum.org/faq/reference/48kreference.htm#PortF7)
 
-To overcome this, the Teensy 4.1 drives the nIORQ of the Interface 1 ULA high when the DivMMC
-is active.
+To overcome this, the Teensy drives the nIORQ of the Interface 1 ULA high when the DivMMC is
+active. Also, only A3 and A4 have been wired to the Interface 1 ULA, as required for the port
+decoding - which helped with the PCB routing. The Teensy provides all the ROM facilities for
+the Interface 1 behaviour.
 
-### Prototyping notes
+### Early prototype
 
 The veroboard prototype used the edge connector A4 (as N/C on 48k spectrums) to signal back into
 the ZX Interface 1,
@@ -145,16 +151,16 @@ the ZX Interface 1,
 * Add a 6.8K resistor from IC1 pin 10 to ground (eg. IC1 pin 20)
 * Connect the base of Q11 back to the edge connector A17 with wire
 
-## ZX Max 128 Issue 3 +2A/+3 ROM banking
+## ZX Max 128 Issue 3 +2A/+3 Memory Control port decoding
 
 The ZX Max 128 Issue 3 needs a modification to support the +2A/+3 soft ROM.
 
 Without it, accesses to the Secondary Memory Control register (0x1FFD) also affect the original
 Memory Control register (0x7FFD) due to the partial decoding. (More info at
-https://worldofspectrum.org/faq/reference/128kreference.htm )
+https://worldofspectrum.org/faq/reference/128kreference.htm)
 
 The modification is shown at
-https://github.com/DonSuperfo/ZX-Max-128/blob/main/Issue%203/Modify%20for%20%2B3%20ROM.pdf ,
+https://github.com/DonSuperfo/ZX-Max-128/blob/main/Issue%203/Modify%20for%20%2B3%20ROM.pdf,
 
 * Replace R12 with a 1N4148 diode, with cathode to U9 pin 4
 * Add a 1N4148 diode from U6 pin 12 with cathode to U9 pin 4
