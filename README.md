@@ -15,7 +15,10 @@ A Teensy 4.1 powered DivMMC and ZX Interface 1 clone,
 * Soft ROM emulation
     * Override the internal Spectrum ROM with ROMs from SD card
     * Provides the Interface 1 ROM, Multiface 128 ROM and DivMMC ROM
-    
+* External ROM support
+    * ZX Interface 1 edge connector supports other ROM based hardware
+    * eg. Retroleum diagnostic cart, real ZX Interface 2 hardware etc.
+
 The ZX Interface 1 v2 ROM is included in compiled firmware, and as noted on other
 sources "Amstrad have kindly given their permission for the redistribution 
 of their copyrighted material but retain that copyright"
@@ -39,8 +42,13 @@ It borrows content, ideas and inspriation from,
 
 ### Hardware
 
+* v0.3 PCB prototype
+    * HAS NOT BEEN MANUFACTURED YET
+    * Minor footprint fixes, and routing tweaks
+    * No electrical or schematic changes
 * v0.2 PCB prototype
-    * First PCBs made, and testing underway
+    * First PCBs made, and tested
+        * Microdrive, RS232, ZX Net and nROMCS on external edge connector working
     * Need to revise some footprints
 * v0.1 veroboard prototype
     * Teensy 4.1 and level shifter on Veroboard

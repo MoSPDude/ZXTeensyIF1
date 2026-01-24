@@ -5,9 +5,9 @@
 	(uuid "58e84b66-6e27-462c-8f52-8f1c5fac34f6")
 	(paper "A4")
 	(title_block
-		(title "ZXTeensyIF1")
-		(date "2026-01-04")
-		(rev "0.1")
+		(title "${PRJ_NAME}")
+		(date "${PRJ_DATE}")
+		(rev "${PRJ_REVISION}")
 	)
 	(lib_symbols
 		(symbol "Device:L"

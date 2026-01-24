@@ -5,9 +5,9 @@
 	(uuid "1b86cbe7-ec7d-4a2b-9f24-0e5f193e5a74")
 	(paper "A4")
 	(title_block
-		(title "ZXTeensyIF1")
-		(date "2026-01-04")
-		(rev "0.1")
+		(title "${PRJ_NAME}")
+		(date "${PRJ_DATE}")
+		(rev "${PRJ_REVISION}")
 	)
 	(lib_symbols
 		(symbol "Connector:DE9_Receptacle_MountingHoles"
