@@ -1,5 +1,7 @@
 
-# ZXTeensyIF
+# ZXTeensyIF1
+
+![image](./Images/pcb-v0.2.JPG "Prototype PCB")
 
 A Teensy 4.1 powered DivMMC and ZX Interface 1 clone,
 
@@ -7,25 +9,28 @@ A Teensy 4.1 powered DivMMC and ZX Interface 1 clone,
     * Requires the 9V and 5V power rails
     * Uses a MAX232 for the RS232 level shifting, so no +12V or -12V required
 * DivMMC with 512KB RAM
-    * Accesses the Teensy main SD card
+    * Shares the Teensy main SD card
 * Multiface 128 emulation
     * NMI button and soft ROM
 * ZX Interface 2, and ZXC2 ROM emulation
     * Implements ZXC2 ROM banking
 * Soft ROM emulation
     * Override the internal Spectrum ROM with ROMs from SD card
+    * Supports 16KB (48K Spectrum), 32KB (128K Spectrum) and 64KB (+2A/+3 Spectrum) ROMs
+        * The +2A/+3 soft ROM support requires banking changes (see below)
     * Provides the Interface 1 ROM, Multiface 128 ROM and DivMMC ROM
 * External ROM support
     * ZX Interface 1 edge connector supports other ROM based hardware
-    * eg. Retroleum diagnostic cart, real ZX Interface 2 hardware etc.
+    * eg. Retroleum diagnostic card, real ZX Interface 2 hardware etc.
 
 The ZX Interface 1 v2 ROM is included in compiled firmware, and as noted on other
-sources "Amstrad have kindly given their permission for the redistribution 
+sources "Amstrad have kindly given their permission for the redistribution
 of their copyrighted material but retain that copyright"
 
 This is a project that I started with a view of wanting a DivMMC clone that works with a
 ZX Interface 1 attached ZX Max 128 issue 3 - as I own a ZX Microdrive as well as a ZXPicoMD
-(https://github.com/TomDDG/ZXPicoMD) ... and didn't want to keep disconnecting the ZX Interface 1.
+(https://github.com/TomDDG/ZXPicoMD) ... and didn't want to keep disconnecting the ZX
+Interface 1.
 
 It borrows content, ideas and inspriation from,
 
@@ -35,8 +40,32 @@ It borrows content, ideas and inspriation from,
     * Re-used the ZX Interface 1 board layout and schematic
 * https://github.com/ZXSpectrumVault/rom-disassemblies
     * ZX Interface 1 v2 ROM disassembly
+* https://spectrumcomputing.co.uk/pub/sinclair/technical-docs/ZXInterface1_Schematics.gif
+    * ZX Interface 1 schematic
 * https://github.com/TomDDG/ZXPicoIF2Lite
     * ROM menu ideas, and the idea of a soft ROM
+* https://www.thingiverse.com/thing:6500064
+    * Also from TomDDG, a replacement ZX Interface 1 case
+
+## Current Status
+
+First v0.2 PCBs have come back from PCBWay, and are being tested with my 48K Spectrum, and my
+ZX Max 128 Issue 3. Some parts have come from a donor ZX Interface 1 that needed a new old-stock
+LA15-312 ULA from eBay.
+
+Removing the ZX Interface 1 edge connector that goes to the ZX Spectrum was an immense pain - so
+might have to find other ideas. Even with gentle heat, I managed to deform and melt the plastic
+riser block...
+
+At the moment, the firmware looks for fixed ROM filenames on the SD card to load - it'd be nice to
+create a menu like the ZXPicoIF2Lite has.
+
+Otherwise, the soft ROM functions correctly - banking the DivMMC, Multiface 128, Interface 1 or
+Spectrum soft ROMs as required. eg. when testing the external ROM support, the Retroleum card 
+correctly sees the 128K soft ROM loaded on to my 48K Spectrum.
+
+When the DivMMC is enabled, restarting the machine with ".128" will disable the DivMMC and enable
+the Interface 1.
 
 ## Version History
 
@@ -49,9 +78,12 @@ It borrows content, ideas and inspriation from,
 * v0.2 PCB prototype
     * First PCBs made, and tested
         * Microdrive, RS232, ZX Net and nROMCS on external edge connector working
+        * Firmware updated for new pin layout - soft ROM all working
     * Need to revise some footprints
-* v0.1 veroboard prototype
+    * My PCBs had silkscreen that stated v0.1
+* v0.1 veroboard prototype (not uploaded)
     * Teensy 4.1 and level shifter on Veroboard
+        * Soft ROM and Multiface 128 behaviour working
     * Modded ZX Interface 1 to add "IORQ inhibit" (see below)
 
 ### Firmware
@@ -60,11 +92,11 @@ It borrows content, ideas and inspriation from,
     * Rough and ready for v0.2 PCB
     * Address lines now contiguous and in order, on GPIO6
     * Data lines in order, but not contiguous, on GPIO7
-* Earlier prototypes
+* Earlier prototypes (not uploaded)
     * Very rough and ready
     * Address and data organised to suit the veroboard
 
-The file "if1-2_rom.h" contains the Sinclair ZX Interface 1 v2 (if1-2.rom) ROM in 
+The file "if1-2_rom.h" contains the Sinclair ZX Interface 1 v2 (if1-2.rom) ROM in
 hexadecimal format, as embedded in the compiled firmware.
 
 ## Building the firmware
