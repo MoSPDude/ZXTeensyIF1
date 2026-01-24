@@ -32,7 +32,7 @@ ZX Interface 1 attached to my ZX Max 128 - as I own a ZX Microdrive as well as a
 (https://github.com/TomDDG/ZXPicoMD) ... and didn't want to keep disconnecting the ZX
 Interface 1.
 
-It borrows content, ideas and inspriation from,
+It borrows content, ideas and inspiration from,
 
 * https://github.com/SensoriumEmbedded/TeensyROM
     * Initial code and parts for the Teensy 4.1 firmware
@@ -62,11 +62,11 @@ create a menu like the ZXPicoIF2Lite has.
 
 Otherwise, the soft ROM functions correctly - banking the DivMMC, Multiface 128, Interface 1 or
 Spectrum soft ROMs as required. eg. when testing the external ROM support, the Retroleum SMART card
-(https://blog.retroleum.co.uk/smart-card-for-zx-spectrum/) diagostics correctly sees the 128K soft
+(https://blog.retroleum.co.uk/smart-card-for-zx-spectrum/) diagnostics correctly sees the 128K soft
 ROM loaded on to my 48K Spectrum.
 
-When the DivMMC is enabled, restarting the machine with ".128" will disable the DivMMC and enable
-the Interface 1.
+When the DivMMC is enabled, restarting the machine with ".128" (even on 48K Spectrums) will disable
+the DivMMC and enable the Interface 1.
 
 ## Version History
 
@@ -111,7 +111,7 @@ hexadecimal format, as embedded in the compiled firmware.
 
 The PCB folder contains a KiCad 9.0.2 project, based on liveboxandy "ZX Interface 1 Recreated" KiCad
 7 project. Without that project, I'd have had to spend considerable time getting the board outline
-and aligning the sockets etc.
+correct, and aligning the sockets etc.
 
 It uses,
 
@@ -140,7 +140,7 @@ the Interface 1 behaviour.
 
 ### Early prototype
 
-The veroboard prototype used the edge connector A4 (as N/C on 48k spectrums) to signal back into
+The veroboard prototype used the edge connector A4 (as N/C on 48K spectrums) to signal back into
 the ZX Interface 1,
 
 * Disconnect the base of Q11 from the Interface 1 ULA IC1 pin 10
