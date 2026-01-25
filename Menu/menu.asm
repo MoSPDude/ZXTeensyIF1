@@ -5,6 +5,8 @@
 ; x1111110
 ; ------------------------------------------+----------------------------------
 ; set _maxroms+1
+MAX_PAGES   EQU 2
+MAX_ROMS    EQU (29 - 1)
 ; set _right+1 with maximum pages
 ; ------------------------------------------+----------------------------------
     DEVICE ZXSPECTRUM48
@@ -21,8 +23,9 @@ MEM_PAGE    EQU 0x7FFF  ; which page
 MEM_ORG     EQU     0x8000  ; start of code **this is for testing**
 ;MEM_ORG    EQU      0x0000  ; start of code
 MEM_NMI     EQU     MEM_ORG + 0x0038
-MEM_LTBL    EQU     MEM_ORG + 0x800 ; lookup table MEM_LTBLP-512
+MEM_LTBL    EQU     MEM_ORG + 0x1000 ; lookup table MEM_LTBLP-512
 MEM_LTBLP   EQU     MEM_LTBL + 0x200 ; lookup table start
+MEM_OFFSET  EQU     MEM_LTBL - 6;
 ; ------------------------------------------+----------------------------------
 ; initial set-up
 ; ------------------------------------------+----------------------------------
@@ -70,15 +73,17 @@ _menu:
     exx                                     ; norm
 ; ------------------------------------------+----------------------------------
 ; Plot Slider at RHS of Screen
-;   max 126 ROMs can be added which is 6 pages with 21 entries per page
-;   routine can handle 1,2,3,4,5 & 6 pages with predetermined plot
+;   max 255 ROMs can be added which is 13 pages with 21 entries per page
 ; ------------------------------------------+----------------------------------
-    ld de,_sliderData-6                        ; get correct plot
-    ld a,(_right+1)                            ; get max pages
+    ld de,_sliderData - 13  ; get correct plot
+    ld a,(_right+1)         ; get max pages
+    ld b,a
     add a,a                                    ; x2
     ld c,a                                    ; x2 into c
     add a,a                                 ; x4
     add a,c                                 ; x6
+    add a,a                                 ; x12
+    add a,b                                 ; x13
     add a,e
     ld e,a
     adc a,d
@@ -91,7 +96,7 @@ _menu:
 _pltSliderLoop:
     ld a,(de)                                ;  get number of lines to plot
     or a
-    jr z,_menuTxt                            ; if zero all done
+    jp z,_menuTxt                            ; if zero all done
     inc de
     ld b,a
     ex af,af'                                ; alta
@@ -121,12 +126,19 @@ _sliderChar:
 ; pre-defined table to plot the slider
 ; ------------------------------------------+----------------------------------
 _sliderData:
-    defb 160,  0,  0,  0,  0,  0            ; 1 page
-    defb  80, 80,  0,  0,  0,  0            ; 2 pages
-    defb  53, 54, 53,  0,  0,  0            ; 3 pages
-    defb  40, 40, 40, 40,  0,  0            ; 4 pages
-    defb  32, 32, 32, 32, 32,  0            ; 5 pages
-    defb  27, 27, 26, 26, 27, 27            ; 6 pages
+    defb 160,  0,  0,  0,  0,  0, 0, 0, 0, 0, 0, 0, 0            ; 1 page
+    defb  80, 80,  0,  0,  0,  0, 0, 0, 0, 0, 0, 0, 0            ; 2 pages
+    defb  53, 54, 53,  0,  0,  0, 0, 0, 0, 0, 0, 0, 0            ; 3 pages
+    defb  40, 40, 40, 40,  0,  0, 0, 0, 0, 0, 0, 0, 0            ; 4 pages
+    defb  32, 32, 32, 32, 32,  0, 0, 0, 0, 0, 0, 0, 0            ; 5 pages
+    defb  27, 27, 26, 26, 27, 27, 0, 0, 0, 0, 0, 0, 0            ; 6 pages
+    defb  22, 23, 23, 23, 23, 23, 23, 0, 0, 0, 0, 0, 0
+    defb  20, 20, 20, 20, 20, 20, 20, 20, 0, 0, 0, 0, 0
+    defb  17, 18, 18, 18, 18, 18, 18, 18, 17, 0, 0, 0, 0
+    defb  16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 0, 0, 0
+    defb  14, 14, 14, 15, 15, 15, 15, 15, 15, 14, 14, 0, 0
+    defb  13, 13, 13, 13, 14, 14, 14, 14, 13, 13, 13, 13, 0
+    defb  12, 12, 12, 12, 13, 13, 13, 13, 12, 12, 12, 12, 12
 ; ------------------------------------------+----------------------------------
 ; Show all the text (variable width)
 ; ------------------------------------------+----------------------------------
@@ -225,8 +237,8 @@ _clickLoop:
 _down100:
     ld a,(MEM_ROM)
 _maxroms:
-    cp 10                                    ; pre-loaded max roms (-1 as 0 to max)
-    jr z,_menu300                            ; at maximum? if so do nothing
+    cp MAX_ROMS     ; pre-loaded max roms (-1 as 0 to max)
+    jr z,_menu300   ; at maximum? if so do nothing
     inc a
     ld (MEM_ROM),a
     call _clrbar                            ; clear coloured line
@@ -265,8 +277,8 @@ _up100:
 ;   _right+1 is max pages
 ; ------------------------------------------+----------------------------------
 _right:
-    ld b,1                                    ; pre-loaded max pages
-    ld a,(MEM_PAGE)                            ; current page
+    ld b, MAX_PAGES ; pre-loaded max pages
+    ld a,(MEM_PAGE) ; current page
     cp b
     jr nz,_right100                         ; if not zero then page down
     call _clrbar                            ; clear coloured line
@@ -532,12 +544,12 @@ _menuHeader:
 ; Left Aligned Sinclair ZX Spectrum Font - used for variable width font routine
 ;   first 6 are icons, then space (32) to copyright (127) (128+4 *8=1056b)
 ; ------------------------------------------+----------------------------------
-    DEFB    127,198,245,238,221,196,127,  0 ; 26 - z80_l
-    DEFB    252,102, 86,214, 86,206,252,  0 ; 27 - z80_r
+    DEFB    128,128,128,128,128,128,128,128 ; 26 - left hand side
+    DEFB    128,130,132,132,136,168,144,128 ; 27 - checkmark
     DEFB    127,197,245,238,221,197,127,  0 ; 28 - zxc_l
     DEFB    252,102, 94,222, 94,102,252,  0 ; 29 - zxc_r
-    DEFB    144,128,144,138,144,128,144,128    ; 30 - left hand side
-    DEFB    144,128,144,138,128,128,128,128 ; 31 - left hand side last one
+    DEFB    144,128,144,138,144,128,144,128 ; 30 - left hand side file
+    DEFB    144,128,144,138,128,128,128,128 ; 31 - left hand side last file
 _shiftedFontData:
     DEFB      0,  0,  0,  0,  0,  0,  0,  0    ; 32 - space
     DEFB      0, 64, 64, 64, 64,  0, 64,  0
@@ -708,6 +720,9 @@ _compressedBlank:
   defb 0x00,0x06,0x02,0x16,0x34,0x25,0x28,0x07,0x78,0x9c,0x00,0xff,0x1f,0xff,0x9f,0xff
   defb 0xff,0xff,0xff,0xff,0xff,0x9a,0xff,0x9a,0x00,0x03,0x06,0x01,0x03,0x03,0x80
 _codeend:
+    org MEM_OFFSET
+    jp (_maxroms + 1)
+    jp (_right + 1)
 ;
 ; ------------------------------------------+----------------------------------
 ; Byte Rotation Lookup Table
@@ -940,8 +955,7 @@ _codeend:
     defb 0xc0,0xc2,0xc4,0xc6,0xc8,0xca,0xcc,0xce,0xd0,0xd2,0xd4,0xd6,0xd8,0xda,0xdc,0xde
     defb 0xe0,0xe2,0xe4,0xe6,0xe8,0xea,0xec,0xee,0xf0,0xf2,0xf4,0xf6,0xf8,0xfa,0xfc,0xfe
 ; ------------------------------------------+----------------------------------
-; ROM text entry data compressed
-; each entry is maximum 36b, 21*36=756b per page, 126*36=4536b total
+; ROM text entry data
 ; ------------------------------------------+----------------------------------
 _textData:
     ;defb 0x38,0x1e,0x54,0x75,0x72,0x6e,0x20,0x5a,0x58,0x20,0x50,0x69,0x63,0x6f,0x5a,0x58
@@ -961,6 +975,15 @@ _textData:
 ; 218bytes
 ;            12345678901234567890123456789012
     defb 30,"Turn ZX PicoZXCx Unit Off",10
+    defb 26,"ROM Tester",9,28,29,10
+    defb 27,"Looking Glass ROM",10
+    defb 26,"Retroleum DiagROM v1.59",10
+    defb 27,"ZX Spectrum Diagnostics v0.37",9,28,29,10
+    defb 26,"ZX Spectrum Test Cartridge",10
+    defb 30,"128k RAM Tester",10
+    defb 30,"Where Time Stood Still (128k)",9,26,27,10
+    defb 30,"Automania",9,26,27,10
+    defb 30,"Chase H.Q. (128k)",9,26,27,10
     defb 30,"ROM Tester",9,28,29,10
     defb 30,"Looking Glass ROM",10
     defb 30,"Retroleum DiagROM v1.59",10
@@ -970,8 +993,22 @@ _textData:
     defb 30,"Where Time Stood Still (128k)",9,26,27,10
     defb 30,"Automania",9,26,27,10
     defb 30,"Chase H.Q. (128k)",9,26,27,10
+    defb 30,"ROM Tester",9,28,29,10
+    defb 30,"Looking Glass ROM",0
+    defb 30,"Retroleum DiagROM v1.59",10
+    defb 30,"ZX Spectrum Diagnostics v0.37",9,28,29,10
+    defb 30,"ZX Spectrum Test Cartridge",10
+    defb 30,"128k RAM Tester",10
+    defb 30,"Where Time Stood Still (128k)",9,26,27,10
+    defb 30,"Automania",9,26,27,10
+    defb 30,"Chase H.Q. (128k)",9,26,27,10
     defb 31,"Original 48k ROM",0
-; to make this ROM 8192bytes long
-buffer equ $
+
+    DISPLAY "codeEnd address is:",/A,_codeend
+    DISPLAY "MEM_OFFSET address is:",/A,MEM_OFFSET
+    DISPLAY "MEM_LTBL address is:",/A,MEM_LTBL
     DISPLAY "textData address is:",/A,_textData
+    DISPLAY "maxRoms address is:",/A,(_maxroms+1)
+    DISPLAY "maxPages address is:",/A,(_right+1)
     savetap "menu.tap", MEM_ORG
+    savebin "menu.bin", MEM_ORG, $2000
