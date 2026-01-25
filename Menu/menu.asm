@@ -20,8 +20,8 @@ MEM_POS     EQU 0x7FFD  ; cursor row
 MEM_ROM     EQU 0x7FFE  ; selected ROM
 MEM_PAGE    EQU 0x7FFF  ; which page
 ; ------------------------------------------+----------------------------------
-MEM_ORG     EQU     0x8000  ; start of code **this is for testing**
-;MEM_ORG    EQU      0x0000  ; start of code
+;MEM_ORG     EQU     0x8000  ; start of code **this is for testing**
+MEM_ORG     EQU      0x0000  ; start of code
 MEM_NMI     EQU     MEM_ORG + 0x0038
 MEM_LTBL    EQU     MEM_ORG + 0x1000 ; lookup table MEM_LTBLP-512
 MEM_LTBLP   EQU     MEM_LTBL + 0x200 ; lookup table start
@@ -327,27 +327,15 @@ _left100:
     sub 21                                    ; one page up but same position
     jr _right200
 ; ------------------------------------------+----------------------------------
-; All done so access correct memory location to trigger ROM Switch
-;   16256+ - so any address access 16256+ activates the selection
-;   16256 = ROM 0
-;   16320 = ROM 64
+; Write the menu index to the Teensy at port 0xeb, then redraw any changes
 ; ------------------------------------------+----------------------------------
 _romSelected:
     ld a,(MEM_ROM)
-;    push af
-;    ld hl,_compressedOff                    ; Off Screen
-;    or a
-;    jr z,_romSelected100
-;    ld hl,_compressedROMSwitch                ; ROM Switch Screen
-;_romSelected100:
-;    call _decompressScr
-;    pop af
-;    add a,0x80
-;    ld h,0x3f
-;    ld l,a                                    ; hl now correct
-_romSelectedLoop:
-;    ld a,(hl)                                 ; read address location to activate
-    jr _romSelectedLoop
+    out (0xeb),a
+    nop
+    nop
+    nop
+    jp _menu
 ; ------------------------------------------+----------------------------------
 ; Find correct MEM_ROMTXT start depending on page and load into MEM_TXT
 ; ------------------------------------------+----------------------------------
@@ -539,7 +527,7 @@ _newRotation:
     ld c,a                                    ; put new rotation into c
     jr _pltTextLoop
 _menuHeader:
-    defb "ZXTeensyIF1 v0.1",0
+    defb "ZXTeensyIF1",0
 ; ------------------------------------------+----------------------------------
 ; Left Aligned Sinclair ZX Spectrum Font - used for variable width font routine
 ;   first 6 are icons, then space (32) to copyright (127) (128+4 *8=1056b)
@@ -1010,5 +998,5 @@ _textData:
     DISPLAY "textData address is:",/A,_textData
     DISPLAY "maxRoms address is:",/A,(_maxroms+1)
     DISPLAY "maxPages address is:",/A,(_right+1)
-    savetap "menu.tap", MEM_ORG
-    savebin "menu.bin", MEM_ORG, $2000
+    ;savetap "menu.tap", MEM_ORG
+    savebin "menu.rom", MEM_ORG, $2000
