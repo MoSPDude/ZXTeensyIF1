@@ -103,9 +103,14 @@ hexadecimal format, as embedded in the compiled firmware.
 ## Building the firmware
 
 * Setup the Arduino IDE 2.3.6 for the Teensy 4.1
+    * "Teensy (for Arduino IDE 2.0.4 or later)" v1.59.0
 * Modify "%LOCALAPPDATA%\Arduino15\packages\teensy\hardware\avr\1.59.0\libraries\SdFat\src\SdFatConfig.h",
   to define SPI_DRIVER_SELECT as 2
-* Open and build ZXTeensyIF1.ino
+* Open ZXTeensyIF1\ZXTeensyIF1.ino
+* Set Board to Teensy 4.1
+* Set Optimize to "Fastest with LTO"
+* Set CPU Speed to "816 MHz (overclock)"
+* Verify and Upload
 
 ## Loading the KiCad project
 
