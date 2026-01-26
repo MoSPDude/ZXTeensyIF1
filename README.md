@@ -22,6 +22,7 @@ A Teensy 4.1 powered DivMMC and ZX Interface 1 clone,
 * External ROM support
     * ZX Interface 1 edge connector supports other ROM based hardware
     * eg. Retroleum SMART card, real ZX Interface 2 hardware etc.
+* Menu ROM derived from TomDDGs ZXPicoIF2Lite ROMExplorer
 
 The ZX Interface 1 v2 ROM is included in compiled firmware, and as noted on other
 sources "Amstrad have kindly given their permission for the redistribution
@@ -43,7 +44,7 @@ It borrows content, ideas and inspiration from,
 * https://spectrumcomputing.co.uk/pub/sinclair/technical-docs/ZXInterface1_Schematics.gif
     * ZX Interface 1 schematic
 * https://github.com/TomDDG/ZXPicoIF2Lite
-    * ROM menu ideas, and the idea of a soft ROM
+    * ROM menu source code, and the idea of a soft ROM
 * https://www.thingiverse.com/thing:6500064
     * Also from TomDDG, a replacement ZX Interface 1 case
 
@@ -56,9 +57,6 @@ LA15-312 ULA from eBay.
 Removing the ZX Interface 1 edge connector that goes to the ZX Spectrum was an immense pain - so
 might have to find other ideas. Even with gentle heat, I managed to deform and melt the plastic
 riser block...
-
-At the moment, the firmware looks for fixed ROM filenames on the SD card to load - it'd be nice to
-create a menu like the ZXPicoIF2Lite has.
 
 Otherwise, the soft ROM functions correctly - banking the DivMMC, Multiface 128, Interface 1 or
 Spectrum soft ROMs as required. eg. when testing the external ROM support, the Retroleum SMART card
@@ -89,6 +87,10 @@ the DivMMC and enable the Interface 1.
 
 ### Firmware
 
+* Added menu ROM derived from TomDDGs ZXPicoIF2Lite ROMExplorer
+    * https://github.com/TomDDG/ZXPicoIF2Lite/blob/main/ROMExplorerSource/romexplorer.asm
+    * Updated for maximum 255 lines, and uncompressed text from the Teensy
+    * The Teensy writes the menu structure directly into the ROM area
 * First upload
     * Rough and ready for v0.2 PCB
     * Address lines now contiguous and in order, on GPIO6
