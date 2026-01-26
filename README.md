@@ -66,6 +66,22 @@ ROM loaded on to my 48K Spectrum.
 When the DivMMC is enabled, restarting the machine with ".128" (even on 48K Spectrums) will disable
 the DivMMC and enable the Interface 1.
 
+## SD Card Setup
+
+* ROOT/
+    * MF128.ROM (MD5SUM: ca8c9d97c8aedd718d1081fad2e3af8d)
+    * ESXMMC.BIN (MD5SUM: fa50b0258e52b8d72bd83cc2fb6e1013)
+    * MENU.ROM
+    * ROMS/
+        * (ZX Spectrum ROMs ending ".rom")
+        * (Interface 2 and ZXC2 ROMs ending ".bin")
+    * (Other ESXDOS files)
+    * ZXTEENSY.CFG (Saved configuration from Menu ROM)
+
+Hold the button on Reset to load the menu ROM - here, you can toggle the DivMMC, Interface 1 and
+Multiface 128 on and off - then selecting a ROM to load will save the preference and load that
+ROM next time.
+
 ## Version History
 
 ### Hardware
@@ -89,8 +105,8 @@ the DivMMC and enable the Interface 1.
 
 * Added menu ROM derived from TomDDGs ZXPicoIF2Lite ROMExplorer
     * https://github.com/TomDDG/ZXPicoIF2Lite/blob/main/ROMExplorerSource/romexplorer.asm
-    * Updated for maximum 255 lines, and uncompressed text from the Teensy
-    * The Teensy writes the menu structure directly into the ROM area
+    * Updated for maximum 255 lines, and menu text from the Teensy
+    * The Teensy writes the menu structure directly into the upper half of the ROM
 * First upload
     * Rough and ready for v0.2 PCB
     * Address lines now contiguous and in order, on GPIO6
