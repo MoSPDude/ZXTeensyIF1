@@ -18,9 +18,9 @@
 #define FAST_SD_CLK_FREQ 24000000ULL
 #define FAST_SD_TICK_CYCCNT ((TEENSY_CLK_FREQ / FAST_SD_CLK_FREQ) / 2)
 
-// Allow ~225ms for reset to debounce (at 816MHz, RESET_DELAY_CNT = 0x304D4D)
-#define RESET_DELAY_MS 225
-#define RESET_DELAY_CNT ((RESET_DELAY_MS * TEENSY_CLK_FREQ) / (SD_TICK_CYCCNT * 1000))
+// Allow ~225ms for reset/NMI to debounce (at 816MHz, TRIGGER_DELAY_CNT = 0x304D4D)
+#define TRIGGER_DELAY_MS 225
+#define TRIGGER_DELAY_CNT ((TRIGGER_DELAY_MS * TEENSY_CLK_FREQ) / (SD_TICK_CYCCNT * 1000))
 
 extern "C" uint32_t set_arm_clock(uint32_t frequency);
 
@@ -32,11 +32,11 @@ typedef enum {
 } run_state_t;
 
 typedef enum {
-    RESET_ACTIVE,
-    RESET_HOLD,
-    RESET_DELAY,
-    RESET_READY
-} reset_state_t;
+    TRIGGER_ACTIVE,
+    TRIGGER_HOLD,
+    TRIGGER_DELAY,
+    TRIGGER_READY
+} trigger_state_t;
 
 typedef enum {
     SD_SPI_WRITE,
@@ -95,12 +95,15 @@ const uint8_t INPUT_PINS[] = {
     BUTTON_PIN, NC_IN_A_PIN, NC_IN_B_PIN, NC_IN_C_PIN
 };
 
+const uint32_t RD_PIN_BITMASK = CORE_PIN1_BITMASK;
+const uint32_t M1_PIN_BITMASK = CORE_PIN4_BITMASK;
 const uint32_t IOREQ_PIN_BITMASK = CORE_PIN25_BITMASK;
 const uint32_t MREQ_PIN_BITMASK = CORE_PIN24_BITMASK;
 const uint32_t A15_PIN_BITMASK = CORE_PIN27_BITMASK;
 const uint32_t A14_PIN_BITMASK = CORE_PIN26_BITMASK;
 const uint32_t A13_PIN_BITMASK = CORE_PIN39_BITMASK;
 const uint32_t A12_PIN_BITMASK = CORE_PIN38_BITMASK;
+const uint32_t ROMCS_IN_PIN_BITMASK = CORE_PIN3_BITMASK;
 
 const uint8_t DATA_PINS[] = { 6, 7, 8, 9, 10, 11, 12, 32 };
 
@@ -122,10 +125,10 @@ const uint8_t SD_IN_PIN = 43;
 
 // Mask for A15, A14, ^RD, and ^MREQ
 const uint32_t ROM_READ_MASK = (A15_PIN_BITMASK | A14_PIN_BITMASK |
-    CORE_PIN1_BITMASK | MREQ_PIN_BITMASK);
+    RD_PIN_BITMASK | MREQ_PIN_BITMASK);
 
 // Mask for ^RD and ^IOREQ
-const uint32_t IO_READ_MASK = (IOREQ_PIN_BITMASK | CORE_PIN1_BITMASK);
+const uint32_t IO_READ_MASK = (IOREQ_PIN_BITMASK | RD_PIN_BITMASK);
 
 // Mask for A15, A14, A13 and ^MREQ
 const uint32_t DIVMMC_RAM_WRITE_MASK = (A15_PIN_BITMASK | A14_PIN_BITMASK |
@@ -136,11 +139,15 @@ const uint8_t NUM_SD_RETRIES = 3;
 
 // Global state
 volatile bool sd_card_present = false;
-volatile reset_state_t resetState = RESET_ACTIVE;
-volatile uint32_t resetExitCount = RESET_DELAY_CNT;
 volatile run_state_t globalState = STATE_RESET;
 volatile bool busRdActive = false;
 volatile bool nmiPending = false;
+
+// Reset and NMI debouncing
+volatile trigger_state_t resetTrigState = TRIGGER_ACTIVE;
+volatile uint32_t resetTrigExitCount = TRIGGER_DELAY_CNT;
+volatile trigger_state_t buttonTrigState = TRIGGER_READY;
+volatile uint32_t buttonTrigExitCount = 0;
 
 // ROM banking
 const uint16_t ROM_PAGE_SIZE = 0x4000;
@@ -228,9 +235,9 @@ volatile uint8_t debugDataBuffer[DEBUG_BUFFER_SIZE];
 volatile uint16_t debugWritePtr = 0;
 volatile uint16_t debugReadPtr = 0;
 
-inline __attribute__((always_inline)) void writeDebugData(uint8_t data_)
+inline __attribute__((always_inline)) void writeDebugData(uint8_t data)
 {
-    debugDataBuffer[debugWritePtr] = data_;
+    debugDataBuffer[debugWritePtr] = data;
     debugWritePtr = (debugWritePtr + 1) & (DEBUG_BUFFER_SIZE - 1);
     if (!hasDebugData())
     {
@@ -240,15 +247,15 @@ inline __attribute__((always_inline)) void writeDebugData(uint8_t data_)
 
 inline __attribute__((always_inline)) uint8_t readDebugData()
 {
-    uint8_t data_;
+    uint8_t data;
     if (hasDebugData())
     {
-        data_ = debugDataBuffer[debugReadPtr];
+        data = debugDataBuffer[debugReadPtr];
         debugReadPtr = (debugReadPtr + 1) & (DEBUG_BUFFER_SIZE - 1);
     } else {
-        data_ = 0xff;
+        data = 0xff;
     }
-    return data_;
+    return data;
 }
 
 inline __attribute__((always_inline)) bool hasDebugData()
@@ -258,17 +265,17 @@ inline __attribute__((always_inline)) bool hasDebugData()
 
 #endif
 
-inline __attribute__((always_inline)) void writeDivMmcReadData(uint8_t data_)
+inline __attribute__((always_inline)) void writeDivMmcReadData(uint8_t data)
 {
-    sdSpiDataBuffer[SD_BUFFER_READ][sdSpiReadDataWritePtr] = data_;
+    sdSpiDataBuffer[SD_BUFFER_READ][sdSpiReadDataWritePtr] = data;
     sdSpiReadDataWritePtr = (sdSpiReadDataWritePtr + 1) & (SPI_BUFFER_SIZE - 1);
 }
 
 inline __attribute__((always_inline)) uint8_t readDivMmcReadData()
 {
-    uint8_t data_ = sdSpiDataBuffer[SD_BUFFER_READ][sdSpiReadDataReadPtr];
+    uint8_t data = sdSpiDataBuffer[SD_BUFFER_READ][sdSpiReadDataReadPtr];
     sdSpiReadDataReadPtr = (sdSpiReadDataReadPtr + 1) & (SPI_BUFFER_SIZE - 1);
-    return data_;
+    return data;
 }
 
 inline __attribute__((always_inline)) bool hasDivMmcReadData()
@@ -276,20 +283,20 @@ inline __attribute__((always_inline)) bool hasDivMmcReadData()
     return (sdSpiReadDataReadPtr != sdSpiReadDataWritePtr);
 }
 
-inline __attribute__((always_inline)) void writeDivMmcWriteData(sd_spi_action_t action_, uint8_t data_)
+inline __attribute__((always_inline)) void writeDivMmcWriteData(sd_spi_action_t spiAction, uint8_t data)
 {
-    sdSpiDataBuffer[SD_BUFFER_WRITE][sdSpiWriteDataWritePtr] = data_;
-    sdSpiDataBuffer[SD_BUFFER_FLAGS][sdSpiWriteDataWritePtr] = (uint8_t)action_;
+    sdSpiDataBuffer[SD_BUFFER_WRITE][sdSpiWriteDataWritePtr] = data;
+    sdSpiDataBuffer[SD_BUFFER_FLAGS][sdSpiWriteDataWritePtr] = (uint8_t)spiAction;
     sdSpiWriteDataWritePtr = (sdSpiWriteDataWritePtr + 1) & (SPI_BUFFER_SIZE - 1);
 }
 
 inline __attribute__((always_inline)) sd_spi_action_t readDivMmcWriteData()
 {
-    sd_spi_action_t action_ = (sd_spi_action_t)sdSpiDataBuffer[SD_BUFFER_FLAGS][sdSpiWriteDataReadPtr];
-    sdSpiRxNotTx = (action_ == SD_SPI_READ);
+    sd_spi_action_t spiAction = (sd_spi_action_t)sdSpiDataBuffer[SD_BUFFER_FLAGS][sdSpiWriteDataReadPtr];
+    sdSpiRxNotTx = (spiAction == SD_SPI_READ);
     sdSpiTxData = sdSpiDataBuffer[SD_BUFFER_WRITE][sdSpiWriteDataReadPtr];
     sdSpiWriteDataReadPtr = (sdSpiWriteDataReadPtr + 1) & (SPI_BUFFER_SIZE - 1);
-    return action_;
+    return spiAction;
 }
 
 inline __attribute__((always_inline)) bool hasDivMmcWriteData()
@@ -297,22 +304,22 @@ inline __attribute__((always_inline)) bool hasDivMmcWriteData()
     return (sdSpiWriteDataReadPtr != sdSpiWriteDataWritePtr);
 }
 
-inline __attribute__((always_inline)) void writeData(uint8_t data_)
+inline __attribute__((always_inline)) void writeData(uint8_t data)
 {
     // Output D[7:0] to GPIO2/7
-    uint32_t regbits_ = ((data_ & 0x07) | ((data_ & 0x38) << 7) | ((data_ & 0xc0) << 10));
+    uint32_t gpioSeven = ((data & 0x07) | ((data & 0x38) << 7) | ((data & 0xc0) << 10));
     CORE_PIN34_PORTSET = DATA_OUT_PIN_BITMASK;
     CORE_PIN10_DDRREG |= GPIO7_DATA_MASK;
-    CORE_PIN10_PORTSET = regbits_ & GPIO7_DATA_MASK;
-    CORE_PIN10_PORTCLEAR = (~regbits_) & GPIO7_DATA_MASK;
+    CORE_PIN10_PORTSET = gpioSeven & GPIO7_DATA_MASK;
+    CORE_PIN10_PORTCLEAR = (~gpioSeven) & GPIO7_DATA_MASK;
 }
 
 inline __attribute__((always_inline)) uint8_t readData()
 {
     // Decode D[7:0] from GPIO2/7
-    uint32_t regbits_ = (*(volatile uint32_t *)IMXRT_GPIO7_ADDRESS);
-    uint32_t tmp_ = ((regbits_ & 0x07) | ((regbits_ & 0x1c00) >> 7) | ((regbits_ & 0x30000) >> 10));
-    return tmp_;
+    uint32_t gpioSeven = (*(volatile uint32_t *)IMXRT_GPIO7_ADDRESS);
+    uint32_t data = ((gpioSeven & 0x07) | ((gpioSeven & 0x1c00) >> 7) | ((gpioSeven & 0x30000) >> 10));
+    return data;
 }
 
 inline __attribute__((always_inline)) void disableData()
@@ -322,22 +329,22 @@ inline __attribute__((always_inline)) void disableData()
     CORE_PIN34_PORTCLEAR = DATA_OUT_PIN_BITMASK;
 }
 
-inline __attribute__((always_inline)) uint16_t decodeAddress(uint32_t gpio_6_)
+inline __attribute__((always_inline)) uint16_t decodeAddress(uint32_t gpioSix)
 {
     // Decode A[15:0] from GPIO1/6
-    return (gpio_6_ >> 16);
+    return (gpioSix >> 16);
 }
 
-inline __attribute__((always_inline)) uint16_t decodeRamAddress(uint32_t gpio_6_)
+inline __attribute__((always_inline)) uint16_t decodeRamAddress(uint32_t gpioSix)
 {
     // Decode A[12:0] from GPIO1/6
-    return ((gpio_6_ & 0x1fff0000) >> 16);
+    return ((gpioSix & 0x1fff0000) >> 16);
 }
 
-inline __attribute__((always_inline)) uint8_t decodeLowAddress(uint32_t gpio_6_)
+inline __attribute__((always_inline)) uint8_t decodeLowAddress(uint32_t gpioSix)
 {
     // Decode A[7:0] from GPIO1/6
-    return ((gpio_6_ & 0x00ff0000) >> 16);
+    return ((gpioSix & 0x00ff0000) >> 16);
 }
 
 inline __attribute__((always_inline)) void performSdSpi()
@@ -450,6 +457,14 @@ inline __attribute__((always_inline)) void performOnSdSpiClock()
     }
 }
 
+inline __attribute__((always_inline)) void sdSpiFlush()
+{
+    while ((sdSpiTick != 0) || hasDivMmcWriteData())
+    {
+        performOnSdSpiClock();
+    }
+}
+
 inline __attribute__((always_inline)) void performOnClock()
 {
     uint32_t cycle_ = ARM_DWT_CYCCNT;
@@ -458,32 +473,59 @@ inline __attribute__((always_inline)) void performOnClock()
         cycleCount = cycle_;
 
         // Perform SD SPI accesses on clock edges
-        if (((globalState & 0x02) != 0) ||
-            (sdSpiTick != 0) || hasDivMmcWriteData())
+        if ((sdSpiTick != 0) || hasDivMmcWriteData())
         {
             performSdSpi();
         }
 
         // Debounce the reset detection
-        switch (resetState)
+        switch (resetTrigState)
         {
-            case RESET_HOLD :
+            case TRIGGER_HOLD :
                 if (digitalReadFast(RESET_IN_PIN))
                 {
-                    resetState = RESET_DELAY;
-                    resetExitCount = RESET_DELAY_CNT;
+                    resetTrigState = TRIGGER_DELAY;
+                    resetTrigExitCount = TRIGGER_DELAY_CNT;
                 }
                 break;
-            case RESET_DELAY :
+            case TRIGGER_DELAY :
                 if (digitalReadFast(RESET_IN_PIN))
                 {
-                    --resetExitCount;
-                    if (resetExitCount == 0)
+                    --resetTrigExitCount;
+                    if (resetTrigExitCount == 0)
                     {
-                        resetState = RESET_READY;
+                        resetTrigState = TRIGGER_READY;
                     }
                 } else {
-                    resetExitCount = RESET_DELAY_CNT;
+                    resetTrigExitCount = TRIGGER_DELAY_CNT;
+                }
+                break;
+            default :
+                break;
+        }
+        
+        // Debounce the NMI detection
+        switch (buttonTrigState)
+        {
+            case TRIGGER_ACTIVE :
+                
+            case TRIGGER_HOLD :
+                if (digitalReadFast(BUTTON_PIN))
+                {
+                    buttonTrigState = TRIGGER_DELAY;
+                    buttonTrigExitCount = TRIGGER_DELAY_CNT;
+                }
+                break;
+            case TRIGGER_DELAY :
+                if (digitalReadFast(BUTTON_PIN))
+                {
+                    --buttonTrigExitCount;
+                    if (buttonTrigExitCount == 0)
+                    {
+                        buttonTrigState = TRIGGER_READY;
+                    }
+                } else {
+                    buttonTrigExitCount = TRIGGER_DELAY_CNT;
                 }
                 break;
             default :
@@ -502,24 +544,29 @@ inline __attribute__((always_inline)) void performOnClock()
     }
 }
 
+inline __attribute__((always_inline)) bool isGlobalStateReset()
+{
+    return ((globalState & 0x02) != 0);
+}
+
 void setState(run_state_t state_)
 {
     switch (state_)
     {
         case STATE_RESET :
         case STATE_RESET_ROM_CHANGE :
-            resetState = RESET_ACTIVE;
+            resetTrigState = TRIGGER_ACTIVE;
             digitalWriteFast(DATA_DIS_PIN, 1);
             digitalWriteFast(RESET_PIN, 1);
             disableData();
             break;
         case STATE_ROM_ENABLE :
-            resetState = RESET_HOLD;
+            resetTrigState = TRIGGER_HOLD;
             digitalWriteFast(DATA_DIS_PIN, 0);
             digitalWriteFast(RESET_PIN, 0);
             break;
         case STATE_ROM_DISABLE :
-            resetState = RESET_HOLD;
+            resetTrigState = TRIGGER_HOLD;
             digitalWriteFast(DATA_DIS_PIN, 1);
             digitalWriteFast(RESET_PIN, 0);
             digitalWriteFast(ROMCS_PIN, 0);
@@ -543,7 +590,7 @@ inline __attribute__((always_inline)) void divMmcDisableInterfaceOne()
     }
 }
 
-inline __attribute__((always_inline)) void updateRomIndex(bool page_now_)
+inline __attribute__((always_inline)) void updateRomIndex(bool pageNow)
 {
     // Determine which ROM is currently paged
     if (menuPaged)
@@ -609,7 +656,7 @@ inline __attribute__((always_inline)) void updateRomIndex(bool page_now_)
         if (!romEnabled)
         {
             // Page in the soft ROM
-            if (page_now_)
+            if (pageNow)
             {
                 digitalWriteFast(ROMCS_PIN, 1);
                 romEnabled = true;
@@ -620,7 +667,7 @@ inline __attribute__((always_inline)) void updateRomIndex(bool page_now_)
     } else if (romEnabled)
     {
         // Fall back to internal ROM
-        if (page_now_)
+        if (pageNow)
         {
             digitalWriteFast(ROMCS_PIN, 0);
             romEnabled = false;
@@ -628,7 +675,7 @@ inline __attribute__((always_inline)) void updateRomIndex(bool page_now_)
             romCsDisable = true;
         }
     }
-    if (page_now_)
+    if (pageNow)
     {
         divMmcDisableInterfaceOne();
     }
@@ -691,11 +738,11 @@ void setup()
 #endif
 
     // Setup RD, WR, ROMCS, reset and button ISRs
-    attachInterrupt(digitalPinToInterrupt(RD_PIN), isr_rd_event, CHANGE);
-    attachInterrupt(digitalPinToInterrupt(WR_PIN), isr_wr_event, FALLING);
-    attachInterrupt(digitalPinToInterrupt(ROMCS_IN_PIN), isr_rd_event, CHANGE);
-    attachInterrupt(digitalPinToInterrupt(RESET_IN_PIN), isr_reset, FALLING);
-    attachInterrupt(digitalPinToInterrupt(BUTTON_PIN), isr_button, FALLING);
+    attachInterrupt(digitalPinToInterrupt(RD_PIN), isrRdEvent, CHANGE);
+    attachInterrupt(digitalPinToInterrupt(WR_PIN), isrWrEvent, FALLING);
+    attachInterrupt(digitalPinToInterrupt(ROMCS_IN_PIN), isrRdEvent, CHANGE);
+    attachInterrupt(digitalPinToInterrupt(RESET_IN_PIN), isrPinReset, FALLING);
+    attachInterrupt(digitalPinToInterrupt(BUTTON_PIN), isrPinButton, FALLING);
 
     // TODO: set HW ints as high priority, otherwise ethernet int timer causes misses
     NVIC_SET_PRIORITY(IRQ_GPIO6789, 16);
@@ -977,10 +1024,7 @@ void handleStateResetRomChange()
     sd_card_present = false;
 
     // Wait for any previous SD accesses to finish
-    while ((sdSpiTick != 0) || hasDivMmcWriteData())
-    {
-        performOnSdSpiClock();
-    }
+    sdSpiFlush();
 
     // Perform a full reset
     handleStateResetEntry();
@@ -989,10 +1033,7 @@ void handleStateResetRomChange()
 void handleStateReset()
 {
     // Wait for any previous SD accesses to finish
-    while ((sdSpiTick != 0) || hasDivMmcWriteData())
-    {
-        performOnSdSpiClock();
-    }
+    sdSpiFlush();
     sdSpiReadDataReadPtr = sdSpiReadDataWritePtr;
     sdSpiWriteDataReadPtr = sdSpiWriteDataWritePtr;
 
@@ -1089,7 +1130,7 @@ void handleStateReset()
 void loop()
 {
     // Detect reset entry, and handle
-    if ((globalState & 0x02) != 0)
+    if (isGlobalStateReset())
     {
         handleStateReset();
     }
@@ -1098,108 +1139,107 @@ void loop()
     performOnClock();
 }
 
-inline __attribute__((always_inline)) void writeRomData(uint16_t address_)
+inline __attribute__((always_inline)) void writeRomData(uint16_t address)
 {
     if (digitalReadFast(ROMCS_IN_PIN))
     {
         // External ROM is active late
         disableData();
         busRdActive = false;
-    } else if ((romSelected == BANK_DIVMMC) && (address_ >= RAM_PAGE_SIZE))
+    } else if ((romSelected == BANK_DIVMMC) && (address >= RAM_PAGE_SIZE))
     {
         // Tranfer DivMMC RAM data to the bus
-        address_ &= (RAM_PAGE_SIZE - 1);
-        uint8_t data_ = divMmcRamPtr[address_];
-        writeData(data_);
+        address &= (RAM_PAGE_SIZE - 1);
+        writeData(divMmcRamPtr[address]);
     } else if (romEnabled)
     {
         // Transfer soft ROM data to the bus
-        writeData(romPtr[address_]);
+        writeData(romPtr[address]);
     }
 }
 
-FASTRUN void isr_reset()
+FASTRUN void isrPinReset()
 {
     // Perform entry to reset when not debouncing reset
-    if ((resetState == RESET_READY) && !digitalReadFast(RESET_IN_PIN))
+    if ((resetTrigState == TRIGGER_READY) && !digitalReadFast(RESET_IN_PIN))
     {
         setState(STATE_RESET);
     }
 }
 
-FASTRUN void isr_button()
+FASTRUN void isrPinButton()
 {
     // Perform NMI when not already handling previous NMI
-    if (((globalState & 0x02) == 0) && !nmiPending &&
-        !mf128ActiveNMI && !divMmcPaged &&
-        !digitalReadFast(BUTTON_PIN))
+    if ((buttonTrigState == TRIGGER_READY) && !digitalReadFast(BUTTON_PIN) &&
+        !isGlobalStateReset() && !nmiPending && !mf128ActiveNMI)
     {
         nmiPending = true;
         digitalWriteFast(NMI_PIN, 1);
+        buttonTrigState = TRIGGER_ACTIVE;
     }
 }
 
-FASTRUN void isr_wr_event()
+FASTRUN void isrWrEvent()
 {
     if (globalState == STATE_ROM_ENABLE)
     {
         // Start of write access
-        uint32_t gpio_6_ = (*(volatile uint32_t *)IMXRT_GPIO6_ADDRESS);
-        if ((gpio_6_ & DIVMMC_RAM_WRITE_MASK) == A13_PIN_BITMASK)
+        uint32_t gpioSix = (*(volatile uint32_t *)IMXRT_GPIO6_ADDRESS);
+        if ((gpioSix & DIVMMC_RAM_WRITE_MASK) == A13_PIN_BITMASK)
         {
             if (romSelected == BANK_MF128)
             {
                 // Perform Multiface 128 RAM write
-                uint8_t data_ = readData();
-                uint16_t address_ = (0x2000 | decodeRamAddress(gpio_6_));
-                romPtr[address_] = data_;
+                uint8_t data = readData();
+                uint16_t address = (0x2000 | decodeRamAddress(gpioSix));
+                romPtr[address] = data;
             } else if ((romSelected == BANK_DIVMMC) &&
                 (!divMmcMapRam || divMmcConMem || !divMmcRamBankThree))
             {
                 // Perform DivMMC RAM write
-                uint8_t data_ = readData();
-                uint16_t address_ = decodeRamAddress(gpio_6_);
-                divMmcRamPtr[address_] = data_;
+                uint8_t data = readData();
+                uint16_t address = decodeRamAddress(gpioSix);
+                divMmcRamPtr[address] = data;
             }
-        } else if ((gpio_6_ & IOREQ_PIN_BITMASK) == 0x00000000)
+        } else if ((gpioSix & IOREQ_PIN_BITMASK) == 0x00000000)
         {
             // Perform I/O write access
-            uint8_t port_ = decodeLowAddress(gpio_6_);
+            uint8_t port_ = decodeLowAddress(gpioSix);
             if ((port_ & 0x02) == 0)
             {
-                if ((gpio_6_ & A15_PIN_BITMASK) == 0x00000000)
+                if ((gpioSix & A15_PIN_BITMASK) == 0x00000000)
                 {
                     // Perform I/O 0x1ffd or 0x7ffd write access
-                    bool is_7f_ = ((gpio_6_ & A14_PIN_BITMASK) != 0x0);
-                    uint8_t data_ = readData();
+                    bool isPort7F = ((gpioSix & A14_PIN_BITMASK) != 0x0);
+                    uint8_t data = readData();
                     if (rom1Present)
                     {
-                        if (!rom23Present || is_7f_)
+                        if (!rom23Present || isPort7F)
                         {
                             // Detect 0x7ffd write access for 128k ROMs
                             if (mf128Present)
                             {
-                                mf128VideoRam = ((data_ & 0x08) != 0);
+                                mf128VideoRam = ((data & 0x08) != 0);
                             }
-                            if ((data_ & 0x20) != 0)
+                            if ((data & 0x20) != 0)
                             {
                                 rom1Present = false;
                             }
-                            rom1Paged = ((data_ & 0x10) != 0);
+                            rom1Paged = ((data & 0x10) != 0);
                         }
-                        if (rom23Present && !is_7f_ &&
-                            ((gpio_6_ & A13_PIN_BITMASK) == 0x0) &&
-                            ((gpio_6_ & A12_PIN_BITMASK) != 0x0))
+                        if (rom23Present && !isPort7F &&
+                            ((gpioSix & A13_PIN_BITMASK) == 0x0) &&
+                            ((gpioSix & A12_PIN_BITMASK) != 0x0))
                         {
                             // Detect 0x1ffd write access for +3 ROMs
-                            rom23Paged = ((data_ & 0x04) != 0);
+                            rom23Paged = ((data & 0x04) != 0);
                         }
                         updateRomIndex(true);
                     }
 
                     // Detect 0x7ffd write access to disable DivMMC
-                    if (is_7f_ && interface1Removed &&
-                        divMmcPaged && ((data_ & 0x10) == 0x0))
+                    if (isPort7F && interface1Removed &&
+                        divMmcPaged && ((data & 0x10) == 0x0))
                     {
                         interface1Removed = false;
                         divMmcRemoval = true;
@@ -1235,8 +1275,8 @@ FASTRUN void isr_wr_event()
                         break;
                     case 0xe3 : // DivMMC control
                         {
-                            uint8_t data_ = readData();
-                            if ((data_ & 0x80) != 0)
+                            uint8_t data = readData();
+                            if ((data & 0x80) != 0)
                             {
                                 divMmcConMem = 1;
                                 divMmcPaged = true;
@@ -1247,18 +1287,18 @@ FASTRUN void isr_wr_event()
                                     divMmcPaged = false;
                                 }
                             }
-                            if ((data_ & 0x40) != 0)
+                            if ((data & 0x40) != 0)
                             {
                                 divMmcMapRam = true;
                             }
-                            if ((data_ & 0x20) != 0)
+                            if ((data & 0x20) != 0)
                             {
-                                divMmcRamPtr = divMmcHighRamArray[(data_ & (RAM_PAGE_COUNT - 1))];
+                                divMmcRamPtr = divMmcHighRamArray[(data & (RAM_PAGE_COUNT - 1))];
                                 divMmcRamBankThree = false;
                             } else {
-                                data_ &= (RAM_PAGE_COUNT - 1);
-                                divMmcRamPtr = divMmcRamArray[data_];
-                                if (data_ == 0x03)
+                                data &= (RAM_PAGE_COUNT - 1);
+                                divMmcRamPtr = divMmcRamArray[data];
+                                if (data == 0x03)
                                 {
                                     divMmcRamBankThree = true;
                                 } else {
@@ -1274,9 +1314,10 @@ FASTRUN void isr_wr_event()
     }
 }
 
-FASTRUN void isr_rd_event()
+FASTRUN void isrRdEvent()
 {
-    if (digitalReadFast(RD_PIN))
+    uint32_t gpioSix = (*(volatile uint32_t *)IMXRT_GPIO6_ADDRESS);
+    if ((gpioSix & RD_PIN_BITMASK) != 0)
     {
         if (busRdActive)
         {
@@ -1303,210 +1344,221 @@ FASTRUN void isr_rd_event()
         }
     } else if (globalState == STATE_ROM_ENABLE)
     {
-        if (!busRdActive)
+        if ((gpioSix & ROM_READ_MASK) == 0x00000000)
         {
-            // Start of read access
-            uint32_t gpio_6_ = (*(volatile uint32_t *)IMXRT_GPIO6_ADDRESS);
-            if ((gpio_6_ & ROM_READ_MASK) == 0x00000000)
+            // Perform ROM read access
+            uint32_t gpioNine = (*(volatile uint32_t *)IMXRT_GPIO9_ADDRESS);
+            if ((gpioNine & ROMCS_IN_PIN_BITMASK) != 0)
             {
-                // Perform ROM read access
-                if (digitalReadFast(ROMCS_IN_PIN))
+                // External ROM is active
+                disableData();
+            } else if (!busRdActive)
+            {
+                busRdActive = true;
+                uint16_t address = decodeAddress(gpioSix);
+
+                // Perform ZXC2 address based paging
+                if (zxC2Present && !zxC2Lock &&
+                    ((address & 0xffc0) == 0x3fc0))
                 {
-                    // External ROM is active
-                    disableData();
-                } else {
-                    busRdActive = true;
-                    uint16_t address_ = decodeAddress(gpio_6_);
+                    zxC2BankPtr = ((address & 0x0f) << 1);
+                    zxC2Paged = ((address & 0x10) == 0);
+                    zxC2Lock = ((address & 0x20) != 0);
+                    updateRomIndex(true);
+                }
 
-                    // Perform ZXC2 address based paging
-                    if (zxC2Present && !zxC2Lock &&
-                        ((address_ & 0xffc0) == 0x3fc0))
-                    {
-                        zxC2BankPtr = ((address_ & 0x0f) << 1);
-                        zxC2Paged = ((address_ & 0x10) == 0);
-                        zxC2Lock = ((address_ & 0x20) != 0);
-                        updateRomIndex(true);
-                    }
-
-                    // Detect M1 cycle for ROM paging
-                    if (digitalReadFast(M1_PIN))
-                    {
-                        // Non-M1 cycle - write ROM data to bus
-                        writeRomData(address_);
-                    } else if (address_ == 0x66)
+                // Detect M1 cycle for ROM paging
+                if ((gpioNine & M1_PIN_BITMASK) != 0)
+                {
+                    // Non-M1 cycle - write ROM data to bus
+                    writeRomData(address);
+                } else if (address == 0x66)
+                {
+                    if (nmiPending)
                     {
                         // Send the NMI to the Multiface 128
-                        if (nmiPending)
+                        if (mf128Present && !mf128ActiveNMI &&
+                            ((romSelected & PAGE_BANK_MF128_IF1) != 0))
                         {
-                            if (mf128Present && !divMmcPaged && !mf128ActiveNMI &&
-                                ((romSelected & PAGE_BANK_MF128_IF1) != 0))
+                            mf128ActiveNMI = true;
+                            mf128Paged = true;
+                            updateRomIndex(true);
+                        }
+
+                        // Write ROM data to bus
+                        writeRomData(address);
+
+                        // Send the NMI to the DivMMC, if not Multiface 128
+                        if (divMmcPresent && !mf128ActiveNMI)
+                        {
+                            divMmcPaged = true;
+                            divMmcAutoMap = true;
+                            updateRomIndex(false);
+                        }
+
+                        // Release NMI on entry to interrupt handler
+                        nmiPending = false;
+                        buttonTrigState = TRIGGER_HOLD;
+                        digitalWriteFast(NMI_PIN, 0);
+                    } else {
+                        // No pending NMI - write ROM data to bus
+                        writeRomData(address);
+                    }
+                } else {
+                    switch (romSelected)
+                    {
+                        case BANK_ROM0 :
+                        case BANK_ROM1 :
+                        case BANK_ROM3 :
+                            // Detect M1 cycle for Multiface 128 paging
+                            if (mf128ActiveNMI && (address == 0x67))
                             {
-                                mf128ActiveNMI = true;
                                 mf128Paged = true;
                                 updateRomIndex(true);
                             }
 
-                            // Write ROM data to bus
-                            writeRomData(address_);
-
-                            // Send the NMI to the DivMMC, if not Multiface 128
-                            if (divMmcPresent && !divMmcPaged && !mf128ActiveNMI &&
-                                ((romSelected & PAGE_BANK_DIVMMC) != 0))
+                            if (divMmcPresent && !mf128Paged)
                             {
-                                divMmcPaged = true;
-                                divMmcAutoMap = true;
-                                updateRomIndex(false);
-                            }
-
-                            // Release NMI on entry to interrupt handler
-                            nmiPending = false;
-                            digitalWriteFast(NMI_PIN, 0);
-                        } else {
-                            // No pending NMI - write ROM data to bus
-                            writeRomData(address_);
-                        }
-                    } else {
-                        switch (romSelected)
-                        {
-                            case BANK_ROM0 :
-                            case BANK_ROM1 :
-                            case BANK_ROM3 :
-                                if (divMmcPresent)
+                                // Detect M1 cycle for DivMMC paging
+                                if ((address & 0xff00) == 0x3d00)
                                 {
-                                    // Detect M1 cycle for DivMMC paging
-                                    if ((address_ & 0xff00) == 0x3d00)
-                                    {
-                                        divMmcPaged = true;
-                                        divMmcAutoMap = true;
-                                        updateRomIndex(true);
-                                    }
-
-                                    // Write ROM data to bus
-                                    writeRomData(address_);
-
-                                    // Detect post-M1 cycle for DivMMC paging
-                                    if ((address_ == 0x00) || (address_ == 0x08) ||
-                                        (address_ == 0x38) || (address_ == 0x4c6) ||
-                                        (address_ == 0x562))
-                                    {
-                                        divMmcPaged = true;
-                                        divMmcAutoMap = true;
-                                        updateRomIndex(false);
-                                    }
-                                } else {
-                                    // Write ROM data to bus
-                                    writeRomData(address_);
-
-                                    // Detect M1 cycle for Interface 1 paging
-                                    if (interface1Present &&
-                                        ((address_ == 0x08) || (address_ == 0x1708)))
-                                    {
-                                        // M1 cycle for Interface 1 paging
-                                        interface1Paged = true;
-                                        updateRomIndex(false);
-                                    }
+                                    divMmcPaged = true;
+                                    divMmcAutoMap = true;
+                                    updateRomIndex(true);
                                 }
-                                break;
-                            case BANK_IF1 :
-                                // Write ROM data to bus
-                                writeRomData(address_);
 
-                                // Detect post-M1 cycle for Interface 1 paging
-                                if (address_ == 0x700)
-                                {
-                                    interface1Paged = false;
-                                    updateRomIndex(false);
-                                }
-                                break;
-                            case BANK_DIVMMC :
                                 // Write ROM data to bus
-                                writeRomData(address_);
+                                writeRomData(address);
 
                                 // Detect post-M1 cycle for DivMMC paging
-                                if (!divMmcMapRam && ((address_ & 0xfff8) == 0x1ff8))
+                                if ((address == 0x00) || (address == 0x08) ||
+                                    (address == 0x38) || (address == 0x4c6) ||
+                                    (address == 0x562))
                                 {
-                                    divMmcPaged = false;
-                                    divMmcAutoMap = false;
+                                    divMmcPaged = true;
+                                    divMmcAutoMap = true;
                                     updateRomIndex(false);
-
-                                    // Disable the DivMMC, and enable the Interface 1
-                                    if (divMmcRemoval)
-                                    {
-                                        divMmcRemoval = false;
-                                        divMmcPresent = false;
-                                        interface1Present = true;
-                                    }
                                 }
-                                break;
-                            case BANK_MF128 :
+                            } else {
                                 // Write ROM data to bus
-                                writeRomData(address_);
+                                writeRomData(address);
 
                                 // Detect M1 cycle for Interface 1 paging
                                 if (interface1Present &&
-                                    ((address_ == 0x08) || (address_ == 0x1708)))
+                                    ((address == 0x08) || (address == 0x1708)))
                                 {
                                     // M1 cycle for Interface 1 paging
                                     interface1Paged = true;
                                     updateRomIndex(false);
                                 }
-                                break;
-                            case BANK_ROM2 :
-                            case BANK_ZXC2 :
-                            case BANK_MENU :
-                                // Write ROM data to bus
-                                writeRomData(address_);
-                                break;
-                        }
-                    }
-                }
-            } else if ((gpio_6_ & IO_READ_MASK) == 0x00000000)
-            {
-                // Perform I/O read access
-                uint8_t port_ = decodeLowAddress(gpio_6_);
-                busRdActive = true;
-                switch (port_)
-                {
-                    case 0xeb :
-                        if (isDivMmcSelected())
-                        {
-                            // Transfer SD SPI read data to bus
-                            if (hasDivMmcReadData())
+                            }
+                            break;
+                        case BANK_IF1 :
+                            // Write ROM data to bus
+                            writeRomData(address);
+
+                            // Detect post-M1 cycle for Interface 1 paging
+                            if (address == 0x700)
                             {
-                                writeData(readDivMmcReadData());
-                                if (!hasDivMmcReadData())
+                                interface1Paged = false;
+                                updateRomIndex(false);
+                            }
+                            break;
+                        case BANK_DIVMMC :
+                            // Write ROM data to bus
+                            writeRomData(address);
+
+                            // Detect post-M1 cycle for DivMMC paging
+                            if (!divMmcMapRam && ((address & 0xfff8) == 0x1ff8))
+                            {
+                                divMmcPaged = false;
+                                divMmcAutoMap = false;
+                                updateRomIndex(false);
+
+                                // Disable the DivMMC, and enable the Interface 1
+                                if (divMmcRemoval)
                                 {
-                                    writeDivMmcWriteData(SD_SPI_READ, 0xff);
+                                    divMmcRemoval = false;
+                                    divMmcPresent = false;
+                                    interface1Present = true;
                                 }
-                            } else {
-                                writeData(0xff);
-                                writeDivMmcWriteData(SD_SPI_READ, 0xff);
                             }
-                        }
-                        break;
-                    case 0x3f :
-                        if (mf128Present)
-                        {
-                            if (mf128Paged)
-                            {
-                                mf128Paged = false;
-                                updateRomIndex(true);
-                            }
-                            writeData(mf128VideoRam ? 0x80 : 0x00);
-                        }
-                        break;
-                    case 0xbf :
-                        if (mf128Present)
-                        {
-                            if (!mf128Paged)
+                            break;
+                        case BANK_MF128 :
+                            // Detect M1 cycle for Multiface 128 paging
+                            if (mf128ActiveNMI && (address == 0x67))
                             {
                                 mf128Paged = true;
                                 updateRomIndex(true);
                             }
-                            writeData(mf128VideoRam ? 0x80 : 0x00);
-                        }
-                        break;
+
+                            // Write ROM data to bus
+                            writeRomData(address);
+
+                            // Detect M1 cycle for Interface 1 paging
+                            if (interface1Present &&
+                                ((address == 0x08) || (address == 0x1708)))
+                            {
+                                // M1 cycle for Interface 1 paging
+                                interface1Paged = true;
+                                updateRomIndex(false);
+                            }
+                            break;
+                        case BANK_ROM2 :
+                        case BANK_ZXC2 :
+                        case BANK_MENU :
+                            // Write ROM data to bus
+                            writeRomData(address);
+                            break;
+                    }
                 }
+            }
+        } else if (!busRdActive && ((gpioSix & IO_READ_MASK) == 0x00000000))
+        {
+            // Perform I/O read access
+            uint8_t port = decodeLowAddress(gpioSix);
+            busRdActive = true;
+            switch (port)
+            {
+                case 0xeb :
+                    if (isDivMmcSelected())
+                    {
+                        // Transfer SD SPI read data to bus
+                        if (hasDivMmcReadData())
+                        {
+                            writeData(readDivMmcReadData());
+                            if (!hasDivMmcReadData())
+                            {
+                                writeDivMmcWriteData(SD_SPI_READ, 0xff);
+                            }
+                        } else {
+                            writeData(0xff);
+                            writeDivMmcWriteData(SD_SPI_READ, 0xff);
+                        }
+                    }
+                    break;
+                case 0x3f :
+                    if (mf128Present)
+                    {
+                        if (mf128Paged)
+                        {
+                            mf128Paged = false;
+                            updateRomIndex(true);
+                        }
+                        writeData(mf128VideoRam ? 0x80 : 0x00);
+                    }
+                    break;
+                case 0xbf :
+                    if (mf128Present)
+                    {
+                        if (!mf128Paged)
+                        {
+                            mf128Paged = true;
+                            updateRomIndex(true);
+                        }
+                        writeData(mf128VideoRam ? 0x80 : 0x00);
+                    }
+                    break;
             }
         }
     }

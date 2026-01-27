@@ -43,6 +43,8 @@ It borrows content, ideas and inspiration from,
     * ZX Interface 1 v2 ROM disassembly
 * https://spectrumcomputing.co.uk/pub/sinclair/technical-docs/ZXInterface1_Schematics.gif
     * ZX Interface 1 schematic
+* https://divide.speccy.cz/files/pgm_model.txt
+    * DivIDE programming model
 * https://github.com/TomDDG/ZXPicoIF2Lite
     * ROM menu source code, and the idea of a soft ROM
 * https://www.thingiverse.com/thing:6500064
