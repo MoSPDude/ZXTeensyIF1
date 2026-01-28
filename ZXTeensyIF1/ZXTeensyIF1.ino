@@ -53,19 +53,17 @@ typedef enum {
     BANK_IF1    = 0x0010,
     BANK_DIVMMC = 0x0020,
     BANK_MF128  = 0x0040,
-    BANK_ZXC2   = 0x0080,
-    BANK_MENU   = 0x0100
+    BANK_ZXC2   = 0x0080
 } bank_select_t;
 
 typedef enum {
     ROM_ROM0,
     ROM_ROM1,
-    ROM_ROM2,
+    ROM_ROM2,   // Also used for Menu ROM
     ROM_ROM3,
     ROM_IF1,
     ROM_DIVMMC,
     ROM_MF128,
-    ROM_MENU,
     ROM_PAGE_COUNT
 } rom_index_t;
 
@@ -601,16 +599,16 @@ inline __attribute__((always_inline)) void updateRomIndex(bool pageNow)
     // Determine which ROM is currently paged
     if (menuPaged)
     {
-        romSelected = BANK_MENU;
+        romSelected = BANK_ROM2;
+    } else if (zxC2Paged)
+    {
+        romSelected = BANK_ZXC2;
     } else if (mf128Paged)
     {
         romSelected = BANK_MF128;
     } else if (divMmcPaged)
     {
         romSelected = BANK_DIVMMC;
-    } else if (zxC2Paged)
-    {
-        romSelected = BANK_ZXC2;
     } else if (interface1Paged)
     {
         romSelected = BANK_IF1;
@@ -654,9 +652,6 @@ inline __attribute__((always_inline)) void updateRomIndex(bool pageNow)
                 break;
             case BANK_ZXC2 :
                 romPtr = divMmcHighRamArray[zxC2BankPtr];
-                break;
-            default :
-                romPtr = romArray[ROM_MENU];
                 break;
         }
         if (!romEnabled)
@@ -866,10 +861,10 @@ uint16_t loadRomImage(const char* filename, const rom_index_t romIndex, const ui
     return count_;
 }
 
-void loadForegroundRom(uint8_t menuIndex)
+void loadForegroundRom()
 {
     bool isZXC2Rom_;
-    File RomFile = menuGetFile(menuIndex, &isZXC2Rom_);
+    File RomFile = menuGetFile(&isZXC2Rom_);
     if (RomFile)
     {
         if (isZXC2Rom_)
@@ -943,7 +938,7 @@ void handleStateResetEntry()
         {
             romArray[ROM_DIVMMC][j_] = 0xff;
             romArray[ROM_MF128][j_] = 0xff;
-            romArray[ROM_MENU][j_] = 0xff;
+            romArray[ROM_ROM2][j_] = 0xff;
         }
 
         // First reset completed
@@ -951,6 +946,7 @@ void handleStateResetEntry()
     }
 
     // Initialise the SD card
+    delay(150);
     if (!sdCardPresent)
     {
         pinMode(SD_CS_PIN, INPUT_PULLDOWN);
@@ -995,13 +991,6 @@ void handleStateResetEntry()
     // Load ROMs from the SD card
     if (sdCardPresent)
     {
-        // Load menu ROM
-        if (loadRomImage("menu.rom", ROM_MENU, RAM_PAGE_SIZE) > 0)
-        {
-            menuPaged = (startWithMenu && !digitalReadFast(ROMCS_IN_PIN));
-            romArrayPresent |= BANK_MENU;
-        }
-
         // Load DivMMC Esxdos ROM
         if (loadRomImage("esxmmc.bin", ROM_DIVMMC, RAM_PAGE_SIZE) > 0)
         {
@@ -1022,7 +1011,17 @@ void handleStateResetEntry()
 
         // Load configuration, and last ROM
         menuLoadConfiguration();
-        loadForegroundRom(0);
+
+        // Load menu ROM
+        if (startWithMenu && !digitalReadFast(ROMCS_IN_PIN) &&
+            (loadRomImage("menu.rom", ROM_ROM2, RAM_PAGE_SIZE) > 0))
+        {
+            menuPaged = true;
+            romArrayPresent |= BANK_ROM2;
+        } else {
+            // Load Spectrum ROMs
+            loadForegroundRom();
+        }
     } else {
 #ifdef ENABLE_BUILTIN_ROM_IF1
         // Without menu ROM, button disables built-in Interface 1
@@ -1037,7 +1036,7 @@ void handleStateResetEntry()
 void handleStateResetMenu()
 {
     // Perform the menu action
-    menuSaveConfiguration(menuSelectedIndex);
+    menuPerformAction();
 
     // Close the SD card to reload the system
     SD.sdfs.end();
@@ -1059,7 +1058,7 @@ void handleStateReset()
 
     // Indicate in reset with LED
     digitalWriteFast(LED_PIN, 0);
-    delay(100);
+    delay(150);
 
     // Reset the banking state
     menuPaged = false;
@@ -1102,7 +1101,7 @@ void handleStateReset()
     // Populate the menu when active
     if (menuPaged)
     {
-        generateMenu(romArray[ROM_MENU]);
+        generateMenu(romArray[ROM_ROM2]);
     } else {
         // If ZXC2 cartridge is present, then page in immediately
         if (zxC2Present)
@@ -1129,9 +1128,9 @@ void handleStateReset()
             sdSpiFlush();
         }
     }
-    delay(100);
 
     // Enable the ROM, if present
+    delay(100);
     if (romArrayPresent != 0)
     {
         updateRomIndex(true);
@@ -1188,7 +1187,7 @@ FASTRUN void isrPinButton()
 {
     // Perform NMI when not already handling previous NMI
     if ((buttonTrigState == TRIGGER_READY) && !digitalReadFast(BUTTON_PIN) &&
-        !isGlobalStateReset() && !nmiPending && !mf128ActiveNMI)
+        !isGlobalStateReset() && !menuPaged && !nmiPending && !mf128ActiveNMI)
     {
         nmiPending = true;
         digitalWriteFast(NMI_PIN, 1);
@@ -1522,7 +1521,6 @@ FASTRUN void isrRdEvent()
                             break;
                         case BANK_ROM2 :
                         case BANK_ZXC2 :
-                        case BANK_MENU :
                             // Write ROM data to bus
                             writeRomData(address);
                             break;

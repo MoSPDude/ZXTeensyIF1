@@ -1,10 +1,22 @@
 
+#define INTERNAL_ROM_NAME ":INTERNAL"
+#define ROM_NAME_LEN 32
+
 uint8_t menuLine = 0;
 uint8_t menuTotalLines = 0;
 uint8_t menuPage = 0;
 char* menuPtr = 0;
-uint8_t menuLastRomIndex = 0;
-bool menuSettingsChanged = false;
+bool menuConfigChanged = false;
+
+typedef struct {
+    char divMmcPresent;
+    char interface1Present;
+    char mf128Present;
+    char romName[(ROM_NAME_LEN + 1)];
+} cfg_data_t;
+
+// Configuration data
+DMAMEM cfg_data_t cfgData;
 
 // "Restart" is always index 0
 // "Use internal ROM" is always index (menuRomListIndex - 1)
@@ -13,13 +25,13 @@ volatile uint8_t menuRomListIndex = 0;
 void generateMenu(volatile uint8_t* romPtr)
 {
     // Add settings menu
-    menuPtr = (char*)romPtr + 0x2000;
-    char* endPtr = menuPtr + 0x2000 - 36;
+    menuPtr = (char*)romPtr + RAM_PAGE_SIZE;
+    char* endPtr = menuPtr + RAM_PAGE_SIZE - 36;
     char* ptr = generateMenuSettings(menuPtr);
 
     // List ROM files
     ptr = menuAddSetting(ptr, "Internal ROM",
-        (menuLastRomIndex == menuTotalLines));
+        (stricmp(cfgData.romName, INTERNAL_ROM_NAME) == 0));
     menuRomListIndex = menuTotalLines;
     File romDirectory = SD.open("ROMS", FILE_READ);
     if (romDirectory)
@@ -33,8 +45,7 @@ void generateMenu(volatile uint8_t* romPtr)
                 {
                     if (!entry.isDirectory())
                     {
-                        ptr = menuAddFile(ptr, entry.name(),
-                            (menuLastRomIndex == menuTotalLines));
+                        ptr = menuAddFile(ptr, entry.name());
                     }
                     entry.close();
                 } else {
@@ -101,9 +112,9 @@ char* menuAddSetting(char* ptr, const char* label, bool checked)
     return (ptr+1);
 }
 
-char* menuAddFile(char* ptr, const char* filename, bool checked)
+char* menuAddFile(char* ptr, const char* filename)
 {
-    *ptr++ = (checked ? 27 : 26);
+    *ptr++ = ((stricmp(filename, cfgData.romName) == 0) ? 27 : 26);
     unsigned int len = strlen(filename);
 
     // Find the file extension
@@ -153,35 +164,46 @@ char* menuAddFile(char* ptr, const char* filename, bool checked)
 
 bool menuPerformSelection(uint8_t index)
 {
-    switch (index)
+    if (index >= menuRomListIndex)
     {
-        case 0 :
-            // Index 0 is the last loaded ROM
-            return true;
-        case 1 :
-            if ((romArrayPresent & BANK_DIVMMC) != 0)
-            {
-                divMmcPresent = !divMmcPresent;
-                menuSettingsChanged = true;
-            }
-            break;
-        case 2 :
-            if ((romArrayPresent & BANK_IF1) != 0)
-            {
-                interface1Present = !interface1Present;
-                menuSettingsChanged = true;
-            }
-            break;
-        case 3 :
-            if ((romArrayPresent & BANK_MF128) != 0)
-            {
-                mf128Present = !mf128Present;
-                menuSettingsChanged = true;
-            }
-            break;
-        default :
-            // Load ROM, either internal or from SD
-            return true;
+        // Update the ROM name for the selection
+        updateRomName(index - menuRomListIndex);
+        menuConfigChanged = true;
+        return true;
+    } else {
+        switch (index)
+        {
+            case 0 :
+                // Reload the existing ROM name
+                return true;
+            case 1 :
+                if ((romArrayPresent & BANK_DIVMMC) != 0)
+                {
+                    divMmcPresent = !divMmcPresent;
+                    menuConfigChanged = true;
+                }
+                break;
+            case 2 :
+                if ((romArrayPresent & BANK_IF1) != 0)
+                {
+                    interface1Present = !interface1Present;
+                    menuConfigChanged = true;
+                }
+                break;
+            case 3 :
+                if ((romArrayPresent & BANK_MF128) != 0)
+                {
+                    mf128Present = !mf128Present;
+                    menuConfigChanged = true;
+                }
+                break;
+            default :
+                // Load internal ROM name
+                strncpy(cfgData.romName, INTERNAL_ROM_NAME, ROM_NAME_LEN);
+                cfgData.romName[ROM_NAME_LEN] = 0;
+                menuConfigChanged = true;
+                return true;
+        }
     }
 
     // Update settings menu
@@ -189,24 +211,58 @@ bool menuPerformSelection(uint8_t index)
     return false;
 }
 
-File menuGetFile(uint8_t index, bool* isZXC2Rom)
+void menuPerformAction()
 {
-    // Index 0 is the last loaded ROM
-    if (index < (menuRomListIndex - 1))
-    {
-        index = menuLastRomIndex;
-    }
+    // Save the configuration to load new ROM
+    menuSaveConfiguration();
+}
 
-    // List the ROM files
-    if (index >= menuRomListIndex)
+void updateRomName(uint8_t fileIndex)
+{
+    File romDirectory = SD.open("ROMS", FILE_READ);
+    if (romDirectory)
+    {
+        if (romDirectory.isDirectory())
+        {
+            uint8_t index = 0;
+            while (true)
+            {
+                File entry = romDirectory.openNextFile();
+                if (entry)
+                {
+                    if (!entry.isDirectory())
+                    {
+                        // Find ROM at matching list index
+                        if (index == fileIndex)
+                        {
+                            strncpy(cfgData.romName, entry.name(), ROM_NAME_LEN);
+                            entry.close();
+                            break;
+                        } else {
+                            ++index;
+                        }
+                    }
+                    entry.close();
+                } else {
+                    // End of listing
+                    strncpy(cfgData.romName, INTERNAL_ROM_NAME, ROM_NAME_LEN);
+                    break;
+                }
+            }
+        }
+        romDirectory.close();
+    }
+}
+
+File menuGetFile(bool* isZXC2Rom)
+{
+    if (stricmp(cfgData.romName, INTERNAL_ROM_NAME) != 0)
     {
         File romDirectory = SD.open("ROMS", FILE_READ);
         if (romDirectory)
         {
             if (romDirectory.isDirectory())
             {
-                uint8_t count = 0;
-                index -= menuRomListIndex;
                 while (true)
                 {
                     File entry = romDirectory.openNextFile();
@@ -214,8 +270,7 @@ File menuGetFile(uint8_t index, bool* isZXC2Rom)
                     {
                         if (!entry.isDirectory())
                         {
-                            // Find ROM at matching list index
-                            if (index == count)
+                            if (stricmp(entry.name(), cfgData.romName) == 0)
                             {
                                 char *fileext = strrchr(entry.name(), '.');
                                 if ((fileext != 0) && (stricmp(fileext + 1, "bin") == 0))
@@ -224,9 +279,9 @@ File menuGetFile(uint8_t index, bool* isZXC2Rom)
                                 } else {
                                     *isZXC2Rom = false;
                                 }
+                                romDirectory.close();
                                 return entry;
                             }
-                            ++count;
                         }
                         entry.close();
                     } else {
@@ -248,54 +303,41 @@ void menuLoadConfiguration()
     File cfgFile = SD.open("ZXTEENSY.CFG", FILE_READ);
     if (cfgFile)
     {
-        char buf[6];
-        if (cfgFile.readBytes(buf, 6) >= 6)
+        if (cfgFile.readBytes((char*)&cfgData, sizeof(cfgData)) >= 0)
         {
             if ((romArrayPresent & BANK_DIVMMC) != 0)
             {
-                divMmcPresent = (buf[0] == '1') ? true : false;
+                divMmcPresent = cfgData.divMmcPresent;
             }
             if ((romArrayPresent & BANK_IF1) != 0)
             {
-                interface1Present = (buf[1] == '1') ? true : false;
+                interface1Present = cfgData.interface1Present;
             }
             if ((romArrayPresent & BANK_MF128) != 0)
             {
-                mf128Present = (buf[2] == '1') ? true : false;
+                mf128Present = cfgData.mf128Present;
             }
-            buf[5] = 0;
-            menuLastRomIndex = (uint8_t)strtol(&buf[3], 0, 16);
+            cfgData.romName[ROM_NAME_LEN] = 0;
         }
         cfgFile.close();
     }
 }
 
-void menuSaveConfiguration(uint8_t index)
+void menuSaveConfiguration()
 {
-    if (menuSettingsChanged || (index != 0))
+    if (menuConfigChanged)
     {
-        // Index 0 is the last loaded ROM
-        menuSettingsChanged = false;
-        if (index == 0)
-        {
-            index = menuLastRomIndex;
-        }
-
         // Save the configuration
+        menuConfigChanged = false;
         File cfgFile = SD.open("ZXTEENSY.CFG", FILE_WRITE_BEGIN);
         if (cfgFile)
         {
-            char buf[6];
-            buf[0] = (divMmcPresent ? '1' : '0');
-            buf[1] = (interface1Present ? '1' : '0');
-            buf[2] = (mf128Present ? '1' : '0');
-            ltoa(index, &buf[3], 16);
-            buf[5] = 0;
-            cfgFile.write(buf, 6);
+            cfgData.divMmcPresent = divMmcPresent;
+            cfgData.interface1Present = interface1Present;
+            cfgData.mf128Present = mf128Present;
+            cfgData.romName[ROM_NAME_LEN] = 0;
+            cfgFile.write((char*)&cfgData, sizeof(cfgData));
             cfgFile.close();
         }
-
-        // Update the last loaded ROM
-        menuLastRomIndex = index;
     }
 }
