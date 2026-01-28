@@ -6,9 +6,9 @@ char* menuPtr = 0;
 uint8_t menuLastRomIndex = 0;
 bool menuSettingsChanged = false;
 
-// "Use last ROM" is always index 0
-// "Use internal ROM" is always index (MENU_ENTRIES - 1)
-#define MENU_ENTRIES 5
+// "Restart" is always index 0
+// "Use internal ROM" is always index (menuRomListIndex - 1)
+volatile uint8_t menuRomListIndex = 0;
 
 void generateMenu(volatile uint8_t* romPtr)
 {
@@ -17,28 +17,26 @@ void generateMenu(volatile uint8_t* romPtr)
     char* endPtr = menuPtr + 0x2000 - 36;
     char* ptr = generateMenuSettings(menuPtr);
 
-    // Add save settings
-    ptr = menuAddSetting(ptr, "Use internal ROM", 0);
-    // MENU_ENTRIES == 5
-
     // List ROM files
+    ptr = menuAddSetting(ptr, "Internal ROM",
+        (menuLastRomIndex == menuTotalLines));
+    menuRomListIndex = menuTotalLines;
     File romDirectory = SD.open("ROMS", FILE_READ);
     if (romDirectory)
     {
         if (romDirectory.isDirectory())
         {
-            File entry = romDirectory.openNextFile();
             while (true)
             {
+                File entry = romDirectory.openNextFile();
                 if (entry)
                 {
-                    File nextEntry = romDirectory.openNextFile();
                     if (!entry.isDirectory())
                     {
-                        ptr = menuAddFile(ptr, entry.name(), !nextEntry);
+                        ptr = menuAddFile(ptr, entry.name(),
+                            (menuLastRomIndex == menuTotalLines));
                     }
                     entry.close();
-                    entry = nextEntry;
                 } else {
                     // End of listing
                     break;
@@ -47,10 +45,6 @@ void generateMenu(volatile uint8_t* romPtr)
                 // End of menu check
                 if ((ptr > endPtr) || (menuTotalLines == 0xFF))
                 {
-                    if (entry)
-                    {
-                        entry.close();
-                    }
                     break;
                 }
             }
@@ -59,16 +53,16 @@ void generateMenu(volatile uint8_t* romPtr)
     }
 
     // Write the menu dimensions
-    uint16_t address_ = ((romPtr[0x0FFC] << 8) + romPtr[0x0FFB]);
-    romPtr[address_] = (menuTotalLines - 1);
-    address_ = ((romPtr[0x0FFF] << 8) + romPtr[0x0FFE]);
-    romPtr[address_] = (menuPage + 1);
+    uint16_t address = ((romPtr[0x0FFC] << 8) + romPtr[0x0FFB]);
+    romPtr[address] = (menuTotalLines - 1);
+    address = ((romPtr[0x0FFF] << 8) + romPtr[0x0FFE]);
+    romPtr[address] = (menuPage + 1);
 }
 
 char* generateMenuSettings(char* ptr)
 {
     // Add settings menu as first options
-    ptr = menuAddSetting(ptr, "Use last ROM", 0);
+    ptr = menuAddSetting(ptr, "Restart", 0);
     if ((romArrayPresent & BANK_DIVMMC) != 0)
     {
         ptr = menuAddSetting(ptr, "Enable DivMMC", divMmcPresent);
@@ -107,9 +101,9 @@ char* menuAddSetting(char* ptr, const char* label, bool checked)
     return (ptr+1);
 }
 
-char* menuAddFile(char* ptr, const char* filename, bool lastFile)
+char* menuAddFile(char* ptr, const char* filename, bool checked)
 {
-    *ptr++ = ((menuTotalLines != menuLastRomIndex) ? (lastFile ? 31 : 30) : 27);
+    *ptr++ = (checked ? 27 : 26);
     unsigned int len = strlen(filename);
 
     // Find the file extension
@@ -198,13 +192,13 @@ bool menuPerformSelection(uint8_t index)
 File menuGetFile(uint8_t index, bool* isZXC2Rom)
 {
     // Index 0 is the last loaded ROM
-    if (index == 0)
+    if (index < (menuRomListIndex - 1))
     {
         index = menuLastRomIndex;
     }
 
     // List the ROM files
-    if (index >= MENU_ENTRIES)
+    if (index >= menuRomListIndex)
     {
         File romDirectory = SD.open("ROMS", FILE_READ);
         if (romDirectory)
@@ -212,7 +206,7 @@ File menuGetFile(uint8_t index, bool* isZXC2Rom)
             if (romDirectory.isDirectory())
             {
                 uint8_t count = 0;
-                index -= MENU_ENTRIES;
+                index -= menuRomListIndex;
                 while (true)
                 {
                     File entry = romDirectory.openNextFile();
@@ -269,6 +263,7 @@ void menuLoadConfiguration()
             {
                 mf128Present = (buf[2] == '1') ? true : false;
             }
+            buf[5] = 0;
             menuLastRomIndex = (uint8_t)strtol(&buf[3], 0, 16);
         }
         cfgFile.close();
@@ -295,6 +290,7 @@ void menuSaveConfiguration(uint8_t index)
             buf[1] = (interface1Present ? '1' : '0');
             buf[2] = (mf128Present ? '1' : '0');
             ltoa(index, &buf[3], 16);
+            buf[5] = 0;
             cfgFile.write(buf, 6);
             cfgFile.close();
         }
