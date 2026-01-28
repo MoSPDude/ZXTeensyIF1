@@ -18,8 +18,8 @@
 #define FAST_SD_CLK_FREQ 24000000ULL
 #define FAST_SD_TICK_CYCCNT ((TEENSY_CLK_FREQ / FAST_SD_CLK_FREQ) / 2)
 
-// Allow ~225ms for reset/NMI to debounce (at 816MHz, TRIGGER_DELAY_CNT = 0x304D4D)
-#define TRIGGER_DELAY_MS 225
+// Allow ~333ms for reset/button to debounce (at 816MHz, TRIGGER_DELAY_CNT = 0x477CA5)
+#define TRIGGER_DELAY_MS 333
 #define TRIGGER_DELAY_CNT ((TRIGGER_DELAY_MS * TEENSY_CLK_FREQ) / (SD_TICK_CYCCNT * 1000))
 
 extern "C" uint32_t set_arm_clock(uint32_t frequency);
@@ -28,7 +28,7 @@ typedef enum {
     STATE_ROM_DISABLE = 0x00,
     STATE_ROM_ENABLE  = 0x01,
     STATE_RESET       = 0x02,
-    STATE_RESET_ROM_CHANGE = 0x03
+    STATE_RESET_MENU  = 0x03
 } run_state_t;
 
 typedef enum {
@@ -138,7 +138,8 @@ const uint32_t DIVMMC_RAM_WRITE_MASK = (A15_PIN_BITMASK | A14_PIN_BITMASK |
 const uint8_t NUM_SD_RETRIES = 3;
 
 // Global state
-volatile bool sd_card_present = false;
+volatile bool afterFirstReset = false;
+volatile bool sdCardPresent = false;
 volatile run_state_t globalState = STATE_RESET;
 volatile bool busRdActive = false;
 volatile bool nmiPending = false;
@@ -229,7 +230,6 @@ volatile uint32_t cycleCount;
 #ifdef DEBUG_OUTPUT
 
 // Debug data buffer
-volatile bool debugAfterFirstReset = false;
 const uint16_t DEBUG_BUFFER_SIZE = 128;
 volatile uint8_t debugDataBuffer[DEBUG_BUFFER_SIZE];
 volatile uint16_t debugWritePtr = 0;
@@ -503,12 +503,16 @@ inline __attribute__((always_inline)) void performOnClock()
             default :
                 break;
         }
-        
-        // Debounce the NMI detection
+
+        // Debounce the button detection
         switch (buttonTrigState)
         {
             case TRIGGER_ACTIVE :
-                
+                if (!nmiPending)
+                {
+                    buttonTrigState = TRIGGER_HOLD;
+                }
+                break;
             case TRIGGER_HOLD :
                 if (digitalReadFast(BUTTON_PIN))
                 {
@@ -538,7 +542,9 @@ inline __attribute__((always_inline)) void performOnClock()
             menuSelected = false;
             if (menuPerformSelection(menuSelectedIndex))
             {
-                setState(STATE_RESET_ROM_CHANGE);
+                // The menu needs the Spectrum in reset to access the SD card,
+                // reload ROMs, update FW etc.
+                setState(STATE_RESET_MENU);
             }
         }
     }
@@ -554,7 +560,7 @@ void setState(run_state_t state_)
     switch (state_)
     {
         case STATE_RESET :
-        case STATE_RESET_ROM_CHANGE :
+        case STATE_RESET_MENU :
             resetTrigState = TRIGGER_ACTIVE;
             digitalWriteFast(DATA_DIS_PIN, 1);
             digitalWriteFast(RESET_PIN, 1);
@@ -882,7 +888,7 @@ void loadForegroundRom(uint8_t menuIndex)
 void handleStateResetEntry()
 {
 #ifdef DEBUG_OUTPUT
-    if (debugAfterFirstReset)
+    if (afterFirstReset)
     {
         // Dump the debug buffer
         while (hasDebugData())
@@ -909,53 +915,60 @@ void handleStateResetEntry()
                 Serial.write((char*)&divMmcHighRamArray[i_][j_], 0x400);
             }
         }
-    } else {
-        debugAfterFirstReset = true;
-        sd_card_present = false;
     }
 #endif
 
-    // Initialise the RAM banks
-    for (uint8_t i_ = 0; i_ < RAM_PAGE_COUNT; ++i_)
-    {
-        for (uint16_t j_ = 0; j_ < RAM_PAGE_SIZE; ++j_)
-        {
-            divMmcRamArray[i_][j_] = 0xff;
-            divMmcHighRamArray[i_][j_] = 0xff;
-        }
-    }
-    for (uint16_t j_ = RAM_PAGE_SIZE; j_ < ROM_PAGE_SIZE; ++j_)
-    {
-        romArray[ROM_DIVMMC][j_] = 0xff;
-        romArray[ROM_MF128][j_] = 0xff;
-    }
-
-    // Detect button being pressed for menu, when no external ROM
+    // Detect button being pressed for menu ROM
     bool startWithMenu = false;
     while (!digitalReadFast(BUTTON_PIN))
     {
-        startWithMenu = !digitalReadFast(ROMCS_IN_PIN);
+        startWithMenu = true;
+        afterFirstReset = false;
         delay(5);
     }
 
+    // Perform first reset initialisation
+    if (!afterFirstReset)
+    {
+        // Initialise the RAM banks
+        for (uint8_t i_ = 0; i_ < RAM_PAGE_COUNT; ++i_)
+        {
+            for (uint16_t j_ = 0; j_ < RAM_PAGE_SIZE; ++j_)
+            {
+                divMmcRamArray[i_][j_] = 0xff;
+                divMmcHighRamArray[i_][j_] = 0xff;
+            }
+        }
+        for (uint16_t j_ = RAM_PAGE_SIZE; j_ < ROM_PAGE_SIZE; ++j_)
+        {
+            romArray[ROM_DIVMMC][j_] = 0xff;
+            romArray[ROM_MF128][j_] = 0xff;
+            romArray[ROM_MENU][j_] = 0xff;
+        }
+
+        // First reset completed
+        afterFirstReset = true;
+    }
+
     // Initialise the SD card
-    if (!sd_card_present)
+    if (!sdCardPresent)
     {
         pinMode(SD_CS_PIN, INPUT_PULLDOWN);
         if (digitalReadFast(SD_CS_PIN))
         {
             uint8_t retries_ = 0;
-            sd_card_present = true;
+            sdCardPresent = true;
             pinMode(SD_CS_PIN, OUTPUT);
             digitalWriteFast(SD_CS_PIN, 1);
             digitalWriteFast(SD_OUT_PIN, 1);
             digitalWriteFast(SD_CLK_PIN, 0);
-            while (!SD.sdfs.begin(SdSpiConfig(SD_CS_PIN, DEDICATED_SPI, SD_SCK_MHZ(1), &divMmcSpi)))
+            while (!SD.sdfs.begin(SdSpiConfig(SD_CS_PIN, DEDICATED_SPI,
+                SD_SCK_MHZ(1), &divMmcSpi)))
             {
                 ++retries_;
                 if (retries_ > NUM_SD_RETRIES)
                 {
-                    sd_card_present = false;
+                    sdCardPresent = false;
                     break;
                 }
             }
@@ -977,23 +990,16 @@ void handleStateResetEntry()
 #ifdef ENABLE_BUILTIN_ROM_IF1
     memcpy((void *)romArray[ROM_IF1], BUILTIN_ROM_IF1, BUILTIN_ROM_IF1_SIZE);
     romArrayPresent |= BANK_IF1;
-    interface1Present = true;
 #endif
 
     // Load ROMs from the SD card
-    if (sd_card_present)
+    if (sdCardPresent)
     {
         // Load menu ROM
-        if (loadRomImage("menu.rom", ROM_MENU, ROM_PAGE_SIZE) > 0)
+        if (loadRomImage("menu.rom", ROM_MENU, RAM_PAGE_SIZE) > 0)
         {
-            menuPaged = startWithMenu;
+            menuPaged = (startWithMenu && !digitalReadFast(ROMCS_IN_PIN));
             romArrayPresent |= BANK_MENU;
-        }
-
-        // Load interface 1 ROM
-        if (loadRomImage("if1.rom", ROM_IF1, ROM_PAGE_SIZE) > 0)
-        {
-            romArrayPresent |= BANK_IF1;
         }
 
         // Load DivMMC Esxdos ROM
@@ -1008,20 +1014,34 @@ void handleStateResetEntry()
             romArrayPresent |= BANK_MF128;
         }
 
+        // Load Interface 1 ROM
+        if (loadRomImage("if1.rom", ROM_IF1, ROM_PAGE_SIZE) > 0)
+        {
+            romArrayPresent |= BANK_IF1;
+        }
+
         // Load configuration, and last ROM
         menuLoadConfiguration();
         loadForegroundRom(0);
+    } else {
+#ifdef ENABLE_BUILTIN_ROM_IF1
+        // Without menu ROM, button disables built-in Interface 1
+        if (!startWithMenu)
+        {
+            interface1Present = true;
+        }
+#endif
     }
 }
 
-void handleStateResetRomChange()
+void handleStateResetMenu()
 {
-    // Save the configuration
+    // Perform the menu action
     menuSaveConfiguration(menuSelectedIndex);
 
     // Close the SD card to reload the system
     SD.sdfs.end();
-    sd_card_present = false;
+    sdCardPresent = false;
 
     // Wait for any previous SD accesses to finish
     sdSpiFlush();
@@ -1071,8 +1091,8 @@ void handleStateReset()
     // Perform specific actions
     switch (globalState)
     {
-        case STATE_RESET_ROM_CHANGE :
-            handleStateResetRomChange();
+        case STATE_RESET_MENU :
+            handleStateResetMenu();
             break;
         default :
             handleStateResetEntry();
@@ -1103,13 +1123,10 @@ void handleStateReset()
 
             // Close the SD card to hand to the DivMMC
             SD.sdfs.end();
-            sd_card_present = false;
+            sdCardPresent = false;
 
             // Wait for any previous SD accesses to finish
-            while ((sdSpiTick != 0) || hasDivMmcWriteData())
-            {
-                performOnSdSpiClock();
-            }
+            sdSpiFlush();
         }
     }
     delay(100);
@@ -1291,7 +1308,7 @@ FASTRUN void isrWrEvent()
                             {
                                 divMmcMapRam = true;
                             }
-                            if ((data & 0x20) != 0)
+                            if (!zxC2Present && ((data & 0x20) != 0))
                             {
                                 divMmcRamPtr = divMmcHighRamArray[(data & (RAM_PAGE_COUNT - 1))];
                                 divMmcRamBankThree = false;
@@ -1398,7 +1415,6 @@ FASTRUN void isrRdEvent()
 
                         // Release NMI on entry to interrupt handler
                         nmiPending = false;
-                        buttonTrigState = TRIGGER_HOLD;
                         digitalWriteFast(NMI_PIN, 0);
                     } else {
                         // No pending NMI - write ROM data to bus
