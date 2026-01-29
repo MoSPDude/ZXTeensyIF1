@@ -133,7 +133,7 @@ const uint32_t DIVMMC_RAM_WRITE_MASK = (A15_PIN_BITMASK | A14_PIN_BITMASK |
     A13_PIN_BITMASK | MREQ_PIN_BITMASK);
 
 // Number of SD retries
-const uint8_t NUM_SD_RETRIES = 3;
+const uint8_t NUM_SD_RETRIES = 5;
 
 // Global state
 volatile bool afterFirstReset = false;
@@ -966,6 +966,13 @@ void handleStateResetEntry()
     delay(200);
     if (!sdCardPresent)
     {
+        // Wait for any previous SD accesses to finish, and clear buffers of any
+        // idle state
+        sdSpiFlush();
+        sdSpiReadDataReadPtr = sdSpiReadDataWritePtr;
+        sdSpiWriteDataReadPtr = sdSpiWriteDataWritePtr;
+
+        // Detect the SD card
         pinMode(SD_CS_PIN, INPUT_PULLDOWN);
         if (digitalReadFast(SD_CS_PIN))
         {
@@ -975,10 +982,13 @@ void handleStateResetEntry()
             digitalWriteFast(SD_CS_PIN, 1);
             digitalWriteFast(SD_OUT_PIN, 1);
             digitalWriteFast(SD_CLK_PIN, 0);
+
+            // Attempt to initialise the SD card
             while (!SD.sdfs.begin(SdSpiConfig(SD_CS_PIN, DEDICATED_SPI,
                 SD_SCK_MHZ(1), &divMmcSpi)))
             {
                 ++retries_;
+                delay(5);
                 if (retries_ > NUM_SD_RETRIES)
                 {
                     sdCardPresent = false;
@@ -1068,9 +1078,6 @@ void handleStateResetMenu()
 
 void handleStateReset()
 {
-    // Wait for any previous SD accesses to finish
-    sdSpiFlush();
-
     // Indicate in reset with LED
     digitalWriteFast(LED_PIN, 0);
     delay(150);
