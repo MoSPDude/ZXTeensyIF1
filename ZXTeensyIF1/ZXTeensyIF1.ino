@@ -151,7 +151,7 @@ volatile uint32_t buttonTrigExitCount = 0;
 // ROM banking
 const uint16_t ROM_PAGE_SIZE = 0x4000;
 volatile bank_select_t romSelected = BANK_ROM0;
-volatile uint8_t romArray[ROM_PAGE_COUNT][ROM_PAGE_SIZE];
+volatile uint8_t romArray[ROM_PAGE_COUNT][ROM_PAGE_SIZE] __attribute__((aligned(32)));
 volatile uint8_t* romPtr = romArray[0];
 volatile uint16_t romArrayPresent = 0;
 volatile bool romEnabled = false;
@@ -170,17 +170,19 @@ volatile bool menuSelected = false;
 volatile uint8_t menuSelectedIndex = 0;
 
 // DivMMC with 2 x 256KB of RAM
-const uint16_t RAM_PAGE_COUNT = 32;
+const uint16_t RAM_PAGE_COUNT = 16;
+const uint16_t EXT_RAM_PAGE_COUNT = 32;
 const uint16_t RAM_PAGE_SIZE = 0x2000;
-volatile uint8_t divMmcRamArray[RAM_PAGE_COUNT][RAM_PAGE_SIZE];
-volatile DMAMEM uint8_t divMmcHighRamArray[RAM_PAGE_COUNT][RAM_PAGE_SIZE];
+volatile uint8_t divMmcRamArray[RAM_PAGE_COUNT][RAM_PAGE_SIZE] __attribute__((aligned(32)));
+volatile DMAMEM uint8_t divMmcHighRamArray[RAM_PAGE_COUNT][RAM_PAGE_SIZE] __attribute__((aligned(32)));
+volatile DMAMEM uint8_t divMmcExtRamArray[EXT_RAM_PAGE_COUNT][RAM_PAGE_SIZE] __attribute__((aligned(32)));
 volatile bool divMmcPresent = false;
 volatile bool divMmcPaged = false;
 volatile bool divMmcAutoMap = false;
 volatile bool divMmcConMem = false;
 volatile bool divMmcMapRam = false;
 volatile bool divMmcRamBankThree = false;
-volatile uint8_t* divMmcRamPtr = divMmcRamArray[0];
+volatile uint8_t* divMmcRamPtr;
 volatile bool divMmcRemoval = false;
 const uint16_t PAGE_BANK_DIVMMC = (BANK_ROM0 | BANK_ROM1 | BANK_ROM3);
 
@@ -651,7 +653,7 @@ inline __attribute__((always_inline)) void updateRomIndex(bool pageNow)
                 romPtr = romArray[ROM_MF128];
                 break;
             case BANK_ZXC2 :
-                romPtr = divMmcHighRamArray[zxC2BankPtr];
+                romPtr = divMmcExtRamArray[zxC2BankPtr];
                 break;
         }
         if (!romEnabled)
@@ -831,12 +833,12 @@ uint32_t loadZXC2RomFile(File RomFile)
     size_t count_ = 0;
     if (RomFile)
     {
-        count_ = RomFile.readBytes((char *)divMmcHighRamArray[0], RAM_PAGE_SIZE);
+        count_ = RomFile.readBytes((char *)divMmcExtRamArray[0], RAM_PAGE_SIZE);
         if (count_ > 0)
         {
-            for (uint8_t i_ = 1; i_ < RAM_PAGE_COUNT; ++i_)
+            for (uint8_t i_ = 1; i_ < EXT_RAM_PAGE_COUNT; ++i_)
             {
-                size_t blk_count_ = RomFile.readBytes((char *)divMmcHighRamArray[i_], RAM_PAGE_SIZE);
+                size_t blk_count_ = RomFile.readBytes((char *)divMmcExtRamArray[i_], RAM_PAGE_SIZE);
                 count_ += blk_count_;
                 if (blk_count_ < RAM_PAGE_SIZE)
                 {
@@ -910,6 +912,14 @@ void handleStateResetEntry()
                 Serial.write((char*)&divMmcHighRamArray[i_][j_], 0x400);
             }
         }
+        for (uint8_t i_ = 0; i_ < EXT_RAM_PAGE_COUNT; ++i_)
+        {
+            for (uint16_t j_ = 0; j_ < RAM_PAGE_SIZE; j_ += 0x400)
+            {
+                while ( (uint) Serial.availableForWrite() <  0x400);
+                Serial.write((char*)&divMmcExtRamArray[i_][j_], 0x400);
+            }
+        }
     }
 #endif
 
@@ -934,6 +944,13 @@ void handleStateResetEntry()
                 divMmcHighRamArray[i_][j_] = 0xff;
             }
         }
+        for (uint8_t i_ = 0; i_ < EXT_RAM_PAGE_COUNT; ++i_)
+        {
+            for (uint16_t j_ = 0; j_ < RAM_PAGE_SIZE; ++j_)
+            {
+                divMmcExtRamArray[i_][j_] = 0xff;
+            }
+        }
         for (uint16_t j_ = RAM_PAGE_SIZE; j_ < ROM_PAGE_SIZE; ++j_)
         {
             romArray[ROM_DIVMMC][j_] = 0xff;
@@ -946,7 +963,7 @@ void handleStateResetEntry()
     }
 
     // Initialise the SD card
-    delay(150);
+    delay(200);
     if (!sdCardPresent)
     {
         pinMode(SD_CS_PIN, INPUT_PULLDOWN);
@@ -1053,8 +1070,6 @@ void handleStateReset()
 {
     // Wait for any previous SD accesses to finish
     sdSpiFlush();
-    sdSpiReadDataReadPtr = sdSpiReadDataWritePtr;
-    sdSpiWriteDataReadPtr = sdSpiWriteDataWritePtr;
 
     // Indicate in reset with LED
     digitalWriteFast(LED_PIN, 0);
@@ -1130,7 +1145,7 @@ void handleStateReset()
     }
 
     // Enable the ROM, if present
-    delay(100);
+    delay(150);
     if (romArrayPresent != 0)
     {
         updateRomIndex(true);
@@ -1309,17 +1324,16 @@ FASTRUN void isrWrEvent()
                             }
                             if (!zxC2Present && ((data & 0x20) != 0))
                             {
+                                divMmcRamPtr = divMmcExtRamArray[(data & (EXT_RAM_PAGE_COUNT - 1))];
+                                divMmcRamBankThree = false;
+                            } else if ((data & 0x10) != 0)
+                            {
                                 divMmcRamPtr = divMmcHighRamArray[(data & (RAM_PAGE_COUNT - 1))];
                                 divMmcRamBankThree = false;
                             } else {
                                 data &= (RAM_PAGE_COUNT - 1);
                                 divMmcRamPtr = divMmcRamArray[data];
-                                if (data == 0x03)
-                                {
-                                    divMmcRamBankThree = true;
-                                } else {
-                                    divMmcRamBankThree = false;
-                                }
+                                divMmcRamBankThree = ((data == 0x03) ? 1 : 0);
                             }
                             updateRomIndex(true);
                         }
