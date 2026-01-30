@@ -8,6 +8,7 @@ A Teensy 4.1 powered DivMMC and ZX Interface 1 clone,
 * ZX Interface 1
     * Requires the 9V and 5V power rails
     * Uses a MAX232 for the RS232 level shifting, so no +12V or -12V required
+    * Supports 16KB shadow soft ROM
 * DivMMC with 512KB RAM
     * Shares the Teensy main SD card
 * Multiface 128 emulation
@@ -47,6 +48,8 @@ It borrows content, ideas and inspiration from,
     * DivIDE programming model
 * https://github.com/TomDDG/ZXPicoIF2Lite
     * ROM menu source code, and the idea of a soft ROM
+* https://github.com/joepasquariello/FlasherX
+    * Teensy 4.x OTA upgrade library
 * https://www.thingiverse.com/thing:6500064
     * Also from TomDDG, a replacement ZX Interface 1 case
 
@@ -73,16 +76,21 @@ the DivMMC and enable the Interface 1.
 * ROOT/
     * MF128.ROM (MD5SUM: ca8c9d97c8aedd718d1081fad2e3af8d)
     * ESXMMC.BIN (MD5SUM: fa50b0258e52b8d72bd83cc2fb6e1013)
+    * IF1.ROM (Optional, MD5SUM: 31b704ae925305e74f50699271fddd9a)
     * MENU.ROM
     * ROMS/
         * (ZX Spectrum ROMs ending ".rom")
         * (Interface 2 and ZXC2 ROMs ending ".bin")
     * (Other ESXDOS files)
     * ZXTEENSY.CFG (Saved configuration from Menu ROM)
+    * ZXTEENSY.HEX (Optional, firmware update)
 
 Hold the button on Reset to load the menu ROM - here, you can toggle the DivMMC, Interface 1 and
 Multiface 128 on and off - then selecting a ROM to load will save the preference and load that
 ROM next time.
+
+To firmware update, place the file on the SD card and select the option from the Menu ROM -
+then wait for the Spectrum to restart (!! It will take a minute !!).
 
 ## Version History
 
@@ -105,10 +113,12 @@ ROM next time.
 
 ### Firmware
 
+* Added firmware update from SD card
+    * Uses https://github.com/joepasquariello/FlasherX
 * Added menu ROM derived from TomDDGs ZXPicoIF2Lite ROMExplorer
     * https://github.com/TomDDG/ZXPicoIF2Lite/blob/main/ROMExplorerSource/romexplorer.asm
-    * Updated for maximum 255 lines, and menu text from the Teensy
-    * The Teensy writes the menu structure directly into the upper half of the ROM
+    * Updated for maximum 255 lines, and reads uncompressed menu text
+    * The Teensy writes the menu text directly into the upper half of the soft ROM
 * First upload
     * Rough and ready for v0.2 PCB
     * Address lines now contiguous and in order, on GPIO6

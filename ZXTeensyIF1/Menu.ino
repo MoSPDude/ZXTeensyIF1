@@ -1,12 +1,13 @@
 
+#define FLASH_FILENAME "ZXTEENSY.HEX"
 #define INTERNAL_ROM_NAME ":INTERNAL"
 #define ROM_NAME_LEN 32
 
-uint8_t menuLine = 0;
-uint8_t menuTotalLines = 0;
-uint8_t menuPage = 0;
-char* menuPtr = 0;
-bool menuConfigChanged = false;
+typedef enum {
+    MENU_ACTION_REFRESH,
+    MENU_ACTION_LOAD_ROM,
+    MENU_ACTION_UPDATE_FW
+} menu_action_t;
 
 typedef struct {
     char divMmcPresent;
@@ -15,19 +16,47 @@ typedef struct {
     char romName[(ROM_NAME_LEN + 1)];
 } cfg_data_t;
 
+uint8_t menuLine = 0;
+uint8_t menuTotalLines = 0;
+uint8_t menuPage = 0;
+char* menuPtr = 0;
+char* menuSettingsPtr = 0;
+bool menuConfigChanged = false;
+bool menuHasUpdateFw = false;
+
 // Configuration data
 DMAMEM cfg_data_t cfgData;
 
 // "Restart" is always index 0
 // "Use internal ROM" is always index (menuRomListIndex - 1)
 volatile uint8_t menuRomListIndex = 0;
+volatile menu_action_t menuAction = MENU_ACTION_REFRESH;
 
 void generateMenu(volatile uint8_t* romPtr)
 {
-    // Add settings menu
+    // Build the menu
     menuPtr = (char*)romPtr + RAM_PAGE_SIZE;
     char* endPtr = menuPtr + RAM_PAGE_SIZE - 36;
-    char* ptr = generateMenuSettings(menuPtr);
+    char* ptr = menuAddSetting(menuPtr, "Save and Restart", 0);
+    ptr = menuAddSetting(ptr, "Disable and Restart", 0);
+
+    // Add firmware update option, if available
+    File fwUpdateFile = SD.open(FLASH_FILENAME, FILE_READ);
+    if (fwUpdateFile)
+    {
+        menuHasUpdateFw = true;
+        fwUpdateFile.close();
+        ptr = menuAddSetting(ptr, "Update firmware and Restart", 0);
+    } else {
+        menuHasUpdateFw = false;
+        ptr = menuAddSetting(ptr, "", 0);
+    }
+
+    // Add settings menu, that is refreshed on MENU_ACTION_REFRESH
+    menuSettingsPtr = ptr;
+    ptr = menuGenerateSettings(ptr);
+
+    // Add disable option
 
     // List ROM files
     ptr = menuAddSetting(ptr, "Internal ROM",
@@ -70,10 +99,9 @@ void generateMenu(volatile uint8_t* romPtr)
     romPtr[address] = (menuPage + 1);
 }
 
-char* generateMenuSettings(char* ptr)
+char* menuGenerateSettings(char* ptr)
 {
     // Add settings menu as first options
-    ptr = menuAddSetting(ptr, "Restart", 0);
     if ((romArrayPresent & BANK_DIVMMC) != 0)
     {
         ptr = menuAddSetting(ptr, "Enable DivMMC", divMmcPresent);
@@ -168,6 +196,7 @@ bool menuPerformSelection(uint8_t index)
     {
         // Update the ROM name for the selection
         updateRomName(index - menuRomListIndex);
+        menuAction = MENU_ACTION_LOAD_ROM;
         menuConfigChanged = true;
         return true;
     } else {
@@ -175,22 +204,36 @@ bool menuPerformSelection(uint8_t index)
         {
             case 0 :
                 // Reload the existing ROM name
+                menuAction = MENU_ACTION_LOAD_ROM;
                 return true;
             case 1 :
+                // Reset the configuration and reload
+                menuAction = MENU_ACTION_LOAD_ROM;
+                menuClearConfiguration();
+                return true;
+            case 2 :
+                // Perform firmware update, if available
+                if (menuHasUpdateFw)
+                {
+                    menuAction = MENU_ACTION_UPDATE_FW;
+                    return true;
+                }
+                break;
+            case 3 :
                 if ((romArrayPresent & BANK_DIVMMC) != 0)
                 {
                     divMmcPresent = !divMmcPresent;
                     menuConfigChanged = true;
                 }
                 break;
-            case 2 :
+            case 4 :
                 if ((romArrayPresent & BANK_IF1) != 0)
                 {
                     interface1Present = !interface1Present;
                     menuConfigChanged = true;
                 }
                 break;
-            case 3 :
+            case 5 :
                 if ((romArrayPresent & BANK_MF128) != 0)
                 {
                     mf128Present = !mf128Present;
@@ -199,22 +242,36 @@ bool menuPerformSelection(uint8_t index)
                 break;
             default :
                 // Load internal ROM name
-                strncpy(cfgData.romName, INTERNAL_ROM_NAME, ROM_NAME_LEN);
-                cfgData.romName[ROM_NAME_LEN] = 0;
-                menuConfigChanged = true;
-                return true;
+                if (index >= (menuRomListIndex - 1))
+                {
+                    strncpy(cfgData.romName, INTERNAL_ROM_NAME, ROM_NAME_LEN);
+                    cfgData.romName[ROM_NAME_LEN] = 0;
+                    menuAction = MENU_ACTION_LOAD_ROM;
+                    menuConfigChanged = true;
+                    return true;
+                }
+                break;
         }
     }
 
-    // Update settings menu
-    generateMenuSettings(menuPtr);
+    // Refresh the settings menu
+    menuAction = MENU_ACTION_REFRESH;
+    menuGenerateSettings(menuSettingsPtr);
     return false;
 }
 
 void menuPerformAction()
 {
-    // Save the configuration to load new ROM
-    menuSaveConfiguration();
+    switch (menuAction)
+    {
+        case MENU_ACTION_UPDATE_FW :
+            flashUpdate(FLASH_FILENAME);
+            break;
+        default :
+            // Save the configuration to load new ROM
+            menuSaveConfiguration();
+            break;
+    }
 }
 
 void updateRomName(uint8_t fileIndex)
@@ -296,6 +353,16 @@ File menuGetFile(bool* isZXC2Rom)
 
     // Return closed File
     return File();
+}
+
+void menuClearConfiguration()
+{
+    divMmcPresent = false;
+    interface1Present = false;
+    mf128Present = false;
+    strncpy(cfgData.romName, INTERNAL_ROM_NAME, ROM_NAME_LEN);
+    cfgData.romName[ROM_NAME_LEN] = 0;
+    menuConfigChanged = true;
 }
 
 void menuLoadConfiguration()

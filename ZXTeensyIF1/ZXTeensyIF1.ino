@@ -593,6 +593,7 @@ void setState(run_state_t state_)
             resetTrigState = TRIGGER_ACTIVE;
             digitalWriteFast(DATA_DIS_PIN, 1);
             digitalWriteFast(RESET_PIN, 1);
+            digitalWriteFast(LED_PIN, 0);
             enableInternalRom();
             disableData();
             break;
@@ -1116,7 +1117,10 @@ void handleStateReset()
     // Clear any pending NMI
     nmiPending = false;
     digitalWriteFast(NMI_PIN, 0);
+
+    // Blink the LED
     delay(150);
+    digitalWriteFast(LED_PIN, 1);
 
     // Perform specific actions
     switch (globalState)
