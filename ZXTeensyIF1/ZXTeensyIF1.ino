@@ -171,7 +171,7 @@ volatile bool menuPaged = false;
 volatile bool menuSelected = false;
 volatile uint8_t menuSelectedIndex = 0;
 
-// DivMMC with 2 x 256KB of RAM
+// DivMMC with total 512KB of RAM
 const uint16_t RAM_PAGE_COUNT = 16;
 const uint16_t EXT_RAM_PAGE_COUNT = 32;
 const uint16_t RAM_PAGE_SIZE = 0x2000;
@@ -557,6 +557,33 @@ inline __attribute__((always_inline)) bool isGlobalStateReset()
     return ((globalState & 0x02) != 0);
 }
 
+inline __attribute__((always_inline)) bool isDivMmcSelected()
+{
+    return (divMmcPresent && ((romArraySelected & (BANK_MF128 | BANK_IF1)) == 0));
+}
+
+inline __attribute__((always_inline)) void divMmcUpdateInterfaceOne()
+{
+    if ((!interface1Present && !interface1Removed) || isDivMmcSelected())
+    {
+        digitalWriteFast(IF1_DIS_PIN, 1);
+    } else {
+        digitalWriteFast(IF1_DIS_PIN, 0);
+    }
+}
+
+inline __attribute__((always_inline)) void disableInternalRom()
+{
+    digitalWriteFast(ROMCS_PIN, 1);
+    romEnabled = true;
+}
+
+inline __attribute__((always_inline)) void enableInternalRom()
+{
+    digitalWriteFast(ROMCS_PIN, 0);
+    romEnabled = false;
+}
+
 void setState(run_state_t state_)
 {
     switch (state_)
@@ -566,36 +593,25 @@ void setState(run_state_t state_)
             resetTrigState = TRIGGER_ACTIVE;
             digitalWriteFast(DATA_DIS_PIN, 1);
             digitalWriteFast(RESET_PIN, 1);
+            enableInternalRom();
             disableData();
             break;
         case STATE_ROM_ENABLE :
             resetTrigState = TRIGGER_HOLD;
             digitalWriteFast(DATA_DIS_PIN, 0);
             digitalWriteFast(RESET_PIN, 0);
+            digitalWriteFast(LED_PIN, 1);
             break;
         case STATE_ROM_DISABLE :
             resetTrigState = TRIGGER_HOLD;
             digitalWriteFast(DATA_DIS_PIN, 1);
             digitalWriteFast(RESET_PIN, 0);
-            digitalWriteFast(ROMCS_PIN, 0);
+            digitalWriteFast(LED_PIN, 0);
+            enableInternalRom();
+            disableData();
             break;
     }
     globalState = state_;
-}
-
-inline __attribute__((always_inline)) bool isDivMmcSelected()
-{
-    return (divMmcPresent && ((romArraySelected & (BANK_MF128 | BANK_IF1)) == 0));
-}
-
-inline __attribute__((always_inline)) void divMmcDisableInterfaceOne()
-{
-    if ((!interface1Present && !interface1Removed) || isDivMmcSelected())
-    {
-        digitalWriteFast(IF1_DIS_PIN, 1);
-    } else {
-        digitalWriteFast(IF1_DIS_PIN, 0);
-    }
 }
 
 inline __attribute__((always_inline)) void updateRomIndex(bool pageNow)
@@ -665,8 +681,7 @@ inline __attribute__((always_inline)) void updateRomIndex(bool pageNow)
             // Page in the soft ROM
             if (pageNow)
             {
-                digitalWriteFast(ROMCS_PIN, 1);
-                romEnabled = true;
+                disableInternalRom();
             } else {
                 romCsEnable = true;
             }
@@ -676,15 +691,14 @@ inline __attribute__((always_inline)) void updateRomIndex(bool pageNow)
         // Fall back to internal ROM
         if (pageNow)
         {
-            digitalWriteFast(ROMCS_PIN, 0);
-            romEnabled = false;
+            enableInternalRom();
         } else {
             romCsDisable = true;
         }
     }
     if (pageNow)
     {
-        divMmcDisableInterfaceOne();
+        divMmcUpdateInterfaceOne();
     }
 }
 
@@ -1079,10 +1093,6 @@ void handleStateResetMenu()
 
 void handleStateReset()
 {
-    // Indicate in reset with LED
-    digitalWriteFast(LED_PIN, 0);
-    delay(150);
-
     // Reset the banking state
     menuPaged = false;
     menuSelected = false;
@@ -1106,10 +1116,7 @@ void handleStateReset()
     // Clear any pending NMI
     nmiPending = false;
     digitalWriteFast(NMI_PIN, 0);
-
-    // Soft ROM is disabled
-    romEnabled = false;
-    digitalWriteFast(ROMCS_PIN, 0);
+    delay(150);
 
     // Perform specific actions
     switch (globalState)
@@ -1159,17 +1166,15 @@ void handleStateReset()
     {
         updateRomIndex(true);
         setState(STATE_ROM_ENABLE);
-        digitalWriteFast(LED_PIN, 1);
     } else {
         // Disable the soft ROM
         setState(STATE_ROM_DISABLE);
-        digitalWriteFast(LED_PIN, 0);
     }
 }
 
 void loop()
 {
-    // Detect reset entry, and handle
+    // Detect reset entry, and perform actions in reset
     if (isGlobalStateReset())
     {
         handleStateReset();
@@ -1189,8 +1194,7 @@ inline __attribute__((always_inline)) void writeRomData(uint16_t address)
     } else if ((romSelected == ROM_DIVMMC) && (address >= RAM_PAGE_SIZE))
     {
         // Tranfer DivMMC RAM data to the bus
-        address &= (RAM_PAGE_SIZE - 1);
-        writeData(divMmcRamPtr[address]);
+        writeData(divMmcRamPtr[address & (RAM_PAGE_SIZE - 1)]);
     } else if (romEnabled)
     {
         // Transfer soft ROM data to the bus
@@ -1295,14 +1299,17 @@ FASTRUN void isrWrEvent()
                 updateRomIndex(true);
             } else if (menuPaged && (port_ == 0xeb))
             {
-                menuSelected = true;
-                menuSelectedIndex = readData();
+                if (!menuSelected)
+                {
+                    menuSelected = true;
+                    menuSelectedIndex = readData();
+                }
             } else if (isDivMmcSelected())
             {
                 switch (port_)
                 {
                     case 0xe7 : // DivMMC card select
-                        if ((readData() & 0x1) != 0)
+                        if ((readData() & 0x01) != 0)
                         {
                             writeDivMmcWriteData(SD_SPI_DISABLE, 0xff);
                             digitalWriteFast(LED_PIN, 1);
@@ -1312,10 +1319,7 @@ FASTRUN void isrWrEvent()
                         }
                         break;
                     case 0xeb : // DivMMC write
-                        if (romSelected == ROM_DIVMMC)
-                        {
-                            writeDivMmcWriteData(SD_SPI_WRITE, readData());
-                        }
+                        writeDivMmcWriteData(SD_SPI_WRITE, readData());
                         break;
                     case 0xe3 : // DivMMC control
                         {
@@ -1372,17 +1376,15 @@ FASTRUN void isrRdEvent()
             if (romCsEnable)
             {
                 // Soft ROM is being enabled
-                digitalWriteFast(ROMCS_PIN, 1);
-                romEnabled = true;
+                disableInternalRom();
+                divMmcUpdateInterfaceOne();
                 romCsEnable = false;
-                divMmcDisableInterfaceOne();
             } else if (romCsDisable)
             {
                 // Internal ROM is being enabled
-                digitalWriteFast(ROMCS_PIN, 0);
-                romEnabled = false;
+                enableInternalRom();
+                divMmcUpdateInterfaceOne();
                 romCsDisable = false;
-                divMmcDisableInterfaceOne();
             }
         }
     } else if (globalState == STATE_ROM_ENABLE)
