@@ -13,6 +13,7 @@ typedef struct {
     char divMmcPresent;
     char interface1Present;
     char mf128Present;
+    char bootIntoMenu;
     char romName[(ROM_NAME_LEN + 1)];
 } cfg_data_t;
 
@@ -102,6 +103,7 @@ void generateMenu(volatile uint8_t* romPtr)
 char* menuGenerateSettings(char* ptr)
 {
     // Add settings menu as first options
+    ptr = menuAddSetting(ptr, "Boot into Menu", bootIntoMenu);
     if ((romArrayPresent & BANK_DIVMMC) != 0)
     {
         ptr = menuAddSetting(ptr, "Enable DivMMC", divMmcPresent);
@@ -194,7 +196,7 @@ bool menuPerformSelection(uint8_t index)
 {
     if (index >= menuRomListIndex)
     {
-        // Update the ROM name for the selection
+        // Update the ROM name for the selection, and reset
         updateRomName(index - menuRomListIndex);
         menuAction = MENU_ACTION_LOAD_ROM;
         menuConfigChanged = true;
@@ -203,13 +205,13 @@ bool menuPerformSelection(uint8_t index)
         switch (index)
         {
             case 0 :
-                // Reload the existing ROM name
+                // Reload the existing ROM name, and reset
                 menuAction = MENU_ACTION_LOAD_ROM;
                 return true;
             case 1 :
-                // Reset the configuration and reload
+                // Temporarily disable device, and reset
                 menuAction = MENU_ACTION_LOAD_ROM;
-                menuClearConfiguration();
+                isDeviceDisabled = true;
                 return true;
             case 2 :
                 // Perform firmware update, if available
@@ -220,20 +222,24 @@ bool menuPerformSelection(uint8_t index)
                 }
                 break;
             case 3 :
+                bootIntoMenu = !bootIntoMenu;
+                menuConfigChanged = true;
+                break;
+            case 4 :
                 if ((romArrayPresent & BANK_DIVMMC) != 0)
                 {
                     divMmcPresent = !divMmcPresent;
                     menuConfigChanged = true;
                 }
                 break;
-            case 4 :
+            case 5 :
                 if ((romArrayPresent & BANK_IF1) != 0)
                 {
                     interface1Present = !interface1Present;
                     menuConfigChanged = true;
                 }
                 break;
-            case 5 :
+            case 6 :
                 if ((romArrayPresent & BANK_MF128) != 0)
                 {
                     mf128Present = !mf128Present;
@@ -360,6 +366,7 @@ void menuClearConfiguration()
     divMmcPresent = false;
     interface1Present = false;
     mf128Present = false;
+    bootIntoMenu = true;
     strncpy(cfgData.romName, INTERNAL_ROM_NAME, ROM_NAME_LEN);
     cfgData.romName[ROM_NAME_LEN] = 0;
     menuConfigChanged = true;
@@ -384,6 +391,7 @@ void menuLoadConfiguration()
             {
                 mf128Present = cfgData.mf128Present;
             }
+            bootIntoMenu = cfgData.bootIntoMenu;
             cfgData.romName[ROM_NAME_LEN] = 0;
         }
         cfgFile.close();
@@ -402,6 +410,7 @@ void menuSaveConfiguration()
             cfgData.divMmcPresent = divMmcPresent;
             cfgData.interface1Present = interface1Present;
             cfgData.mf128Present = mf128Present;
+            cfgData.bootIntoMenu = bootIntoMenu;
             cfgData.romName[ROM_NAME_LEN] = 0;
             cfgFile.write((char*)&cfgData, sizeof(cfgData));
             cfgFile.close();

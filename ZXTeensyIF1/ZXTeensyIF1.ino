@@ -136,7 +136,9 @@ const uint32_t DIVMMC_RAM_WRITE_MASK = (A15_PIN_BITMASK | A14_PIN_BITMASK |
 const uint8_t NUM_SD_RETRIES = 5;
 
 // Global state
+volatile bool bootIntoMenu = false;
 volatile bool afterFirstReset = false;
+volatile bool isDeviceDisabled = false;
 volatile bool sdCardPresent = false;
 volatile run_state_t globalState = STATE_RESET;
 volatile bool busRdActive = false;
@@ -943,10 +945,10 @@ void handleStateResetEntry()
 #endif
 
     // Detect button being pressed for menu ROM
-    bool startWithMenu = false;
+    bool activateMenu = false;
     while (!digitalReadFast(BUTTON_PIN))
     {
-        startWithMenu = true;
+        activateMenu = true;
         afterFirstReset = false;
         delay(5);
     }
@@ -976,14 +978,14 @@ void handleStateResetEntry()
             romArray[ROM_MF128][j_] = 0xff;
             romArray[ROM_ROM2][j_] = 0xff;
         }
-
-        // First reset completed
-        afterFirstReset = true;
     }
 
     // Initialise the SD card
     delay(250);
-    if (!sdCardPresent)
+    if (isDeviceDisabled)
+    {
+        isDeviceDisabled = false;
+    } else if (!sdCardPresent)
     {
         // Wait for any previous SD accesses to finish, and clear buffers of any
         // idle state
@@ -1031,7 +1033,7 @@ void handleStateResetEntry()
     // Load the built-in Interface 1 soft ROM
     // NOTE: Button without SD card disables the built-in Interface 1 soft ROM
 #ifdef ENABLE_BUILTIN_ROM_IF1
-    if (sdCardPresent || !startWithMenu)
+    if (sdCardPresent || !activateMenu)
     {
         memcpy((void *)romArray[ROM_IF1], BUILTIN_ROM_IF1, BUILTIN_ROM_IF1_SIZE);
         interface1Present = true;
@@ -1064,7 +1066,8 @@ void handleStateResetEntry()
         menuLoadConfiguration();
 
         // Load menu ROM
-        if (startWithMenu && !digitalReadFast(ROMCS_IN_PIN) &&
+        if ((activateMenu || (!afterFirstReset && bootIntoMenu)) &&
+            !digitalReadFast(ROMCS_IN_PIN) &&
             (loadRomImage("menu.rom", ROM_ROM2, RAM_PAGE_SIZE) > 0))
         {
             menuPaged = true;
@@ -1074,6 +1077,9 @@ void handleStateResetEntry()
             loadForegroundRom();
         }
     }
+
+    // First reset completed
+    afterFirstReset = true;
 }
 
 void handleStateResetMenu()
