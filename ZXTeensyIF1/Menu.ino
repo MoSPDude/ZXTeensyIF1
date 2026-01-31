@@ -6,6 +6,7 @@
 typedef enum {
     MENU_ACTION_REFRESH,
     MENU_ACTION_LOAD_ROM,
+    MENU_ACTION_LOAD_ZXC2,
     MENU_ACTION_UPDATE_FW
 } menu_action_t;
 
@@ -23,6 +24,7 @@ uint8_t menuPage = 0;
 char* menuPtr = 0;
 char* menuSettingsPtr = 0;
 bool menuConfigChanged = false;
+bool menuConfigReload = true;
 bool menuHasUpdateFw = false;
 
 // Configuration data
@@ -194,12 +196,21 @@ char* menuAddFile(char* ptr, const char* filename)
 
 bool menuPerformSelection(uint8_t index)
 {
-    if (index >= menuRomListIndex)
+    if (index >= menuTotalLines)
+    {
+        afterFirstReset = false;
+        menuAction = MENU_ACTION_LOAD_ROM;
+        return true;
+    } else if (index >= menuRomListIndex)
     {
         // Update the ROM name for the selection, and reset
-        updateRomName(index - menuRomListIndex);
-        menuAction = MENU_ACTION_LOAD_ROM;
-        menuConfigChanged = true;
+        if (updateRomName(index - menuRomListIndex))
+        {
+            menuAction = MENU_ACTION_LOAD_ZXC2;
+        } else {
+            menuAction = MENU_ACTION_LOAD_ROM;
+            menuConfigChanged = true;
+        }
         return true;
     } else {
         switch (index)
@@ -271,17 +282,34 @@ void menuPerformAction()
     switch (menuAction)
     {
         case MENU_ACTION_UPDATE_FW :
+            // Flash the firmware update
             flashUpdate(FLASH_FILENAME);
+            break;
+        case MENU_ACTION_LOAD_ZXC2 :
+            // Load new ROM, without changing the configuration
+            menuConfigReload = false;
             break;
         default :
             // Save the configuration to load new ROM
             menuSaveConfiguration();
+            menuConfigReload = true;
             break;
     }
 }
 
-void updateRomName(uint8_t fileIndex)
+bool isRomNameZXC2(const char* fileName)
 {
+    char *fileext = strrchr(fileName, '.');
+    if ((fileext != 0) && (stricmp(fileext + 1, "bin") == 0))
+    {
+        return true;
+    }
+    return false;
+}
+
+bool updateRomName(uint8_t fileIndex)
+{
+    bool isZXC2Rom = false;
     File romDirectory = SD.open("ROMS", FILE_READ);
     if (romDirectory)
     {
@@ -299,6 +327,7 @@ void updateRomName(uint8_t fileIndex)
                         if (index == fileIndex)
                         {
                             strncpy(cfgData.romName, entry.name(), ROM_NAME_LEN);
+                            isZXC2Rom = isRomNameZXC2(entry.name());
                             entry.close();
                             break;
                         } else {
@@ -315,6 +344,7 @@ void updateRomName(uint8_t fileIndex)
         }
         romDirectory.close();
     }
+    return isZXC2Rom;
 }
 
 File menuGetFile(bool* isZXC2Rom)
@@ -335,13 +365,7 @@ File menuGetFile(bool* isZXC2Rom)
                         {
                             if (stricmp(entry.name(), cfgData.romName) == 0)
                             {
-                                char *fileext = strrchr(entry.name(), '.');
-                                if ((fileext != 0) && (stricmp(fileext + 1, "bin") == 0))
-                                {
-                                    *isZXC2Rom = true;
-                                } else {
-                                    *isZXC2Rom = false;
-                                }
+                                *isZXC2Rom = isRomNameZXC2(entry.name());
                                 romDirectory.close();
                                 return entry;
                             }
@@ -374,35 +398,42 @@ void menuClearConfiguration()
 
 void menuLoadConfiguration()
 {
-    File cfgFile = SD.open("ZXTEENSY.CFG", FILE_READ);
-    if (cfgFile)
+    // Load the configuration from the SD card, as required
+    if (menuConfigReload)
     {
-        if (cfgFile.readBytes((char*)&cfgData, sizeof(cfgData)) >= 0)
+        File cfgFile = SD.open("ZXTEENSY.CFG", FILE_READ);
+        if (cfgFile)
         {
-            if ((romArrayPresent & BANK_DIVMMC) != 0)
+            if (cfgFile.readBytes((char*)&cfgData, sizeof(cfgData)) >= 0)
             {
-                divMmcPresent = cfgData.divMmcPresent;
+                if ((romArrayPresent & BANK_DIVMMC) != 0)
+                {
+                    divMmcPresent = cfgData.divMmcPresent;
+                }
+                if ((romArrayPresent & BANK_IF1) != 0)
+                {
+                    interface1Present = cfgData.interface1Present;
+                }
+                if ((romArrayPresent & BANK_MF128) != 0)
+                {
+                    mf128Present = cfgData.mf128Present;
+                }
+                bootIntoMenu = cfgData.bootIntoMenu;
+                cfgData.romName[ROM_NAME_LEN] = 0;
             }
-            if ((romArrayPresent & BANK_IF1) != 0)
-            {
-                interface1Present = cfgData.interface1Present;
-            }
-            if ((romArrayPresent & BANK_MF128) != 0)
-            {
-                mf128Present = cfgData.mf128Present;
-            }
-            bootIntoMenu = cfgData.bootIntoMenu;
-            cfgData.romName[ROM_NAME_LEN] = 0;
+            cfgFile.close();
         }
-        cfgFile.close();
     }
+
+    // Always reload the configuration on normal reset
+    menuConfigReload = true;
 }
 
 void menuSaveConfiguration()
 {
+    // Save the configuration to SD card, if anything has changed
     if (menuConfigChanged)
     {
-        // Save the configuration
         menuConfigChanged = false;
         File cfgFile = SD.open("ZXTEENSY.CFG", FILE_WRITE_BEGIN);
         if (cfgFile)

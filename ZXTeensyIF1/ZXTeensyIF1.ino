@@ -818,6 +818,8 @@ void loadSpectrumRomFile(File RomFile)
 {
     // Reset the Spectrum ROM state
     romArrayPresent &= ~(BANK_ROM0 | BANK_ROM1 | BANK_ROM2 | BANK_ROM3);
+    rom1Present = false;
+    rom23Present = false;
 
     // Attempt to load four 16KB ROM banks
     if (RomFile)
@@ -850,10 +852,11 @@ void loadSpectrumRomFile(File RomFile)
     }
 }
 
-uint32_t loadZXC2RomFile(File RomFile)
+void loadZXC2RomFile(File RomFile)
 {
     // Reset the ZXC2 state
     romArrayPresent &= ~(BANK_RAM);
+    zxC2Present = false;
 
     // The ZXC2 cartridge is loaded into the DivMMC RAM area
     size_t count_ = 0;
@@ -862,6 +865,8 @@ uint32_t loadZXC2RomFile(File RomFile)
         count_ = RomFile.readBytes((char *)divMmcExtRamArray[0], RAM_PAGE_SIZE);
         if (count_ > 0)
         {
+            zxC2Present = true;
+            romArrayPresent |= BANK_RAM;
             for (uint8_t i_ = 1; i_ < EXT_RAM_PAGE_COUNT; ++i_)
             {
                 size_t blk_count_ = RomFile.readBytes((char *)divMmcExtRamArray[i_], RAM_PAGE_SIZE);
@@ -874,7 +879,6 @@ uint32_t loadZXC2RomFile(File RomFile)
         }
         RomFile.close();
     }
-    return count_;
 }
 
 uint16_t loadRomImage(const char* filename, char* romPtr, const uint16_t size)
@@ -897,11 +901,7 @@ void loadSpectrumRoms()
     {
         if (isZXC2Rom_)
         {
-            if (loadZXC2RomFile(RomFile) > 0)
-            {
-                zxC2Present = true;
-                romArrayPresent |= BANK_RAM;
-            }
+            loadZXC2RomFile(RomFile);
         } else {
             loadSpectrumRomFile(RomFile);
         }
@@ -983,6 +983,15 @@ void handleStateResetEntry()
             romArray[ROM_DIVMMC][j_] = 0xff;
             romArray[ROM_MF128][j_] = 0xff;
         }
+
+        // Reset the soft ROM detection state
+        romArrayPresent = 0;
+        rom1Present = false;
+        rom23Present = false;
+        interface1Present = false;
+        divMmcPresent = false;
+        mf128Present = false;
+        zxC2Present = false;
     }
 
     // Initialise the SD card
@@ -1021,26 +1030,10 @@ void handleStateResetEntry()
         }
     }
 
-    // Reset the soft ROM detection state
-    romArrayPresent = 0;
-    rom1Present = false;
-    rom23Present = false;
-    interface1Present = false;
-    divMmcRemoval = false;
-    interface1Removed = false;
-    divMmcPresent = false;
-    mf128Present = false;
-    zxC2Present = false;
-
     // Load the built-in Interface 1 soft ROM
-    // NOTE: Button without SD card disables the built-in Interface 1 soft ROM
 #ifdef ENABLE_BUILTIN_ROM_IF1
-    if (sdCardPresent || !isButtonHeld)
-    {
-        memcpy((void *)romArray[ROM_IF1], BUILTIN_ROM_IF1, BUILTIN_ROM_IF1_SIZE);
-        interface1Present = true;
-        romArrayPresent |= BANK_IF1;
-    }
+    memcpy((void *)romArray[ROM_IF1], BUILTIN_ROM_IF1, BUILTIN_ROM_IF1_SIZE);
+    romArrayPresent |= BANK_IF1;
 #endif
 
     // Load ROMs from the SD card
@@ -1064,10 +1057,10 @@ void handleStateResetEntry()
             romArrayPresent |= BANK_IF1;
         }
 
-        // Load configuration, and last ROM
+        // Load configuration
         menuLoadConfiguration();
 
-        // Load Spectrum ROMs
+        // Load Spectrum or ZXC2 ROMs
         loadSpectrumRoms();
 
         // Load menu ROM into the DivMMC RAM area
@@ -1078,6 +1071,10 @@ void handleStateResetEntry()
             menuPaged = true;
             romArrayPresent |= BANK_RAM;
         }
+    } else if (!isButtonHeld)
+    {
+        // Button without SD card disables the built-in Interface 1 soft ROM
+        interface1Present = true;
     }
 
     // First reset completed
@@ -1108,6 +1105,8 @@ void handleStateReset()
     rom1Paged = false;
     rom23Paged = false;
     interface1Paged = false;
+    interface1Removed = false;
+    divMmcRemoval = false;
     divMmcPaged = false;
     divMmcConMem = false;
     divMmcAutoMap = false;
