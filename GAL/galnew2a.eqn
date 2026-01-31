@@ -1,0 +1,25 @@
+; ZXSpectrum +2 HAL 10H8 equations
+; Extract from original HAL's truth table.
+; Created by: POKE 2003.
+; Modificated equations = unraining, disable read port #7FFD
+
+
+CHIP GALNEW GAL16V8
+
+ ZA15=1 ZA14=2 ZA01=3 IORQL=4 B0=5 B1=6 B2=7 RDL=8 WRL=9 GND=10
+ RFSHL=11 PSG=12 BANK=13 UA14=14 UA15=15 ULA14=16 ULA15=17 VA15=18 VA14=19 
+VCC=20
+
+EQUATIONS
+
+ PSG   = !WRL & !ZA01 & !IORQL & ZA15  | !RDL & !ZA01 & !IORQL & ZA15
+ BANK  = !WRL & RDL & !ZA01 & !IORQL & !ZA15 & ZA14
+
+ ULA15 = ZA15 & !ZA14 | ZA15 & ZA14 & !B0 | !RFSHL
+ ULA14 = !ZA15 & ZA14 | ZA15 & ZA14 & B0
+
+ UA15  = ZA15 & !ZA14 | ZA15 & ZA14 & !B0 & B1
+ UA14  = ZA15 & ZA14 & !B0 & B2
+
+ VA15  = ZA15 & ZA14 & B0 & B1
+ VA14  = !ZA15 & ZA14 | ZA15 & ZA14 & B0 & B2

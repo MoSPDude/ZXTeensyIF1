@@ -186,13 +186,36 @@ the ZX Interface 1,
 * Add a 6.8K resistor from IC1 pin 10 to ground (eg. IC1 pin 20)
 * Connect the base of Q11 back to the edge connector A17 with wire
 
-## ZX Max 128 Issue 3 +2A/+3 Memory Control port decoding
+## +2A/+3 soft ROM on Spectrum 128K/+2 (Grey) machines
 
-The ZX Max 128 Issue 3 needs a modification to support the +2A/+3 soft ROM.
+Spectrum 128K, +2 (Grey) and similar machines (ZX Max 128 Issue 3) require a modification to
+support the +2A/+3 soft ROM.
 
 Without it, accesses to the Secondary Memory Control register (0x1FFD) also affect the original
 Memory Control register (0x7FFD) due to the partial decoding. (More info at
 https://worldofspectrum.org/faq/reference/128kreference.htm)
+
+### 128K/Grey +2 Memory Control port decoding
+
+The BANK decoding is performed by a PAL10H8 chip, which can be swapped for a GAL16V8 to apply
+the "Unrainer/IN 7FFD" fix - see https://spectrumforeveryone.com/technical/applying-the-unrainerin-7ffd-fix-to-128grey-2-machines/ and
+Velesoft https://velesoft.speccy.cz/zx/umbrella/umbrella.htm for the original article and files.
+
+Unrainer fixed GAL16V8 with socket and wire can be bought from the Retroleum shop at
+https://retroleum.co.uk/.
+
+But, by adding a "BANK = ... & ZA14" term, then the GAL can also modify the decoding
+to support the +2A/+3 soft ROM.
+
+I've placed the updated files in the GAL folder.
+
+* Remove IC29 (Spectrum 128K) / IC7 (Grey +2) - and replace with a socket
+    * *Take care of the orientation of the socket!* (The Grey +2 has it pointing downwards)
+* On the underside, add a wire from CPU pin 28 to the GAL socket pin 11
+* Program the GAL16V8 with GALNEW2A.JED, and fit into socket
+    * Again, taking care with the orientation!
+
+### ZX Max 128 Issue 3 +2A/+3 Memory Control port decoding
 
 The modification is shown at
 https://github.com/DonSuperfo/ZX-Max-128/blob/main/Issue%203/Modify%20for%20%2B3%20ROM.pdf,
