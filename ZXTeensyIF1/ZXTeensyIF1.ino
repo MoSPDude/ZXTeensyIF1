@@ -53,18 +53,20 @@ typedef enum {
     BANK_IF1    = 0x0010,
     BANK_DIVMMC = 0x0020,
     BANK_MF128  = 0x0040,
-    BANK_ZXC2   = 0x0080
+    BANK_RAM    = 0x0080
 } bank_select_t;
 
 typedef enum {
     ROM_ROM0,
     ROM_ROM1,
-    ROM_ROM2,   // Also used for Menu ROM
+    ROM_ROM2,
     ROM_ROM3,
     ROM_IF1,
     ROM_DIVMMC,
     ROM_MF128,
-    ROM_ZXC2    // Not a ROM bank
+    // "ROMs" below use DivMMC RAM
+    ROM_ZXC2,   // ROM_PAGE_COUNT
+    ROM_MENU
 } rom_index_t;
 
 // I/O pin assignments
@@ -168,11 +170,6 @@ volatile bool rom23Present = false;
 volatile bool rom1Paged = false;
 volatile bool rom23Paged = false;
 
-// Debug menu ROM
-volatile bool menuPaged = false;
-volatile bool menuSelected = false;
-volatile uint8_t menuSelectedIndex = 0;
-
 // DivMMC with total 512KB of RAM
 const uint16_t RAM_PAGE_COUNT = 16;
 const uint16_t EXT_RAM_PAGE_COUNT = 32;
@@ -207,6 +204,11 @@ volatile bool zxC2Present = false;
 volatile bool zxC2Paged = false;
 volatile bool zxC2Lock = false;
 volatile uint8_t zxC2BankPtr = 0x00;
+
+// Boot menu ROM
+volatile bool menuPaged = false;
+volatile bool menuSelected = false;
+volatile uint8_t menuSelectedIndex = 0;
 
 // DivMMC SPI
 volatile uint8_t sdSpiTxData = 0xff;
@@ -622,12 +624,12 @@ inline __attribute__((always_inline)) void updateRomIndex(bool pageNow)
     // Determine which ROM is currently paged
     if (menuPaged)
     {
-        romSelected = ROM_ROM2;
-        romArraySelected = BANK_ROM2;
+        romSelected = ROM_MENU;
+        romArraySelected = BANK_RAM;
     } else if (zxC2Paged)
     {
         romSelected = ROM_ZXC2;
-        romArraySelected = BANK_ZXC2;
+        romArraySelected = BANK_RAM;
     } else if (mf128Paged)
     {
         romSelected = ROM_MF128;
@@ -674,6 +676,9 @@ inline __attribute__((always_inline)) void updateRomIndex(bool pageNow)
                 break;
             case ROM_ZXC2 :
                 romPtr = divMmcExtRamArray[zxC2BankPtr];
+                break;
+            case ROM_MENU :
+                romPtr = divMmcRamArray[0];
                 break;
             default :
                 romPtr = romArray[romSelected];
@@ -848,9 +853,9 @@ void loadSpectrumRomFile(File RomFile)
 uint32_t loadZXC2RomFile(File RomFile)
 {
     // Reset the ZXC2 state
-    romArrayPresent &= ~(BANK_ZXC2);
+    romArrayPresent &= ~(BANK_RAM);
 
-    // The ZXC2 cartridge is loaded into the DivMMC high RAM area
+    // The ZXC2 cartridge is loaded into the DivMMC RAM area
     size_t count_ = 0;
     if (RomFile)
     {
@@ -872,19 +877,19 @@ uint32_t loadZXC2RomFile(File RomFile)
     return count_;
 }
 
-uint16_t loadRomImage(const char* filename, const rom_index_t romIndex, const uint16_t size)
+uint16_t loadRomImage(const char* filename, char* romPtr, const uint16_t size)
 {
     uint16_t count_ = 0;
     File RomFile = SD.open(filename, FILE_READ);
     if (RomFile)
     {
-        count_ = RomFile.readBytes((char *)romArray[romIndex], size);
+        count_ = RomFile.readBytes(romPtr, size);
         RomFile.close();
     }
     return count_;
 }
 
-void loadForegroundRom()
+void loadSpectrumRoms()
 {
     bool isZXC2Rom_;
     File RomFile = menuGetFile(&isZXC2Rom_);
@@ -895,7 +900,7 @@ void loadForegroundRom()
             if (loadZXC2RomFile(RomFile) > 0)
             {
                 zxC2Present = true;
-                romArrayPresent |= BANK_ZXC2;
+                romArrayPresent |= BANK_RAM;
             }
         } else {
             loadSpectrumRomFile(RomFile);
@@ -945,12 +950,13 @@ void handleStateResetEntry()
 #endif
 
     // Detect button being pressed for menu ROM
-    bool activateMenu = false;
+    bool isButtonHeld = false;
     while (!digitalReadFast(BUTTON_PIN))
     {
-        activateMenu = true;
+        isButtonHeld = true;
         afterFirstReset = false;
-        delay(5);
+        isDeviceDisabled = false;
+        delay(75);
     }
 
     // Perform first reset initialisation
@@ -976,16 +982,12 @@ void handleStateResetEntry()
         {
             romArray[ROM_DIVMMC][j_] = 0xff;
             romArray[ROM_MF128][j_] = 0xff;
-            romArray[ROM_ROM2][j_] = 0xff;
         }
     }
 
     // Initialise the SD card
     delay(250);
-    if (isDeviceDisabled)
-    {
-        isDeviceDisabled = false;
-    } else if (!sdCardPresent)
+    if (!isDeviceDisabled && !sdCardPresent)
     {
         // Wait for any previous SD accesses to finish, and clear buffers of any
         // idle state
@@ -1033,7 +1035,7 @@ void handleStateResetEntry()
     // Load the built-in Interface 1 soft ROM
     // NOTE: Button without SD card disables the built-in Interface 1 soft ROM
 #ifdef ENABLE_BUILTIN_ROM_IF1
-    if (sdCardPresent || !activateMenu)
+    if (sdCardPresent || !isButtonHeld)
     {
         memcpy((void *)romArray[ROM_IF1], BUILTIN_ROM_IF1, BUILTIN_ROM_IF1_SIZE);
         interface1Present = true;
@@ -1045,19 +1047,19 @@ void handleStateResetEntry()
     if (sdCardPresent)
     {
         // Load DivMMC Esxdos ROM
-        if (loadRomImage("esxmmc.bin", ROM_DIVMMC, RAM_PAGE_SIZE) > 0)
+        if (loadRomImage("esxmmc.bin", (char *)romArray[ROM_DIVMMC], RAM_PAGE_SIZE) > 0)
         {
             romArrayPresent |= BANK_DIVMMC;
         }
 
         // Load Multiface 128 ROM
-        if (loadRomImage("mf128.rom", ROM_MF128, RAM_PAGE_SIZE) > 0)
+        if (loadRomImage("mf128.rom", (char *)romArray[ROM_MF128], RAM_PAGE_SIZE) > 0)
         {
             romArrayPresent |= BANK_MF128;
         }
 
         // Load Interface 1 ROM
-        if (loadRomImage("if1.rom", ROM_IF1, ROM_PAGE_SIZE) > 0)
+        if (loadRomImage("if1.rom", (char *)romArray[ROM_IF1], ROM_PAGE_SIZE) > 0)
         {
             romArrayPresent |= BANK_IF1;
         }
@@ -1065,16 +1067,16 @@ void handleStateResetEntry()
         // Load configuration, and last ROM
         menuLoadConfiguration();
 
-        // Load menu ROM
-        if ((activateMenu || (!afterFirstReset && bootIntoMenu)) &&
+        // Load Spectrum ROMs
+        loadSpectrumRoms();
+
+        // Load menu ROM into the DivMMC RAM area
+        if ((isButtonHeld || (!afterFirstReset && bootIntoMenu)) &&
             !digitalReadFast(ROMCS_IN_PIN) &&
-            (loadRomImage("menu.rom", ROM_ROM2, RAM_PAGE_SIZE) > 0))
+            (loadRomImage("menu.rom", (char *)divMmcRamArray[0], RAM_PAGE_SIZE) > 0))
         {
             menuPaged = true;
-            romArrayPresent |= BANK_ROM2;
-        } else {
-            // Load Spectrum ROMs
-            loadForegroundRom();
+            romArrayPresent |= BANK_RAM;
         }
     }
 
@@ -1142,7 +1144,7 @@ void handleStateReset()
     // Populate the menu when active
     if (menuPaged)
     {
-        generateMenu(romArray[ROM_ROM2]);
+        generateMenu(divMmcRamArray[0]);
     } else {
         // If ZXC2 cartridge is present, then page in immediately
         if (zxC2Present)
