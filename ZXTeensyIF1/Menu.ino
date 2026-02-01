@@ -204,12 +204,15 @@ bool menuPerformSelection(uint8_t index)
     } else if (index >= menuRomListIndex)
     {
         // Update the ROM name for the selection, and reset
-        if (updateRomName(index - menuRomListIndex))
+        switch (updateRomName(index - menuRomListIndex))
         {
-            menuAction = MENU_ACTION_LOAD_ZXC2;
-        } else {
-            menuAction = MENU_ACTION_LOAD_ROM;
-            menuConfigChanged = true;
+            case TYPE_ROM :
+                menuAction = MENU_ACTION_LOAD_ROM;
+                menuConfigChanged = true;
+                break;
+            default :
+                menuAction = MENU_ACTION_LOAD_ZXC2;
+                break;
         }
         return true;
     } else {
@@ -297,19 +300,25 @@ void menuPerformAction()
     }
 }
 
-bool isRomNameZXC2(const char* fileName)
+rom_type_t getRomType(const char* fileName)
 {
     char *fileext = strrchr(fileName, '.');
-    if ((fileext != 0) && (stricmp(fileext + 1, "bin") == 0))
+    if (fileext != 0)
     {
-        return true;
+        if (stricmp(fileext + 1, "bin") == 0)
+        {
+            return TYPE_ZXC2;
+        } else if (stricmp(fileext + 1, "rom") == 0)
+        {
+            return TYPE_ROM;
+        }
     }
-    return false;
+    return TYPE_IF2;
 }
 
-bool updateRomName(uint8_t fileIndex)
+rom_type_t updateRomName(uint8_t fileIndex)
 {
-    bool isZXC2Rom = false;
+    rom_type_t romType = TYPE_ROM;
     File romDirectory = SD.open("ROMS", FILE_READ);
     if (romDirectory)
     {
@@ -327,7 +336,7 @@ bool updateRomName(uint8_t fileIndex)
                         if (index == fileIndex)
                         {
                             strncpy(cfgData.romName, entry.name(), ROM_NAME_LEN);
-                            isZXC2Rom = isRomNameZXC2(entry.name());
+                            romType = getRomType(entry.name());
                             entry.close();
                             break;
                         } else {
@@ -344,10 +353,10 @@ bool updateRomName(uint8_t fileIndex)
         }
         romDirectory.close();
     }
-    return isZXC2Rom;
+    return romType;
 }
 
-File menuGetFile(bool* isZXC2Rom)
+File menuGetFile(rom_type_t* romType)
 {
     if (stricmp(cfgData.romName, INTERNAL_ROM_NAME) != 0)
     {
@@ -365,7 +374,7 @@ File menuGetFile(bool* isZXC2Rom)
                         {
                             if (stricmp(entry.name(), cfgData.romName) == 0)
                             {
-                                *isZXC2Rom = isRomNameZXC2(entry.name());
+                                *romType = getRomType(entry.name());
                                 romDirectory.close();
                                 return entry;
                             }

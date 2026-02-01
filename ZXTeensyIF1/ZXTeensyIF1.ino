@@ -69,6 +69,12 @@ typedef enum {
     ROM_MENU
 } rom_index_t;
 
+typedef enum {
+    TYPE_ROM,
+    TYPE_ZXC2,
+    TYPE_IF2
+} rom_type_t;
+
 // I/O pin assignments
 const uint8_t LED_PIN = 13;
 const uint8_t DATA_DIS_PIN = 29;
@@ -172,10 +178,9 @@ volatile bool rom23Paged = false;
 
 // DivMMC with total 512KB of RAM
 const uint16_t RAM_PAGE_COUNT = 16;
-const uint16_t EXT_RAM_PAGE_COUNT = 32;
+const uint16_t EXT_RAM_PAGE_COUNT = 48;
 const uint16_t RAM_PAGE_SIZE = 0x2000;
 volatile uint8_t divMmcRamArray[RAM_PAGE_COUNT][RAM_PAGE_SIZE] __attribute__((aligned(32)));
-volatile DMAMEM uint8_t divMmcHighRamArray[RAM_PAGE_COUNT][RAM_PAGE_SIZE] __attribute__((aligned(32)));
 volatile DMAMEM uint8_t divMmcExtRamArray[EXT_RAM_PAGE_COUNT][RAM_PAGE_SIZE] __attribute__((aligned(32)));
 volatile bool divMmcPresent = false;
 volatile bool divMmcPaged = false;
@@ -804,9 +809,9 @@ class SdSpiZXTeensy : public SdSpiSoftDriver {
         */
         void send(uint8_t data)
         {
-            uint8_t count_ = sdSpiCount;
+            uint8_t count = sdSpiCount;
             writeDivMmcWriteData(SD_SPI_WRITE, data);
-            while (count_ == sdSpiCount) {
+            while (count == sdSpiCount) {
                 performOnSdSpiClock();
             };
         }
@@ -822,33 +827,29 @@ void loadSpectrumRomFile(File RomFile)
     rom23Present = false;
 
     // Attempt to load four 16KB ROM banks
-    if (RomFile)
+    size_t count = RomFile.readBytes((char *)romArray[ROM_ROM0], ROM_PAGE_SIZE);
+    if (count > 0)
     {
-        size_t count_ = RomFile.readBytes((char *)romArray[ROM_ROM0], ROM_PAGE_SIZE);
-        if (count_ > 0)
+        romArrayPresent |= BANK_ROM0;
+        if (count >= ROM_PAGE_SIZE)
         {
-            romArrayPresent |= BANK_ROM0;
-            if (count_ >= ROM_PAGE_SIZE)
+            count = RomFile.readBytes((char *)romArray[ROM_ROM1], ROM_PAGE_SIZE);
+            if (count > 0)
             {
-                count_ = RomFile.readBytes((char *)romArray[ROM_ROM1], ROM_PAGE_SIZE);
-                if (count_ > 0)
+                rom1Present = true;
+                romArrayPresent |= BANK_ROM1;
+                if (count >= ROM_PAGE_SIZE)
                 {
-                    rom1Present = true;
-                    romArrayPresent |= BANK_ROM1;
-                    if (count_ >= ROM_PAGE_SIZE)
+                    count = RomFile.readBytes((char *)romArray[ROM_ROM2], ROM_PAGE_SIZE);
+                    if (count > 0)
                     {
-                        count_ = RomFile.readBytes((char *)romArray[ROM_ROM2], ROM_PAGE_SIZE);
-                        if (count_ > 0)
-                        {
-                            rom23Present = true;
-                            romArrayPresent |= (BANK_ROM2 | BANK_ROM3);
-                            count_ = RomFile.readBytes((char *)romArray[ROM_ROM3], ROM_PAGE_SIZE);
-                        }
+                        rom23Present = true;
+                        romArrayPresent |= (BANK_ROM2 | BANK_ROM3);
+                        count = RomFile.readBytes((char *)romArray[ROM_ROM3], ROM_PAGE_SIZE);
                     }
                 }
             }
         }
-        RomFile.close();
     }
 }
 
@@ -859,52 +860,53 @@ void loadZXC2RomFile(File RomFile)
     zxC2Present = false;
 
     // The ZXC2 cartridge is loaded into the DivMMC RAM area
-    size_t count_ = 0;
-    if (RomFile)
+    size_t count = RomFile.readBytes((char *)divMmcExtRamArray[0], RAM_PAGE_SIZE);
+    if (count > 0)
     {
-        count_ = RomFile.readBytes((char *)divMmcExtRamArray[0], RAM_PAGE_SIZE);
-        if (count_ > 0)
+        zxC2Present = true;
+        romArrayPresent |= BANK_RAM;
+        for (uint8_t i_ = 1; i_ < EXT_RAM_PAGE_COUNT; ++i_)
         {
-            zxC2Present = true;
-            romArrayPresent |= BANK_RAM;
-            for (uint8_t i_ = 1; i_ < EXT_RAM_PAGE_COUNT; ++i_)
+            size_t blk_count_ = RomFile.readBytes((char *)divMmcExtRamArray[i_], RAM_PAGE_SIZE);
+            count += blk_count_;
+            if (blk_count_ < RAM_PAGE_SIZE)
             {
-                size_t blk_count_ = RomFile.readBytes((char *)divMmcExtRamArray[i_], RAM_PAGE_SIZE);
-                count_ += blk_count_;
-                if (blk_count_ < RAM_PAGE_SIZE)
-                {
-                    break;
-                }
+                break;
             }
         }
-        RomFile.close();
     }
 }
 
-uint16_t loadRomImage(const char* filename, char* romPtr, const uint16_t size)
+uint16_t loadRomImage(const char* filename, char* ptr, const uint16_t size)
 {
-    uint16_t count_ = 0;
+    uint16_t count = 0;
     File RomFile = SD.open(filename, FILE_READ);
     if (RomFile)
     {
-        count_ = RomFile.readBytes(romPtr, size);
+        count = RomFile.readBytes(ptr, size);
         RomFile.close();
     }
-    return count_;
+    return count;
 }
 
-void loadSpectrumRoms()
+void loadForegroundRom()
 {
-    bool isZXC2Rom_;
-    File RomFile = menuGetFile(&isZXC2Rom_);
+    rom_type_t romType;
+    File RomFile = menuGetFile(&romType);
     if (RomFile)
     {
-        if (isZXC2Rom_)
+        switch (romType)
         {
-            loadZXC2RomFile(RomFile);
-        } else {
-            loadSpectrumRomFile(RomFile);
+            case TYPE_IF2 :
+                zxC2Lock = true;
+            case TYPE_ZXC2 :
+                loadZXC2RomFile(RomFile);
+                break;
+            default :
+                loadSpectrumRomFile(RomFile);
+                break;
         }
+        RomFile.close();
     }
 }
 
@@ -930,14 +932,6 @@ void handleStateResetEntry()
                 Serial.write((char*)&divMmcRamArray[i_][j_], 0x400);
             }
         }
-        for (uint8_t i_ = 0; i_ < RAM_PAGE_COUNT; ++i_)
-        {
-            for (uint16_t j_ = 0; j_ < RAM_PAGE_SIZE; j_ += 0x400)
-            {
-                while ( (uint) Serial.availableForWrite() <  0x400);
-                Serial.write((char*)&divMmcHighRamArray[i_][j_], 0x400);
-            }
-        }
         for (uint8_t i_ = 0; i_ < EXT_RAM_PAGE_COUNT; ++i_)
         {
             for (uint16_t j_ = 0; j_ < RAM_PAGE_SIZE; j_ += 0x400)
@@ -951,12 +945,25 @@ void handleStateResetEntry()
 
     // Detect button being pressed for menu ROM
     bool isButtonHeld = false;
-    while (!digitalReadFast(BUTTON_PIN))
+    if (!digitalReadFast(BUTTON_PIN))
     {
+        // Re-initialise into the menu ROM
         isButtonHeld = true;
         afterFirstReset = false;
         isDeviceDisabled = false;
-        delay(75);
+
+        // Close the SD card to reload the system
+        if (sdCardPresent)
+        {
+            SD.sdfs.end();
+            sdCardPresent = false;
+        }
+
+        // Wait for button release
+        while (!digitalReadFast(BUTTON_PIN))
+        {
+            delay(75);
+        }
     }
 
     // Perform first reset initialisation
@@ -968,7 +975,6 @@ void handleStateResetEntry()
             for (uint16_t j_ = 0; j_ < RAM_PAGE_SIZE; ++j_)
             {
                 divMmcRamArray[i_][j_] = 0xff;
-                divMmcHighRamArray[i_][j_] = 0xff;
             }
         }
         for (uint8_t i_ = 0; i_ < EXT_RAM_PAGE_COUNT; ++i_)
@@ -1039,29 +1045,33 @@ void handleStateResetEntry()
     // Load ROMs from the SD card
     if (sdCardPresent)
     {
-        // Load DivMMC Esxdos ROM
-        if (loadRomImage("esxmmc.bin", (char *)romArray[ROM_DIVMMC], RAM_PAGE_SIZE) > 0)
+        // Load device ROMs
+        if (!afterFirstReset)
         {
-            romArrayPresent |= BANK_DIVMMC;
-        }
+            // Load DivMMC Esxdos ROM
+            if (loadRomImage("esxmmc.bin", (char *)romArray[ROM_DIVMMC], RAM_PAGE_SIZE) > 0)
+            {
+                romArrayPresent |= BANK_DIVMMC;
+            }
 
-        // Load Multiface 128 ROM
-        if (loadRomImage("mf128.rom", (char *)romArray[ROM_MF128], RAM_PAGE_SIZE) > 0)
-        {
-            romArrayPresent |= BANK_MF128;
-        }
+            // Load Multiface 128 ROM
+            if (loadRomImage("mf128.rom", (char *)romArray[ROM_MF128], RAM_PAGE_SIZE) > 0)
+            {
+                romArrayPresent |= BANK_MF128;
+            }
 
-        // Load Interface 1 ROM
-        if (loadRomImage("if1.rom", (char *)romArray[ROM_IF1], ROM_PAGE_SIZE) > 0)
-        {
-            romArrayPresent |= BANK_IF1;
+            // Load Interface 1 ROM
+            if (loadRomImage("if1.rom", (char *)romArray[ROM_IF1], ROM_PAGE_SIZE) > 0)
+            {
+                romArrayPresent |= BANK_IF1;
+            }
         }
 
         // Load configuration
         menuLoadConfiguration();
 
-        // Load Spectrum or ZXC2 ROMs
-        loadSpectrumRoms();
+        // Load foreground ROM
+        loadForegroundRom();
 
         // Load menu ROM into the DivMMC RAM area
         if ((isButtonHeld || (!afterFirstReset && bootIntoMenu)) &&
@@ -1350,17 +1360,15 @@ FASTRUN void isrWrEvent()
                             {
                                 divMmcMapRam = true;
                             }
-                            if (!zxC2Present && ((data & 0x20) != 0))
+
+                            // DivMMC RAM banking
+                            data &= (EXT_RAM_PAGE_COUNT + RAM_PAGE_COUNT - 1);
+                            if (!zxC2Present && (data >= RAM_PAGE_COUNT))
                             {
-                                divMmcRamPtr = divMmcExtRamArray[(data & (EXT_RAM_PAGE_COUNT - 1))];
-                                divMmcRamBankThree = false;
-                            } else if ((data & 0x10) != 0)
-                            {
-                                divMmcRamPtr = divMmcHighRamArray[(data & (RAM_PAGE_COUNT - 1))];
+                                divMmcRamPtr = divMmcExtRamArray[(data - RAM_PAGE_COUNT)];
                                 divMmcRamBankThree = false;
                             } else {
-                                data &= (RAM_PAGE_COUNT - 1);
-                                divMmcRamPtr = divMmcRamArray[data];
+                                divMmcRamPtr = divMmcRamArray[data & (RAM_PAGE_COUNT - 1)];
                                 divMmcRamBankThree = ((data == 0x03) ? 1 : 0);
                             }
                             updateRomIndex(true);
