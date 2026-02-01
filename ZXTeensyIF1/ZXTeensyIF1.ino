@@ -821,10 +821,11 @@ SdSpiZXTeensy divMmcSpi;
 
 void loadSpectrumRomFile(File RomFile)
 {
-    // Reset the Spectrum ROM state
-    romArrayPresent &= ~(BANK_ROM0 | BANK_ROM1 | BANK_ROM2 | BANK_ROM3);
+    // Reset the Spectrum ROM and ZXC2 state
+    romArrayPresent &= ~(BANK_ROM0 | BANK_ROM1 | BANK_ROM2 | BANK_ROM3 | BANK_RAM);
     rom1Present = false;
     rom23Present = false;
+    zxC2Present = false;
 
     // Attempt to load four 16KB ROM banks
     size_t count = RomFile.readBytes((char *)romArray[ROM_ROM0], ROM_PAGE_SIZE);
@@ -855,7 +856,7 @@ void loadSpectrumRomFile(File RomFile)
 
 void loadZXC2RomFile(File RomFile)
 {
-    // Reset the ZXC2 state
+    // Reset the ZXC2 state only, as can page into the Spectrum ROM
     romArrayPresent &= ~(BANK_RAM);
     zxC2Present = false;
 
