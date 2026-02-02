@@ -18,10 +18,9 @@ typedef struct {
     char romName[(ROM_NAME_LEN + 1)];
 } cfg_data_t;
 
-uint8_t menuLine = 0;
-uint8_t menuTotalLines = 0;
-uint8_t menuPage = 0;
-char* menuPtr = 0;
+uint8_t menuLine;
+uint8_t menuTotalLines;
+uint8_t menuPage;
 char* menuSettingsPtr = 0;
 bool menuConfigChanged = false;
 bool menuConfigReload = true;
@@ -37,8 +36,13 @@ volatile menu_action_t menuAction = MENU_ACTION_REFRESH;
 
 void generateMenu(volatile uint8_t* romPtr)
 {
+    // Reset the menu dimensions
+    menuLine = 0;
+    menuTotalLines = 0;
+    menuPage = 0;
+
     // Build the menu
-    menuPtr = (char*)romPtr + RAM_PAGE_SIZE;
+    char* menuPtr = (char*)romPtr + RAM_PAGE_SIZE;
     char* endPtr = menuPtr + RAM_PAGE_SIZE - 36;
     char* ptr = menuAddSetting(menuPtr, "Save and Restart", 0);
     ptr = menuAddSetting(ptr, "Disable and Restart", 0);
@@ -58,8 +62,6 @@ void generateMenu(volatile uint8_t* romPtr)
     // Add settings menu, that is refreshed on MENU_ACTION_REFRESH
     menuSettingsPtr = ptr;
     ptr = menuGenerateSettings(ptr);
-
-    // Add disable option
 
     // List ROM files
     ptr = menuAddSetting(ptr, "Internal ROM",
@@ -150,15 +152,15 @@ char* menuAddFile(char* ptr, const char* filename)
     unsigned int len = strlen(filename);
 
     // Find the file extension
-    bool hasIcon = false;
+    bool hasIcon = true;
     char *fileext = strrchr(filename, '.');
     if (fileext != 0)
     {
-        if (stricmp(fileext + 1, "bin") == 0)
+        if (stricmp(fileext + 1, "rom") == 0)
         {
             len = (fileext - filename);
-            hasIcon = true;
-        } else if (stricmp(fileext + 1, "rom") == 0)
+            hasIcon = false;
+        } else if (stricmp(fileext + 1, "bin") == 0)
         {
             len = (fileext - filename);
         }
@@ -356,7 +358,7 @@ rom_type_t updateRomName(uint8_t fileIndex)
     return romType;
 }
 
-File menuGetFile(rom_type_t* romType)
+File menuGetRomFile(rom_type_t* romType)
 {
     if (stricmp(cfgData.romName, INTERNAL_ROM_NAME) != 0)
     {

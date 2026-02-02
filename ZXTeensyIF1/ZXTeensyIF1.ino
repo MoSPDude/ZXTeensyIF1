@@ -819,6 +819,18 @@ class SdSpiZXTeensy : public SdSpiSoftDriver {
 
 SdSpiZXTeensy divMmcSpi;
 
+uint16_t loadRomImage(const char* filename, char* ptr, const uint16_t size)
+{
+    uint16_t count = 0;
+    File RomFile = SD.open(filename, FILE_READ);
+    if (RomFile)
+    {
+        count = RomFile.readBytes(ptr, size);
+        RomFile.close();
+    }
+    return count;
+}
+
 void loadSpectrumRomFile(File RomFile)
 {
     // Reset the Spectrum ROM and ZXC2 state
@@ -878,22 +890,10 @@ void loadZXC2RomFile(File RomFile)
     }
 }
 
-uint16_t loadRomImage(const char* filename, char* ptr, const uint16_t size)
-{
-    uint16_t count = 0;
-    File RomFile = SD.open(filename, FILE_READ);
-    if (RomFile)
-    {
-        count = RomFile.readBytes(ptr, size);
-        RomFile.close();
-    }
-    return count;
-}
-
 void loadForegroundRom()
 {
     rom_type_t romType;
-    File RomFile = menuGetFile(&romType);
+    File RomFile = menuGetRomFile(&romType);
     if (RomFile)
     {
         switch (romType)
