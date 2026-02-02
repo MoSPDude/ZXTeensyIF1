@@ -25,7 +25,7 @@ MEM_ORG     EQU      0x0000  ; start of code
 MEM_NMI     EQU     MEM_ORG + 0x0038
 MEM_LTBL    EQU     MEM_ORG + 0x1000 ; lookup table MEM_LTBLP-512
 MEM_LTBLP   EQU     MEM_LTBL + 0x200 ; lookup table start
-MEM_OFFSET  EQU     MEM_LTBL - 6;
+MEM_OFFSET  EQU     MEM_LTBL - 9;
 ; ------------------------------------------+----------------------------------
 ; initial set-up
 ; ------------------------------------------+----------------------------------
@@ -532,7 +532,9 @@ _newRotation:
     ld c,a                                    ; put new rotation into c
     jr _pltTextLoop
 _menuHeader:
-    defb "ZXTeensyIF1",0
+    defb "ZXTeensyIF1 "
+_verText:
+    defb "20260202", 0
 ; ------------------------------------------+----------------------------------
 ; Left Aligned Sinclair ZX Spectrum Font - used for variable width font routine
 ;   first 6 are icons, then space (32) to copyright (127) (128+4 *8=1056b)
@@ -541,8 +543,8 @@ _menuHeader:
     DEFB    128,130,132,132,136,168,144,128 ; 27 - checkmark
     DEFB    127,197,245,238,221,197,127,  0 ; 28 - zxc_l
     DEFB    252,102, 94,222, 94,102,252,  0 ; 29 - zxc_r
-    DEFB    144,128,144,138,144,128,144,128 ; 30 - left hand side file
-    DEFB    144,128,144,138,128,128,128,128 ; 31 - left hand side last file
+    DEFB     31, 16, 23, 16, 16, 31,  7,  0 ; 30 - if2_l
+    DEFB    248,  8,136,  8,  8,248,224,  0 ; 31 - if2_r
 _shiftedFontData:
     DEFB      0,  0,  0,  0,  0,  0,  0,  0    ; 32 - space
     DEFB      0, 64, 64, 64, 64,  0, 64,  0
@@ -714,6 +716,7 @@ _compressedBlank:
   defb 0xff,0xff,0xff,0xff,0xff,0x9a,0xff,0x9a,0x00,0x03,0x06,0x01,0x03,0x03,0x80
 _codeend:
     org MEM_OFFSET
+    jp (_verText)
     jp (_maxroms + 1)
     jp (_right + 1)
 ;

@@ -97,8 +97,10 @@ void generateMenu(volatile uint8_t* romPtr)
         romDirectory.close();
     }
 
-    // Write the menu dimensions
-    uint16_t address = ((romPtr[0x0FFC] << 8) + romPtr[0x0FFB]);
+    // Write the version and menu dimensions
+    uint16_t address = ((romPtr[0x0FF9] << 8) + romPtr[0x0FF8]);
+    strncpy((char*)&romPtr[address], VERSION_STR, 9);
+    address = ((romPtr[0x0FFC] << 8) + romPtr[0x0FFB]);
     romPtr[address] = (menuTotalLines - 1);
     address = ((romPtr[0x0FFF] << 8) + romPtr[0x0FFE]);
     romPtr[address] = (menuPage + 1);
@@ -152,17 +154,18 @@ char* menuAddFile(char* ptr, const char* filename)
     unsigned int len = strlen(filename);
 
     // Find the file extension
-    bool hasIcon = true;
+    uint8_t icon = 2;
     char *fileext = strrchr(filename, '.');
     if (fileext != 0)
     {
         if (stricmp(fileext + 1, "rom") == 0)
         {
             len = (fileext - filename);
-            hasIcon = false;
+            icon = 0;
         } else if (stricmp(fileext + 1, "bin") == 0)
         {
             len = (fileext - filename);
+            icon = 1;
         }
     }
 
@@ -175,11 +178,20 @@ char* menuAddFile(char* ptr, const char* filename)
     ptr += len;
 
     // Add icon
-    if (hasIcon)
+    switch (icon)
     {
-        *ptr++ = 9;
-        *ptr++ = 28;
-        *ptr++ = 29;
+        case 1 :
+            *ptr++ = 9;
+            *ptr++ = 28;
+            *ptr++ = 29;
+            break;
+        case 2 :
+            *ptr++ = 9;
+            *ptr++ = 30;
+            *ptr++ = 31;
+            break;
+        default :
+            break;
     }
 
     // Add new line, and update menu dimensions

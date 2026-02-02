@@ -2,6 +2,7 @@
 // Must be set in SdFat/src/SdFatConfig.h
 #define SPI_DRIVER_SELECT 2
 
+#define ZXTEENSY_VERSION "20260203"
 #define ENABLE_BUILTIN_ROM_IF1
 //#define DEBUG_OUTPUT
 
@@ -23,6 +24,8 @@
 #define TRIGGER_DELAY_CNT ((TRIGGER_DELAY_MS * TEENSY_CLK_FREQ) / (SD_TICK_CYCCNT * 1000))
 
 extern "C" uint32_t set_arm_clock(uint32_t frequency);
+
+const char PROGMEM VERSION_STR[9] = ZXTEENSY_VERSION;
 
 typedef enum {
     STATE_ROM_DISABLE = 0x00,
