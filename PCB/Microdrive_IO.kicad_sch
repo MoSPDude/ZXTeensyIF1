@@ -1501,6 +1501,12 @@
 		)
 	)
 	(junction
+		(at 68.58 85.09)
+		(diameter 0)
+		(color 0 0 0 0)
+		(uuid "23919802-f7cc-466f-833a-cf09f323cf28")
+	)
+	(junction
 		(at 96.52 104.14)
 		(diameter 0)
 		(color 0 0 0 0)
@@ -1634,16 +1640,6 @@
 	)
 	(wire
 		(pts
-			(xy 68.58 85.09) (xy 68.58 87.63)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "179ef8f4-8f41-42a4-a92f-422f9ff8d6b0")
-	)
-	(wire
-		(pts
 			(xy 73.66 40.64) (xy 68.58 40.64)
 		)
 		(stroke
@@ -1704,7 +1700,7 @@
 	)
 	(wire
 		(pts
-			(xy 68.58 60.96) (xy 68.58 77.47)
+			(xy 68.58 60.96) (xy 68.58 74.93)
 		)
 		(stroke
 			(width 0)
@@ -1731,6 +1727,16 @@
 			(type default)
 		)
 		(uuid "3121caa4-d3a3-4a64-8fed-2742c0d78c9f")
+	)
+	(wire
+		(pts
+			(xy 68.58 85.09) (xy 68.58 87.63)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "44f78b1a-c3ae-4665-b8f2-cc7ca1829090")
 	)
 	(wire
 		(pts
@@ -1771,6 +1777,16 @@
 			(type default)
 		)
 		(uuid "5bb6d430-11ab-4d59-bdfd-02b31f516612")
+	)
+	(wire
+		(pts
+			(xy 68.58 82.55) (xy 68.58 85.09)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "6152eae9-cfac-489b-84fa-4a0ad5287aeb")
 	)
 	(wire
 		(pts
@@ -1954,7 +1970,17 @@
 	)
 	(wire
 		(pts
-			(xy 100.33 87.63) (xy 68.58 87.63)
+			(xy 68.58 87.63) (xy 100.33 87.63)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "92f46c30-8e07-4bb1-885d-fe23d43df541")
+	)
+	(wire
+		(pts
+			(xy 68.58 85.09) (xy 63.5 85.09)
 		)
 		(stroke
 			(width 0)
@@ -2172,6 +2198,27 @@
 					(size 1.27 1.27)
 				)
 				(justify left)
+			)
+		)
+	)
+	(global_label "+9V0"
+		(shape input)
+		(at 63.5 85.09 180)
+		(fields_autoplaced yes)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify right)
+		)
+		(uuid "a682f754-d568-4273-a8c3-6908c517b50b")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 55.4348 85.09 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify right)
 			)
 		)
 	)
@@ -2500,7 +2547,7 @@
 	)
 	(symbol
 		(lib_id "Device:L")
-		(at 68.58 81.28 0)
+		(at 68.58 78.74 0)
 		(unit 1)
 		(exclude_from_sim no)
 		(in_bom yes)
@@ -2508,7 +2555,7 @@
 		(dnp no)
 		(uuid "59a8d1a5-c88d-4b28-beb3-e725a801f179")
 		(property "Reference" "L1"
-			(at 66.802 80.264 0)
+			(at 66.802 77.724 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -2517,7 +2564,7 @@
 			)
 		)
 		(property "Value" "22uH 0.41A"
-			(at 66.802 82.804 0)
+			(at 66.802 80.264 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -2526,7 +2573,7 @@
 			)
 		)
 		(property "Footprint" "Inductor_THT:L_Axial_L12.8mm_D5.8mm_P20.32mm_Horizontal_Fastron_HBCC"
-			(at 68.58 81.28 0)
+			(at 68.58 78.74 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -2535,7 +2582,7 @@
 			)
 		)
 		(property "Datasheet" "~"
-			(at 68.58 81.28 0)
+			(at 68.58 78.74 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -2544,7 +2591,7 @@
 			)
 		)
 		(property "Description" ""
-			(at 68.58 81.28 0)
+			(at 68.58 78.74 0)
 			(effects
 				(font
 					(size 1.27 1.27)

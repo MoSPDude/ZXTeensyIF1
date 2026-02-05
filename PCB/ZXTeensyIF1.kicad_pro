@@ -63,6 +63,50 @@
         [
           "courtyards_overlap|115582400|66614100|56d30d4d-17b1-49d7-97d6-a7e18e4b6847|63b3ea1b-84fe-4f7f-8b18-e81571dc1fdf",
           ""
+        ],
+        [
+          "silk_overlap|62626800|113741200|17dd055d-a0c0-4f1e-b94e-f45c16551ad0|3437b2e9-3e95-411b-aaa0-3375e348380a",
+          ""
+        ],
+        [
+          "silk_overlap|62626800|121421200|15e8d372-b4a5-4260-8e59-ba9334172a4e|3437b2e9-3e95-411b-aaa0-3375e348380a",
+          ""
+        ],
+        [
+          "silk_overlap|62626800|121423600|3437b2e9-3e95-411b-aaa0-3375e348380a|6af6535c-8cde-427a-8359-cf0b9c848fad",
+          ""
+        ],
+        [
+          "silk_overlap|63956800|111144200|3437b2e9-3e95-411b-aaa0-3375e348380a|fb799615-95dc-4b32-9b52-636ea15ac86a",
+          ""
+        ],
+        [
+          "silk_overlap|65286800|111144200|3437b2e9-3e95-411b-aaa0-3375e348380a|c63061c6-0f25-44f5-a135-59a1eb728328",
+          ""
+        ],
+        [
+          "silk_overlap|65286800|121421200|254f3c1d-9633-47ff-9e50-7ef35a047280|3437b2e9-3e95-411b-aaa0-3375e348380a",
+          ""
+        ],
+        [
+          "silk_overlap|84241000|87737800|2c28b902-cb3f-49ca-ab37-bc2a613a52da|d820edde-8ae0-4da0-8973-3ad2fe5a2ae9",
+          ""
+        ],
+        [
+          "silk_overlap|84241000|98017800|62c79ec7-6dc1-4544-8fb5-3cec6cc08eb8|d820edde-8ae0-4da0-8973-3ad2fe5a2ae9",
+          ""
+        ],
+        [
+          "silk_overlap|84241000|98017800|b8408a7a-69d7-4421-83f5-33d3f7476e3b|d820edde-8ae0-4da0-8973-3ad2fe5a2ae9",
+          ""
+        ],
+        [
+          "text_height|232079800|98422800|4e19a2d5-0510-4c8f-948f-837c6a5677d8|00000000-0000-0000-0000-000000000000",
+          ""
+        ],
+        [
+          "text_height|233349800|98602800|01fc7c14-02a7-4e47-b59a-1787fd9faec9|00000000-0000-0000-0000-000000000000",
+          ""
         ]
       ],
       "meta": {
@@ -113,7 +157,7 @@
         "skew_out_of_range": "error",
         "solder_mask_bridge": "error",
         "starved_thermal": "error",
-        "text_height": "ignore",
+        "text_height": "warning",
         "text_on_edge_cuts": "error",
         "text_thickness": "warning",
         "through_hole_pad_without_hole": "error",
@@ -607,6 +651,10 @@
       {
         "netclass": "LowPower",
         "pattern": "Net-(U8-C*"
+      },
+      {
+        "netclass": "Power",
+        "pattern": "Net-(J1*"
       }
     ]
   },
@@ -802,8 +850,8 @@
     ]
   ],
   "text_variables": {
-    "PRJ_DATE": "2026-01-23",
+    "PRJ_DATE": "2026-02-05",
     "PRJ_NAME": "ZXTeensyIF1",
-    "PRJ_REVISION": "v0.3"
+    "PRJ_REVISION": "v0.5"
   }
 }
