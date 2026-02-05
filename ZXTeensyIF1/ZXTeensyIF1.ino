@@ -10,6 +10,7 @@
 #include <SPI.h>
 #include <SdFat.h>
 #include "if1-2_rom.h"
+#include "HardwareSerialPublic.h"
 
 // Run the Teensy 4.1 with slight overclock at 816MHz
 // Run the SD card at ~7MHz (at 816MHz, SD_TICK_CYCCNT = 58)
@@ -49,6 +50,11 @@ typedef enum {
 } sd_spi_action_t;
 
 typedef enum {
+    UART_WRITE,
+    UART_SET_BAUD
+} uart_action_t;
+
+typedef enum {
     BANK_ROM0   = 0x0001,
     BANK_ROM1   = 0x0002,
     BANK_ROM2   = 0x0004,
@@ -81,11 +87,11 @@ typedef enum {
 // I/O pin assignments
 const uint8_t LED_PIN = 13;
 const uint8_t DATA_DIS_PIN = 29;
-const uint8_t DATA_OUT_PIN = 34;  // 1 = output, 0 = input
+const uint8_t DATA_OUT_PIN = 36;  // 1 = output, 0 = input
 const uint8_t RESET_PIN = 31;
 const uint8_t RESET_IN_PIN = 2;
 const uint8_t BUTTON_PIN = 33;
-const uint8_t ROMCS_PIN = 35;
+const uint8_t ROMCS_PIN = 37;
 const uint8_t ROMCS_IN_PIN = 3;
 const uint8_t IF1_DIS_PIN = 5;
 const uint8_t NMI_PIN = 30;
@@ -94,14 +100,12 @@ const uint8_t WR_PIN = 0;
 const uint8_t MREQ_PIN = 24;
 const uint8_t IOREQ_PIN = 25;
 const uint8_t M1_PIN = 4;
-const uint8_t NC_IN_A_PIN = 28;
-const uint8_t NC_IN_B_PIN = 36;
-const uint8_t NC_IN_C_PIN = 37;
+const uint8_t ESP_ENABLE = 28;
 
 const uint8_t INPUT_PINS[] = {
     RESET_IN_PIN, MREQ_PIN, RD_PIN, IOREQ_PIN, WR_PIN, M1_PIN, ROMCS_IN_PIN,
     19, 18, 14, 15, 40, 41, 17, 16, 22, 23, 20, 21, 38, 39, 26, 27, // Address bus
-    BUTTON_PIN, NC_IN_A_PIN, NC_IN_B_PIN, NC_IN_C_PIN
+    BUTTON_PIN, ESP_ENABLE
 };
 
 const uint32_t RD_PIN_BITMASK = CORE_PIN1_BITMASK;
@@ -121,7 +125,7 @@ const uint32_t GPIO7_DATA_MASK = (CORE_PIN6_BITMASK | CORE_PIN7_BITMASK |
     CORE_PIN10_BITMASK | CORE_PIN11_BITMASK |
     CORE_PIN12_BITMASK | CORE_PIN32_BITMASK);
 
-const uint32_t DATA_OUT_PIN_BITMASK = CORE_PIN34_BITMASK;
+const uint32_t DATA_OUT_PIN_BITMASK = CORE_PIN36_BITMASK;
 
 const uint8_t OUTPUT_PINS[] = {
     LED_PIN, ROMCS_PIN, NMI_PIN, IF1_DIS_PIN
@@ -166,7 +170,7 @@ const rom_index_t ROM_PAGE_COUNT = ROM_ZXC2;
 const uint16_t ROM_PAGE_SIZE = 0x4000;
 volatile rom_index_t romSelected = ROM_ROM0;
 volatile bank_select_t romArraySelected = BANK_ROM0;
-volatile uint8_t romArray[ROM_PAGE_COUNT][ROM_PAGE_SIZE] __attribute__((aligned(32)));
+volatile uint8_t romArray[ROM_PAGE_COUNT][ROM_PAGE_SIZE] __attribute__((aligned(16)));
 volatile uint8_t* romPtr = romArray[0];
 volatile uint16_t romArrayPresent = 0;
 volatile bool romEnabled = false;
@@ -183,8 +187,8 @@ volatile bool rom23Paged = false;
 const uint16_t RAM_PAGE_COUNT = 16;
 const uint16_t EXT_RAM_PAGE_COUNT = 48;
 const uint16_t RAM_PAGE_SIZE = 0x2000;
-volatile uint8_t divMmcRamArray[RAM_PAGE_COUNT][RAM_PAGE_SIZE] __attribute__((aligned(32)));
-volatile DMAMEM uint8_t divMmcExtRamArray[EXT_RAM_PAGE_COUNT][RAM_PAGE_SIZE] __attribute__((aligned(32)));
+volatile uint8_t divMmcRamArray[RAM_PAGE_COUNT][RAM_PAGE_SIZE] __attribute__((aligned(16)));
+volatile DMAMEM uint8_t divMmcExtRamArray[EXT_RAM_PAGE_COUNT][RAM_PAGE_SIZE] __attribute__((aligned(16)));
 volatile bool divMmcPresent = false;
 volatile bool divMmcPaged = false;
 volatile bool divMmcAutoMap = false;
@@ -231,12 +235,29 @@ typedef enum {
     SD_BUFFER_FLAGS = 2
 } sd_spi_buffer;
 const uint8_t SPI_BUFFER_SIZE = 8;
-volatile uint8_t sdSpiDataBuffer[3][SPI_BUFFER_SIZE];
+volatile uint8_t sdSpiDataBuffer[3][SPI_BUFFER_SIZE] __attribute__((aligned(16)));
 volatile uint8_t sdSpiReadDataWritePtr = 0;
 volatile uint8_t sdSpiReadDataReadPtr = 0;
 volatile uint8_t sdSpiWriteDataWritePtr = 0;
 volatile uint8_t sdSpiWriteDataReadPtr = 0;
 volatile uint8_t sdSpiCount = 0;
+
+// Serial buffer
+typedef enum {
+    UART_BUFFER_READ = 0,
+    UART_BUFFER_WRITE = 1,
+    UART_BUFFER_FLAGS = 2
+} uart_buffer;
+const uint8_t UART_BUFFER_SIZE = 8;
+const size_t UART_RX_BUFFER_SIZE = 2048;
+uint8_t uartRxBuffer[UART_RX_BUFFER_SIZE] __attribute__((aligned(16)));
+volatile uint8_t uartDataBuffer[3][UART_BUFFER_SIZE] __attribute__((aligned(16)));
+volatile uint8_t uartReadDataWritePtr = 0;
+volatile uint8_t uartReadDataReadPtr = 0;
+volatile uint8_t uartWriteDataWritePtr = 0;
+volatile uint8_t uartWriteDataReadPtr = 0;
+volatile bool uartPresent = true;
+volatile bool uartEnabled = false;
 
 // DivMMC SPI tick every SD_TICK_CYCCNT count
 volatile uint32_t cycleCount;
@@ -318,6 +339,44 @@ inline __attribute__((always_inline)) bool hasDivMmcWriteData()
     return (sdSpiWriteDataReadPtr != sdSpiWriteDataWritePtr);
 }
 
+inline __attribute__((always_inline)) void writeUartReadData(uint8_t data)
+{
+    uartDataBuffer[UART_BUFFER_READ][uartReadDataWritePtr] = data;
+    uartReadDataWritePtr = (uartReadDataWritePtr + 1) & (UART_BUFFER_SIZE - 1);
+}
+
+inline __attribute__((always_inline)) uint8_t readUartReadData()
+{
+    uint8_t data = uartDataBuffer[UART_BUFFER_READ][uartReadDataReadPtr];
+    uartReadDataReadPtr = (uartReadDataReadPtr + 1) & (UART_BUFFER_SIZE - 1);
+    return data;
+}
+
+inline __attribute__((always_inline)) bool hasUartReadData()
+{
+    return (uartReadDataReadPtr != uartReadDataWritePtr);
+}
+
+inline __attribute__((always_inline)) void writeUartWriteData(uart_action_t uartAction, uint8_t data)
+{
+    uartDataBuffer[UART_BUFFER_WRITE][uartWriteDataWritePtr] = data;
+    uartDataBuffer[UART_BUFFER_FLAGS][uartWriteDataWritePtr] = (uint8_t)uartAction;
+    uartWriteDataWritePtr = (uartWriteDataWritePtr + 1) & (UART_BUFFER_SIZE - 1);
+}
+
+inline __attribute__((always_inline)) uart_action_t readUartWriteData(uint8_t* data)
+{
+    uart_action_t uartAction = (uart_action_t)uartDataBuffer[UART_BUFFER_FLAGS][uartWriteDataReadPtr];
+    *data = uartDataBuffer[UART_BUFFER_WRITE][uartWriteDataReadPtr];
+    uartWriteDataReadPtr = (uartWriteDataReadPtr + 1) & (UART_BUFFER_SIZE - 1);
+    return uartAction;
+}
+
+inline __attribute__((always_inline)) bool hasUartWriteData()
+{
+    return (uartWriteDataReadPtr != uartWriteDataWritePtr);
+}
+
 inline __attribute__((always_inline)) void writeData(uint8_t data)
 {
     // Output D[7:0] to GPIO2/7
@@ -359,6 +418,12 @@ inline __attribute__((always_inline)) uint8_t decodeLowAddress(uint32_t gpioSix)
 {
     // Decode A[7:0] from GPIO1/6
     return ((gpioSix & 0x00ff0000) >> 16);
+}
+
+inline __attribute__((always_inline)) uint8_t decodeHighAddress(uint32_t gpioSix)
+{
+    // Decode A[15:8] from GPIO1/6
+    return ((gpioSix & 0xff000000) >> 24);
 }
 
 inline __attribute__((always_inline)) void performSdSpi()
@@ -461,6 +526,69 @@ inline __attribute__((always_inline)) void performSdSpi()
     }
 }
 
+bool canReadHardwareSerial(HardwareSerialIMXRT* serial)
+{
+    // NOTE: HACK to see if data in software buffer without disabling IRQs to
+    // check the hardware buffer - gain public access to private class members
+    HardwareSerialIMXRTPublic* hwSerial8 = (HardwareSerialIMXRTPublic*)serial;
+    uint32_t head, tail;
+    head = hwSerial8->rx_buffer_head_;
+    tail = hwSerial8->rx_buffer_tail_;
+    return (head != tail);
+}
+
+inline __attribute__((always_inline)) void performUart()
+{
+    if (hasUartWriteData() && Serial8.availableForWrite())
+    {
+        uint8_t data;
+        switch (readUartWriteData(&data))
+        {
+            case UART_SET_BAUD :
+                int baud;
+                Serial8.end();
+                switch (data)
+                {
+                    case 1 :
+                        baud = 57600;
+                        break;
+                    case 2 :
+                        baud = 38400;
+                        break;
+                    case 3 :
+                        baud = 31250;
+                        break;
+                    case 4 :
+                        baud = 19200;
+                        break;
+                    case 5 :
+                        baud = 9600;
+                        break;
+                    case 6 :
+                        baud = 4800;
+                        break;
+                    case 7 : 
+                        baud = 2400;
+                        break;
+                    default :
+                        baud = 115200;
+                        break;
+                }
+                Serial8.begin(baud);
+                break;
+            case UART_WRITE :
+                Serial8.write(data);
+                break;
+        }
+    }
+
+    if (!hasUartReadData() && canReadHardwareSerial(&Serial8))
+    {
+        uint8_t data = Serial8.read();
+        writeUartReadData(data);
+    }
+}
+
 inline __attribute__((always_inline)) void performOnSdSpiClock()
 {
     uint32_t cycle_ = ARM_DWT_CYCCNT;
@@ -490,6 +618,9 @@ inline __attribute__((always_inline)) void performOnClock()
         if ((sdSpiTick != 0) || hasDivMmcWriteData())
         {
             performSdSpi();
+        } else if (uartPresent)
+        {
+            performUart();
         }
 
         // Debounce the reset detection
@@ -769,7 +900,8 @@ void setup()
     cycleCount = ARM_DWT_CYCCNT;
     setState(STATE_RESET);
 
-    // Start Serial debug
+    // Configure UART, and USB serial debug
+    Serial8.addMemoryForRead((void*)uartRxBuffer, UART_RX_BUFFER_SIZE);
 #ifdef DEBUG_OUTPUT
     Serial.begin(115200);
 #endif
@@ -1004,6 +1136,15 @@ void handleStateResetEntry()
         zxC2Present = false;
     }
 
+    // Reset the UART state, and clear buffers of any idle data
+    if (uartEnabled)
+    {
+        Serial8.end();
+        uartReadDataReadPtr = uartReadDataWritePtr;
+        uartWriteDataReadPtr = uartWriteDataWritePtr;
+        uartEnabled = false;
+    }
+
     // Initialise the SD card
     delay(250);
     if (!isDeviceDisabled && !sdCardPresent)
@@ -1183,6 +1324,13 @@ void handleStateReset()
             // Wait for any previous SD accesses to finish
             sdSpiFlush();
         }
+
+        // If UART is present, then enable Serial8
+        if (uartPresent && !uartEnabled)
+        {
+            Serial8.begin(115200);
+            uartEnabled = true;
+        }
     }
 
     // Enable the ROM, if present
@@ -1328,6 +1476,17 @@ FASTRUN void isrWrEvent()
                 {
                     menuSelected = true;
                     menuSelectedIndex = readData();
+                }
+            } else if (uartPresent && (port_ == 0x3b))
+            {
+                switch (decodeHighAddress(gpioSix))
+                {
+                    case 0x13 :
+                        writeUartWriteData(UART_WRITE, readData());
+                        break;
+                    case 0x14 :
+                        writeUartWriteData(UART_SET_BAUD, readData());
+                        break;
                 }
             } else if (isDivMmcSelected())
             {
@@ -1624,6 +1783,26 @@ FASTRUN void isrRdEvent()
                             updateRomIndex(true);
                         }
                         writeData(mf128VideoRam ? 0x80 : 0x00);
+                    }
+                    break;
+                case 0x3b :
+                    if (uartPresent)
+                    {
+                        switch (decodeHighAddress(gpioSix))
+                        {
+                            case 0x13 :
+                                uint8_t status;
+                                status = hasUartReadData() ? 0x01 : 0x00;
+                                if (hasUartWriteData())
+                                {
+                                    status |= 0x02;
+                                }
+                                writeData(status);
+                                break;
+                            case 0x14 :
+                                writeData(hasUartReadData() ? readUartReadData() : 0x00);
+                                break;
+                        }
                     }
                     break;
             }
