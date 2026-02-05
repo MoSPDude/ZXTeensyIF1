@@ -96,23 +96,29 @@ then wait for the Spectrum to restart (!! It will take a minute !!).
 
 ### Hardware
 
-* v0.3 PCB prototype
+* v0.5 PCB prototype
     * HAS NOT BEEN MANUFACTURED YET
-    * Minor footprint fixes, and routing tweaks
-    * No electrical or schematic changes
+    * Moved the ROMCS and DataDir output to pins 36 and 37, to free up Serial8 pins
+    * Added an ESP-01S header, and Pololu D24V5F3 header
+        * The Pololu D24V5F3 is a 3.3v regulator to power the ESP-01S module
+        * I had to re-organise the left side of the board to make room
+    * Connected the Serial8 pins 34 and 35, to the ESP-01S header
 * v0.2 PCB prototype
     * First PCBs made, and tested
         * Microdrive, RS232, ZX Net and nROMCS on external edge connector working
         * Firmware updated for new pin layout - soft ROM all working
     * Need to revise some footprints
-    * My PCBs had silkscreen that stated v0.1
+    * The PCBs had silkscreen that stated v0.1
 * v0.1 veroboard prototype (not uploaded)
+    * Prototype to test the initial idea
     * Teensy 4.1 and level shifters on Veroboard
         * Soft ROM and Multiface 128 behaviour working
     * Modded ZX Interface 1 to add "nIORQ inhibit" (see below)
 
 ### Firmware
 
+* Added experimental UART on Serial8
+    * Uses MB03+ ports 0x133b and 0x143b
 * Added firmware update from SD card
     * Uses https://github.com/joepasquariello/FlasherX
 * Added menu ROM derived from TomDDGs ZXPicoIF2Lite ROMExplorer
