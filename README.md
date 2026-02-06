@@ -15,6 +15,8 @@ A Teensy 4.1 powered DivMMC and ZX Interface 1 clone,
     * NMI button and soft ROM
 * ZX Interface 2, and ZXC2 ROM emulation
     * Implements ZXC2 ROM banking
+* ESP-01S module via UART
+    * Available on ports 0x143B (5179) for RX and 0x133B (4923) for TX
 * Soft ROM emulation
     * Override the internal Spectrum ROM with ROMs from SD card
     * Supports 16KB (48K Spectrum), 32KB (128K Spectrum) and 64KB (+2A/+3 Spectrum) ROMs
@@ -117,8 +119,8 @@ then wait for the Spectrum to restart (!! It will take a minute !!).
 
 ### Firmware
 
-* Added experimental UART on Serial8
-    * Uses MB03+ ports 0x133b and 0x143b
+* Added experimental UART for ESP-01S module on Serial8
+    * Uses ports 0x143B (5179) for RX and 0x133B (4923) for TX
 * Added firmware update from SD card
     * Uses https://github.com/joepasquariello/FlasherX
 * Added menu ROM derived from TomDDGs ZXPicoIF2Lite ROMExplorer

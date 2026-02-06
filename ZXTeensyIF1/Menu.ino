@@ -14,6 +14,7 @@ typedef struct {
     char divMmcPresent;
     char interface1Present;
     char mf128Present;
+    char uartPresent;
     char bootIntoMenu;
     char romName[(ROM_NAME_LEN + 1)];
 } cfg_data_t;
@@ -128,6 +129,7 @@ char* menuGenerateSettings(char* ptr)
     } else {
         ptr = menuAddSetting(ptr, "Multiface 128 not present", 0);
     }
+    ptr = menuAddSetting(ptr, "Enable ESP-01S UART", uartPresent);
     return ptr;
 }
 
@@ -274,6 +276,10 @@ bool menuPerformSelection(uint8_t index)
                     menuConfigChanged = true;
                 }
                 break;
+            case 7 :
+                uartPresent = !uartPresent;
+                menuConfigChanged = true;
+                break;
             default :
                 // Load internal ROM name
                 if (index >= (menuRomListIndex - 1))
@@ -410,10 +416,13 @@ File menuGetRomFile(rom_type_t* romType)
 
 void menuClearConfiguration()
 {
+    memset(&cfgData, 0, sizeof(cfgData));
     divMmcPresent = false;
     interface1Present = false;
     mf128Present = false;
+    uartPresent = false;
     bootIntoMenu = true;
+    cfgData.bootIntoMenu = bootIntoMenu;
     strncpy(cfgData.romName, INTERNAL_ROM_NAME, ROM_NAME_LEN);
     cfgData.romName[ROM_NAME_LEN] = 0;
     menuConfigChanged = true;
@@ -427,7 +436,8 @@ void menuLoadConfiguration()
         File cfgFile = SD.open("ZXTEENSY.CFG", FILE_READ);
         if (cfgFile)
         {
-            if (cfgFile.readBytes((char*)&cfgData, sizeof(cfgData)) >= 0)
+            menuClearConfiguration();
+            if (cfgFile.readBytes((char*)&cfgData, sizeof(cfgData)) > 0)
             {
                 if ((romArrayPresent & BANK_DIVMMC) != 0)
                 {
@@ -441,6 +451,7 @@ void menuLoadConfiguration()
                 {
                     mf128Present = cfgData.mf128Present;
                 }
+                uartPresent = cfgData.uartPresent;
                 bootIntoMenu = cfgData.bootIntoMenu;
                 cfgData.romName[ROM_NAME_LEN] = 0;
             }
@@ -464,6 +475,7 @@ void menuSaveConfiguration()
             cfgData.divMmcPresent = divMmcPresent;
             cfgData.interface1Present = interface1Present;
             cfgData.mf128Present = mf128Present;
+            cfgData.uartPresent = uartPresent;
             cfgData.bootIntoMenu = bootIntoMenu;
             cfgData.romName[ROM_NAME_LEN] = 0;
             cfgFile.write((char*)&cfgData, sizeof(cfgData));
