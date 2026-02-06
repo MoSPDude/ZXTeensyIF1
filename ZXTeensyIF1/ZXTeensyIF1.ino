@@ -7,10 +7,11 @@
 //#define DEBUG_OUTPUT
 
 #include <SD.h>
-#include <SPI.h>
 #include <SdFat.h>
 #include "if1-2_rom.h"
-#include "HardwareSerialPublic.h"
+#include "RingBuffer.h"
+#include "SdSpiZXTeensy.h"
+#include "UartZXTeensy.h"
 
 // Run the Teensy 4.1 with slight overclock at 816MHz
 // Run the SD card at ~7MHz (at 816MHz, SD_TICK_CYCCNT = 58)
@@ -41,18 +42,6 @@ typedef enum {
     TRIGGER_DELAY,
     TRIGGER_READY
 } trigger_state_t;
-
-typedef enum {
-    SD_SPI_WRITE,
-    SD_SPI_READ,
-    SD_SPI_ENABLE,
-    SD_SPI_DISABLE
-} sd_spi_action_t;
-
-typedef enum {
-    UART_WRITE,
-    UART_SET_BAUD
-} uart_action_t;
 
 typedef enum {
     BANK_ROM0   = 0x0001,
@@ -222,160 +211,43 @@ volatile bool menuPaged = false;
 volatile bool menuSelected = false;
 volatile uint8_t menuSelectedIndex = 0;
 
-// DivMMC SPI
-volatile uint8_t sdSpiTxData = 0xff;
-volatile uint8_t sdSpiRxData = 0xff;
-volatile bool sdSpiRxNotTx = false;
-volatile uint8_t sdSpiTick = 0;
+// DivMMC SPI/SD
+SdSpiZXTeensy divMmcSpi(FAST_SD_TICK_CYCCNT);
 
-// DivMMC SD buffer
-typedef enum {
-    SD_BUFFER_READ = 0,
-    SD_BUFFER_WRITE = 1,
-    SD_BUFFER_FLAGS = 2
-} sd_spi_buffer;
-const uint8_t SPI_BUFFER_SIZE = 8;
-volatile uint8_t sdSpiDataBuffer[3][SPI_BUFFER_SIZE] __attribute__((aligned(16)));
-volatile uint8_t sdSpiReadDataWritePtr = 0;
-volatile uint8_t sdSpiReadDataReadPtr = 0;
-volatile uint8_t sdSpiWriteDataWritePtr = 0;
-volatile uint8_t sdSpiWriteDataReadPtr = 0;
-volatile uint8_t sdSpiCount = 0;
+// MB03+ UART
+volatile bool uartPresent = false;
+UartZXTeensy espUart;
 
-// Serial buffer
-typedef enum {
-    UART_BUFFER_READ = 0,
-    UART_BUFFER_WRITE = 1,
-    UART_BUFFER_FLAGS = 2
-} uart_buffer;
-const uint8_t UART_BUFFER_SIZE = 8;
-const size_t UART_RX_BUFFER_SIZE = 2048;
-uint8_t uartRxBuffer[UART_RX_BUFFER_SIZE] __attribute__((aligned(16)));
-volatile uint8_t uartDataBuffer[3][UART_BUFFER_SIZE] __attribute__((aligned(16)));
-volatile uint8_t uartReadDataWritePtr = 0;
-volatile uint8_t uartReadDataReadPtr = 0;
-volatile uint8_t uartWriteDataWritePtr = 0;
-volatile uint8_t uartWriteDataReadPtr = 0;
-volatile bool uartPresent = true;
-volatile bool uartEnabled = false;
-
-// DivMMC SPI tick every SD_TICK_CYCCNT count
-volatile uint32_t cycleCount;
+// SPI and UART tick cycle counter
+volatile uint32_t globalCycleCount;
 
 #ifdef DEBUG_OUTPUT
 
 // Debug data buffer
 const uint16_t DEBUG_BUFFER_SIZE = 128;
-volatile uint8_t debugDataBuffer[DEBUG_BUFFER_SIZE];
-volatile uint16_t debugWritePtr = 0;
-volatile uint16_t debugReadPtr = 0;
+RingBuffer<DEBUG_BUFFER_SIZE> debugBuffer;
 
 inline __attribute__((always_inline)) void writeDebugData(uint8_t data)
 {
-    debugDataBuffer[debugWritePtr] = data;
-    debugWritePtr = (debugWritePtr + 1) & (DEBUG_BUFFER_SIZE - 1);
-    if (!hasDebugData())
-    {
-        debugReadPtr = (debugReadPtr + 1) & (DEBUG_BUFFER_SIZE - 1);
-    }
+    debugBuffer.write(data);
 }
 
 inline __attribute__((always_inline)) uint8_t readDebugData()
 {
     uint8_t data;
-    if (hasDebugData())
+    if (debugBuffer.read(&data))
     {
-        data = debugDataBuffer[debugReadPtr];
-        debugReadPtr = (debugReadPtr + 1) & (DEBUG_BUFFER_SIZE - 1);
-    } else {
-        data = 0xff;
+        return data;
     }
-    return data;
+    return 0xFF;
 }
 
 inline __attribute__((always_inline)) bool hasDebugData()
 {
-    return (debugReadPtr != debugWritePtr);
+    return debugBuffer.canRead();
 }
 
 #endif
-
-inline __attribute__((always_inline)) void writeDivMmcReadData(uint8_t data)
-{
-    sdSpiDataBuffer[SD_BUFFER_READ][sdSpiReadDataWritePtr] = data;
-    sdSpiReadDataWritePtr = (sdSpiReadDataWritePtr + 1) & (SPI_BUFFER_SIZE - 1);
-}
-
-inline __attribute__((always_inline)) uint8_t readDivMmcReadData()
-{
-    uint8_t data = sdSpiDataBuffer[SD_BUFFER_READ][sdSpiReadDataReadPtr];
-    sdSpiReadDataReadPtr = (sdSpiReadDataReadPtr + 1) & (SPI_BUFFER_SIZE - 1);
-    return data;
-}
-
-inline __attribute__((always_inline)) bool hasDivMmcReadData()
-{
-    return (sdSpiReadDataReadPtr != sdSpiReadDataWritePtr);
-}
-
-inline __attribute__((always_inline)) void writeDivMmcWriteData(sd_spi_action_t spiAction, uint8_t data)
-{
-    sdSpiDataBuffer[SD_BUFFER_WRITE][sdSpiWriteDataWritePtr] = data;
-    sdSpiDataBuffer[SD_BUFFER_FLAGS][sdSpiWriteDataWritePtr] = (uint8_t)spiAction;
-    sdSpiWriteDataWritePtr = (sdSpiWriteDataWritePtr + 1) & (SPI_BUFFER_SIZE - 1);
-}
-
-inline __attribute__((always_inline)) sd_spi_action_t readDivMmcWriteData()
-{
-    sd_spi_action_t spiAction = (sd_spi_action_t)sdSpiDataBuffer[SD_BUFFER_FLAGS][sdSpiWriteDataReadPtr];
-    sdSpiRxNotTx = (spiAction == SD_SPI_READ);
-    sdSpiTxData = sdSpiDataBuffer[SD_BUFFER_WRITE][sdSpiWriteDataReadPtr];
-    sdSpiWriteDataReadPtr = (sdSpiWriteDataReadPtr + 1) & (SPI_BUFFER_SIZE - 1);
-    return spiAction;
-}
-
-inline __attribute__((always_inline)) bool hasDivMmcWriteData()
-{
-    return (sdSpiWriteDataReadPtr != sdSpiWriteDataWritePtr);
-}
-
-inline __attribute__((always_inline)) void writeUartReadData(uint8_t data)
-{
-    uartDataBuffer[UART_BUFFER_READ][uartReadDataWritePtr] = data;
-    uartReadDataWritePtr = (uartReadDataWritePtr + 1) & (UART_BUFFER_SIZE - 1);
-}
-
-inline __attribute__((always_inline)) uint8_t readUartReadData()
-{
-    uint8_t data = uartDataBuffer[UART_BUFFER_READ][uartReadDataReadPtr];
-    uartReadDataReadPtr = (uartReadDataReadPtr + 1) & (UART_BUFFER_SIZE - 1);
-    return data;
-}
-
-inline __attribute__((always_inline)) bool hasUartReadData()
-{
-    return (uartReadDataReadPtr != uartReadDataWritePtr);
-}
-
-inline __attribute__((always_inline)) void writeUartWriteData(uart_action_t uartAction, uint8_t data)
-{
-    uartDataBuffer[UART_BUFFER_WRITE][uartWriteDataWritePtr] = data;
-    uartDataBuffer[UART_BUFFER_FLAGS][uartWriteDataWritePtr] = (uint8_t)uartAction;
-    uartWriteDataWritePtr = (uartWriteDataWritePtr + 1) & (UART_BUFFER_SIZE - 1);
-}
-
-inline __attribute__((always_inline)) uart_action_t readUartWriteData(uint8_t* data)
-{
-    uart_action_t uartAction = (uart_action_t)uartDataBuffer[UART_BUFFER_FLAGS][uartWriteDataReadPtr];
-    *data = uartDataBuffer[UART_BUFFER_WRITE][uartWriteDataReadPtr];
-    uartWriteDataReadPtr = (uartWriteDataReadPtr + 1) & (UART_BUFFER_SIZE - 1);
-    return uartAction;
-}
-
-inline __attribute__((always_inline)) bool hasUartWriteData()
-{
-    return (uartWriteDataReadPtr != uartWriteDataWritePtr);
-}
 
 inline __attribute__((always_inline)) void writeData(uint8_t data)
 {
@@ -426,202 +298,16 @@ inline __attribute__((always_inline)) uint8_t decodeHighAddress(uint32_t gpioSix
     return ((gpioSix & 0xff000000) >> 24);
 }
 
-inline __attribute__((always_inline)) void performSdSpi()
-{
-    // Perform SD SPI accesses on clock edges
-    if (sdSpiTick == 0x00)
-    {
-        // SPI is idle, so wait for write data
-        if (hasDivMmcWriteData())
-        {
-            switch (readDivMmcWriteData())
-            {
-                case SD_SPI_ENABLE :
-                    CORE_PIN46_PORTCLEAR = CORE_PIN46_BITMASK;
-                    break;
-                case SD_SPI_DISABLE :
-                    CORE_PIN46_PORTSET = CORE_PIN46_BITMASK;
-                    break;
-                default :
-                    // Drive new SPI access
-                    if (sdSpiTxData & 0x80)
-                    {
-                        CORE_PIN45_PORTSET = CORE_PIN45_BITMASK;
-                    } else {
-                        CORE_PIN45_PORTCLEAR = CORE_PIN45_BITMASK;
-                    }
-                    sdSpiTxData <<= 1;
-                    sdSpiTick = 1;
-                    break;
-            }
-        }
-    } else if (sdSpiTick & 0x0f)
-    {
-        // SPI is being driven, so toggle clock and data
-        if (sdSpiTick & 0x01)
-        {
-            // Capture read data on rising edges
-            if (sdSpiRxNotTx)
-            {
-                if (CORE_PIN43_PINREG & CORE_PIN43_BITMASK)
-                {
-                    sdSpiRxData = (sdSpiRxData << 1) | 0x01;
-                } else {
-                    sdSpiRxData <<= 1;
-                }
-                if (sdSpiTick == 0x0f)
-                {
-                    // Write read data into buffer
-                    writeDivMmcReadData(sdSpiRxData);
-                }
-            }
-        } else if (!sdSpiRxNotTx)
-        {
-            // Drive write data on falling edges
-            if (sdSpiTxData & 0x80)
-            {
-                CORE_PIN45_PORTSET = CORE_PIN45_BITMASK;
-            } else {
-                CORE_PIN45_PORTCLEAR = CORE_PIN45_BITMASK;
-            }
-            sdSpiTxData <<= 1;
-        }
-        CORE_PIN44_PORTTOGGLE = CORE_PIN44_BITMASK;
-        ++sdSpiTick;
-    } else {
-        // SPI access has just finished, so test for write data
-        // before falling idle, otherwise continue
-        ++sdSpiCount;
-        if (hasDivMmcWriteData())
-        {
-            switch (readDivMmcWriteData())
-            {
-                case SD_SPI_ENABLE :
-                    CORE_PIN46_PORTCLEAR = CORE_PIN46_BITMASK;
-                    CORE_PIN45_PORTSET = CORE_PIN45_BITMASK;
-                    sdSpiTick = 0;
-                    break;
-                case SD_SPI_DISABLE :
-                    CORE_PIN46_PORTSET = CORE_PIN46_BITMASK;
-                    CORE_PIN45_PORTSET = CORE_PIN45_BITMASK;
-                    sdSpiTick = 0;
-                    break;
-                default :
-                    // Drive new SPI access on this falling edge
-                    if (sdSpiTxData & 0x80)
-                    {
-                        CORE_PIN45_PORTSET = CORE_PIN45_BITMASK;
-                    } else {
-                        CORE_PIN45_PORTCLEAR = CORE_PIN45_BITMASK;
-                    }
-                    sdSpiTxData <<= 1;
-                    sdSpiTick = 1;
-                    break;
-            }
-        } else {
-            CORE_PIN45_PORTSET = CORE_PIN45_BITMASK;
-            sdSpiTick = 0;
-        }
-        CORE_PIN44_PORTCLEAR = CORE_PIN44_BITMASK;
-    }
-}
-
-bool canReadHardwareSerial(HardwareSerialIMXRT* serial)
-{
-    // NOTE: HACK to see if data in software buffer without disabling IRQs to
-    // check the hardware buffer - gain public access to private class members
-    HardwareSerialIMXRTPublic* hwSerial8 = (HardwareSerialIMXRTPublic*)serial;
-    uint32_t head, tail;
-    head = hwSerial8->rx_buffer_head_;
-    tail = hwSerial8->rx_buffer_tail_;
-    return (head != tail);
-}
-
-inline __attribute__((always_inline)) void performUart()
-{
-    if (hasUartWriteData() && Serial8.availableForWrite())
-    {
-        uint8_t data;
-        switch (readUartWriteData(&data))
-        {
-            case UART_SET_BAUD :
-                int baud;
-                Serial8.end();
-                switch (data)
-                {
-                    case 1 :
-                        baud = 57600;
-                        break;
-                    case 2 :
-                        baud = 38400;
-                        break;
-                    case 3 :
-                        baud = 31250;
-                        break;
-                    case 4 :
-                        baud = 19200;
-                        break;
-                    case 5 :
-                        baud = 9600;
-                        break;
-                    case 6 :
-                        baud = 4800;
-                        break;
-                    case 7 : 
-                        baud = 2400;
-                        break;
-                    default :
-                        baud = 115200;
-                        break;
-                }
-                Serial8.begin(baud);
-                break;
-            case UART_WRITE :
-                Serial8.write(data);
-                break;
-        }
-    }
-
-    if (!hasUartReadData() && canReadHardwareSerial(&Serial8))
-    {
-        uint8_t data = Serial8.read();
-        writeUartReadData(data);
-    }
-}
-
-inline __attribute__((always_inline)) void performOnSdSpiClock()
-{
-    uint32_t cycle_ = ARM_DWT_CYCCNT;
-    if ((cycle_ - cycleCount) >= FAST_SD_TICK_CYCCNT)
-    {
-        cycleCount = cycle_;
-        performSdSpi();
-    }
-}
-
-inline __attribute__((always_inline)) void sdSpiFlush()
-{
-    while ((sdSpiTick != 0) || hasDivMmcWriteData())
-    {
-        performOnSdSpiClock();
-    }
-}
-
 inline __attribute__((always_inline)) void performOnClock()
 {
     uint32_t cycle_ = ARM_DWT_CYCCNT;
-    if ((cycle_ - cycleCount) >= SD_TICK_CYCCNT)
+    if ((cycle_ - globalCycleCount) >= SD_TICK_CYCCNT)
     {
-        cycleCount = cycle_;
+        globalCycleCount = cycle_;
 
-        // Perform SD SPI accesses on clock edges
-        if ((sdSpiTick != 0) || hasDivMmcWriteData())
-        {
-            performSdSpi();
-        } else if (uartPresent)
-        {
-            performUart();
-        }
+        // Perform SPI and UART on clock ticks
+        divMmcSpi.onTick();
+        espUart.onTick();
 
         // Debounce the reset detection
         switch (resetTrigState)
@@ -897,11 +583,10 @@ void setup()
     CORE_PIN44_PADCONFIG |= IOMUXC_PAD_SRE | IOMUXC_PAD_SPEED(3);
 
     // Force the spectrum into reset
-    cycleCount = ARM_DWT_CYCCNT;
+    globalCycleCount = ARM_DWT_CYCCNT;
     setState(STATE_RESET);
 
     // Configure UART, and USB serial debug
-    Serial8.addMemoryForRead((void*)uartRxBuffer, UART_RX_BUFFER_SIZE);
 #ifdef DEBUG_OUTPUT
     Serial.begin(115200);
 #endif
@@ -916,43 +601,6 @@ void setup()
     // TODO: set HW ints as high priority, otherwise ethernet int timer causes misses
     NVIC_SET_PRIORITY(IRQ_GPIO6789, 16);
 }
-
-class SdSpiZXTeensy : public SdSpiSoftDriver {
-    public:
-        /** Initialize the SPI bus. */
-        void begin()
-        {
-            // Do nothing
-        }
-
-        /** Receive a byte.
-        *
-        * \return The byte.
-        */
-        uint8_t receive()
-        {
-            writeDivMmcWriteData(SD_SPI_READ, 0xff);
-            while (!hasDivMmcReadData()) {
-                performOnSdSpiClock();
-            };
-            return readDivMmcReadData();
-        }
-
-        /** Send a byte.
-        *
-        * \param[in] data Byte to send
-        */
-        void send(uint8_t data)
-        {
-            uint8_t count = sdSpiCount;
-            writeDivMmcWriteData(SD_SPI_WRITE, data);
-            while (count == sdSpiCount) {
-                performOnSdSpiClock();
-            };
-        }
-};
-
-SdSpiZXTeensy divMmcSpi;
 
 uint16_t loadRomImage(const char* filename, char* ptr, const uint16_t size)
 {
@@ -1137,13 +785,7 @@ void handleStateResetEntry()
     }
 
     // Reset the UART state, and clear buffers of any idle data
-    if (uartEnabled)
-    {
-        Serial8.end();
-        uartReadDataReadPtr = uartReadDataWritePtr;
-        uartWriteDataReadPtr = uartWriteDataWritePtr;
-        uartEnabled = false;
-    }
+    espUart.end();
 
     // Initialise the SD card
     delay(250);
@@ -1151,9 +793,7 @@ void handleStateResetEntry()
     {
         // Wait for any previous SD accesses to finish, and clear buffers of any
         // idle state
-        sdSpiFlush();
-        sdSpiReadDataReadPtr = sdSpiReadDataWritePtr;
-        sdSpiWriteDataReadPtr = sdSpiWriteDataWritePtr;
+        divMmcSpi.flush();
 
         // Detect the SD card
         pinMode(SD_CS_PIN, INPUT_PULLDOWN);
@@ -1246,7 +886,7 @@ void handleStateResetMenu()
     sdCardPresent = false;
 
     // Wait for any previous SD accesses to finish
-    sdSpiFlush();
+    divMmcSpi.flush();
 
     // Perform a full reset
     handleStateResetEntry();
@@ -1322,14 +962,13 @@ void handleStateReset()
             sdCardPresent = false;
 
             // Wait for any previous SD accesses to finish
-            sdSpiFlush();
+            divMmcSpi.flush();
         }
 
         // If UART is present, then enable Serial8
-        if (uartPresent && !uartEnabled)
+        if (uartPresent)
         {
-            Serial8.begin(115200);
-            uartEnabled = true;
+            espUart.begin();
         }
     }
 
@@ -1482,10 +1121,10 @@ FASTRUN void isrWrEvent()
                 switch (decodeHighAddress(gpioSix))
                 {
                     case 0x13 :
-                        writeUartWriteData(UART_WRITE, readData());
+                        espUart.writeData(UartZXTeensy::UART_WRITE, readData());
                         break;
                     case 0x14 :
-                        writeUartWriteData(UART_SET_BAUD, readData());
+                        espUart.writeData(UartZXTeensy::UART_SET_BAUD, readData());
                         break;
                 }
             } else if (isDivMmcSelected())
@@ -1495,15 +1134,15 @@ FASTRUN void isrWrEvent()
                     case 0xe7 : // DivMMC card select
                         if ((readData() & 0x01) != 0)
                         {
-                            writeDivMmcWriteData(SD_SPI_DISABLE, 0xff);
+                            divMmcSpi.writeData(SdSpiZXTeensy::SD_SPI_DISABLE, 0xff);
                             digitalWriteFast(LED_PIN, 1);
                         } else {
-                            writeDivMmcWriteData(SD_SPI_ENABLE, 0xff);
+                            divMmcSpi.writeData(SdSpiZXTeensy::SD_SPI_ENABLE, 0xff);
                             digitalWriteFast(LED_PIN, 0);
                         }
                         break;
                     case 0xeb : // DivMMC write
-                        writeDivMmcWriteData(SD_SPI_WRITE, readData());
+                        divMmcSpi.writeData(SdSpiZXTeensy::SD_SPI_WRITE, readData());
                         break;
                     case 0xe3 : // DivMMC control
                         {
@@ -1750,16 +1389,16 @@ FASTRUN void isrRdEvent()
                     if (isDivMmcSelected())
                     {
                         // Transfer SD SPI read data to bus
-                        if (hasDivMmcReadData())
+                        if (divMmcSpi.hasReadData())
                         {
-                            writeData(readDivMmcReadData());
-                            if (!hasDivMmcReadData())
+                            writeData(divMmcSpi.readData());
+                            if (!divMmcSpi.hasReadData())
                             {
-                                writeDivMmcWriteData(SD_SPI_READ, 0xff);
+                                divMmcSpi.writeData(SdSpiZXTeensy::SD_SPI_READ, 0xff);
                             }
                         } else {
                             writeData(0xff);
-                            writeDivMmcWriteData(SD_SPI_READ, 0xff);
+                            divMmcSpi.writeData(SdSpiZXTeensy::SD_SPI_READ, 0xff);
                         }
                     }
                     break;
@@ -1792,15 +1431,15 @@ FASTRUN void isrRdEvent()
                         {
                             case 0x13 :
                                 uint8_t status;
-                                status = hasUartReadData() ? 0x01 : 0x00;
-                                if (hasUartWriteData())
+                                status = espUart.hasReadData() ? 0x01 : 0x00;
+                                if (espUart.hasWriteData())
                                 {
                                     status |= 0x02;
                                 }
                                 writeData(status);
                                 break;
                             case 0x14 :
-                                writeData(hasUartReadData() ? readUartReadData() : 0x00);
+                                writeData(espUart.hasReadData() ? espUart.readData() : 0x00);
                                 break;
                         }
                     }
