@@ -2,7 +2,7 @@
 // Must be set in SdFat/src/SdFatConfig.h
 #define SPI_DRIVER_SELECT 2
 
-#define ZXTEENSY_VERSION "20260203"
+#define ZXTEENSY_VERSION "20260207"
 #define ENABLE_BUILTIN_ROM_IF1
 //#define DEBUG_OUTPUT
 
@@ -598,8 +598,13 @@ void setup()
     attachInterrupt(digitalPinToInterrupt(RESET_IN_PIN), isrPinReset, FALLING);
     attachInterrupt(digitalPinToInterrupt(BUTTON_PIN), isrPinButton, FALLING);
 
+    // Setup UART ISRs
+    attachInterruptVector(IRQ_LPUART5, isrUartEvent);
+    NVIC_ENABLE_IRQ(IRQ_LPUART5);
+
     // TODO: set HW ints as high priority, otherwise ethernet int timer causes misses
     NVIC_SET_PRIORITY(IRQ_GPIO6789, 16);
+    NVIC_SET_PRIORITY(IRQ_LPUART5, 64);
 }
 
 uint16_t loadRomImage(const char* filename, char* ptr, const uint16_t size)
@@ -968,7 +973,7 @@ void handleStateReset()
         // If UART is present, then enable Serial8
         if (uartPresent)
         {
-            espUart.begin();
+            espUart.begin(0);
         }
     }
 
@@ -1037,6 +1042,11 @@ FASTRUN void isrPinButton()
             digitalWriteFast(NMI_PIN, 1);
         }
     }
+}
+
+FASTRUN void isrUartEvent()
+{
+    espUart.isrUartEvent();
 }
 
 FASTRUN void isrWrEvent()
@@ -1430,13 +1440,7 @@ FASTRUN void isrRdEvent()
                         switch (decodeHighAddress(gpioSix))
                         {
                             case 0x13 :
-                                uint8_t status;
-                                status = espUart.hasReadData() ? 0x01 : 0x00;
-                                if (espUart.hasWriteData())
-                                {
-                                    status |= 0x02;
-                                }
-                                writeData(status);
+                                writeData(espUart.getStatusByte());
                                 break;
                             case 0x14 :
                                 writeData(espUart.hasReadData() ? espUart.readData() : 0x00);

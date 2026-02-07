@@ -17,6 +17,7 @@ A Teensy 4.1 powered DivMMC and ZX Interface 1 clone,
     * Implements ZXC2 ROM banking
 * ESP-01S module via UART
     * Available on ports 0x143B (5179) for RX and 0x133B (4923) for TX
+    * https://www.specnext.com/the-next-on-the-network/
 * Soft ROM emulation
     * Override the internal Spectrum ROM with ROMs from SD card
     * Supports 16KB (48K Spectrum), 32KB (128K Spectrum) and 64KB (+2A/+3 Spectrum) ROMs
