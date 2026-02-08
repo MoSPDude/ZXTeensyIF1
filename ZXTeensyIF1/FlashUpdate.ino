@@ -60,12 +60,11 @@ extern "C" {
 
 void flashUpdate(const char *fwFileName)
 {
-    // Detach all interrupts
-    detachInterrupt(digitalPinToInterrupt(RD_PIN));
-    detachInterrupt(digitalPinToInterrupt(WR_PIN));
-    detachInterrupt(digitalPinToInterrupt(ROMCS_IN_PIN));
-    detachInterrupt(digitalPinToInterrupt(RESET_IN_PIN));
-    detachInterrupt(digitalPinToInterrupt(BUTTON_PIN));
+    // Disable all interrupts
+    for (int i_ = 0; i_ < NVIC_NUM_INTERRUPTS; i_++)
+    {
+        NVIC_DISABLE_IRQ(i_);
+    }
 
     // Create flash buffer to hold new firmware
     uint32_t buffer_addr, buffer_size;

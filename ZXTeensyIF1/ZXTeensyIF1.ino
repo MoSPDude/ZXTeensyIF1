@@ -2,7 +2,7 @@
 // Must be set in SdFat/src/SdFatConfig.h
 #define SPI_DRIVER_SELECT 2
 
-#define ZXTEENSY_VERSION "20260208"
+#define ZXTEENSY_VERSION "20260209"
 #define ENABLE_BUILTIN_ROM_IF1
 //#define DEBUG_OUTPUT
 
