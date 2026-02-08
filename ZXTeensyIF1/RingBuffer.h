@@ -35,7 +35,7 @@ template <size_t BUFFER_SIZE> class RingBuffer
         inline __attribute__((always_inline)) void write(uint8_t data)
         {
             buffer[bufferHead] = data;
-            bufferHead = (bufferHead + 1) % BUFFER_SIZE;;
+            bufferHead = (bufferHead + 1) % BUFFER_SIZE;
         }
 
         inline __attribute__((always_inline)) uint8_t readRaw()
@@ -48,6 +48,12 @@ template <size_t BUFFER_SIZE> class RingBuffer
         inline __attribute__((always_inline)) bool canRead()
         {
             return (bufferHead != bufferTail);
+        }
+
+        inline __attribute__((always_inline)) bool canWrite()
+        {
+            uint8_t head = (bufferHead + 1) % BUFFER_SIZE;
+            return (head != bufferTail);
         }
 
         inline bool read(uint8_t* data)

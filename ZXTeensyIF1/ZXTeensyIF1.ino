@@ -2,7 +2,7 @@
 // Must be set in SdFat/src/SdFatConfig.h
 #define SPI_DRIVER_SELECT 2
 
-#define ZXTEENSY_VERSION "20260207"
+#define ZXTEENSY_VERSION "20260208"
 #define ENABLE_BUILTIN_ROM_IF1
 //#define DEBUG_OUTPUT
 
@@ -1115,47 +1115,69 @@ FASTRUN void isrWrEvent()
                         divMmcRemoval = true;
                     }
                 }
-            } else if (mf128ActiveNMI && ((port_ == 0x3f) || (port_ == 0xbf)))
-            {
-                mf128ActiveNMI = false;
-                updateRomIndex(true);
-            } else if (menuPaged && (port_ == 0xeb))
-            {
-                if (!menuSelected)
-                {
-                    menuSelected = true;
-                    menuSelectedIndex = readData();
-                }
-            } else if (uartPresent && (port_ == 0x3b))
-            {
-                switch (decodeHighAddress(gpioSix))
-                {
-                    case 0x13 :
-                        espUart.writeData(UartZXTeensy::UART_WRITE, readData());
-                        break;
-                    case 0x14 :
-                        espUart.writeData(UartZXTeensy::UART_SET_BAUD, readData());
-                        break;
-                }
-            } else if (isDivMmcSelected())
-            {
+            } else {
                 switch (port_)
                 {
-                    case 0xe7 : // DivMMC card select
-                        if ((readData() & 0x01) != 0)
+                    case 0x3f :
+                        if (mf128ActiveNMI)
                         {
-                            divMmcSpi.writeData(SdSpiZXTeensy::SD_SPI_DISABLE, 0xff);
-                            digitalWriteFast(LED_PIN, 1);
-                        } else {
-                            divMmcSpi.writeData(SdSpiZXTeensy::SD_SPI_ENABLE, 0xff);
-                            digitalWriteFast(LED_PIN, 0);
+                            mf128ActiveNMI = false;
+                            updateRomIndex(true);
                         }
                         break;
-                    case 0xeb : // DivMMC write
-                        divMmcSpi.writeData(SdSpiZXTeensy::SD_SPI_WRITE, readData());
-                        break;
-                    case 0xe3 : // DivMMC control
+                    case 0x3b :
+                        if (uartPresent)
                         {
+                            switch (decodeHighAddress(gpioSix))
+                            {
+                                case 0x13 :
+                                    espUart.writeData(UartZXTeensy::UART_WRITE, readData());
+                                    break;
+                                case 0x14 :
+                                    espUart.writeData(UartZXTeensy::UART_SET_BAUD, readData());
+                                    break;
+                            }
+                        }
+                        break;
+                    case 0xbf :
+                        if (mf128ActiveNMI)
+                        {
+                            mf128ActiveNMI = false;
+                            updateRomIndex(true);
+                        }
+                        break;
+                    case 0xe7 :
+                        if (isDivMmcSelected())
+                        {
+                            // DivMMC card select
+                            if ((readData() & 0x01) != 0)
+                            {
+                                divMmcSpi.writeData(SdSpiZXTeensy::SD_SPI_DISABLE, 0xff);
+                                digitalWriteFast(LED_PIN, 1);
+                            } else {
+                                divMmcSpi.writeData(SdSpiZXTeensy::SD_SPI_ENABLE, 0xff);
+                                digitalWriteFast(LED_PIN, 0);
+                            }
+                        }
+                        break;
+                    case 0xeb :
+                        if (menuPaged)
+                        {
+                            if (!menuSelected)
+                            {
+                                menuSelected = true;
+                                menuSelectedIndex = readData();
+                            }
+                        } else if (isDivMmcSelected())
+                        {
+                            // DivMMC write
+                            divMmcSpi.writeData(SdSpiZXTeensy::SD_SPI_WRITE, readData());
+                        }
+                        break;
+                    case 0xe3 :
+                        if (isDivMmcSelected())
+                        {
+                            // DivMMC control
                             uint8_t data = readData();
                             if ((data & 0x80) != 0)
                             {

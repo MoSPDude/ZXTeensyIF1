@@ -1,3 +1,7 @@
+//
+// Modified from the Teensyduino Core Library
+// Fixed to UART5, 8N1 format, and integrated RingBuffer for ZXTeensyIF1
+//
 /* Teensyduino Core Library
  * http://www.pjrc.com/teensy/
  * Copyright (c) 2019 PJRC.COM, LLC.

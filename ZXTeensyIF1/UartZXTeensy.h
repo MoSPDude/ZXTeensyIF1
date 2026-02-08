@@ -1,3 +1,7 @@
+//
+// Modified from the Teensyduino Core Library
+// Fixed to UART5, 8N1 format, and integrated RingBuffer for ZXTeensyIF1
+//
 /* Teensyduino Core Library
  * http://www.pjrc.com/teensy/
  * Copyright (c) 2019 PJRC.COM, LLC.
@@ -84,13 +88,30 @@ class UartZXTeensy
             return action;
         }
 
+        inline __attribute__((always_inline)) void sendData(uint8_t data)
+        {
+            IMXRT_LPUART_t *port = (IMXRT_LPUART_t *)IMXRT_LPUART5_ADDRESS;
+            isTransmitting = true;
+            uartTxDataBuffer.write(data);
+            __disable_irq();
+            port->CTRL |= LPUART_CTRL_TIE;
+            __enable_irq();
+        }
+
+        inline __attribute__((always_inline)) bool hasWriteData()
+        {
+            return uartWriteBuffer.canRead();
+        }
+
     public :
         constexpr UartZXTeensy() : enabled(false), isTransmitting(false)
         {
         }
 
+        // Open UART5, and start the port
         void begin(uint8_t baud);
 
+        // Flush and close the port
         void end(void);
 
         inline __attribute__((always_inline)) void isrUartEvent()
@@ -141,16 +162,6 @@ class UartZXTeensy
             }
         }
 
-        inline __attribute__((always_inline)) void sendData(uint8_t data)
-        {
-            IMXRT_LPUART_t *port = (IMXRT_LPUART_t *)IMXRT_LPUART5_ADDRESS;
-            isTransmitting = true;
-            uartTxDataBuffer.write(data);
-            __disable_irq();
-            port->CTRL |= LPUART_CTRL_TIE;
-            __enable_irq();
-        }
-
         inline __attribute__((always_inline)) uint8_t readData()
         {
             return uartReadBuffer.readRaw();
@@ -159,11 +170,6 @@ class UartZXTeensy
         inline __attribute__((always_inline)) bool hasReadData()
         {
             return uartReadBuffer.canRead();
-        }
-
-        inline __attribute__((always_inline)) bool hasWriteData()
-        {
-            return uartWriteBuffer.canRead();
         }
 
         inline __attribute__((always_inline)) void writeData(uart_action_t action, uint8_t data)
@@ -195,7 +201,7 @@ class UartZXTeensy
 
         inline __attribute__((always_inline)) void onTick()
         {
-            if (enabled && hasWriteData() && !uartTxDataBuffer.canRead())
+            if (enabled && hasWriteData() && uartTxDataBuffer.canWrite())
             {
                 uint8_t data;
                 switch (readWriteData(&data))
