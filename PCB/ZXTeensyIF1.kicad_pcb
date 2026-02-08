@@ -88,7 +88,7 @@
 			(outputdirectory "PCBWay/")
 		)
 	)
-	(property "PRJ_DATE" "2026-02-05")
+	(property "PRJ_DATE" "2026-02-08")
 	(property "PRJ_NAME" "ZXTeensyIF1")
 	(property "PRJ_REVISION" "v0.5")
 	(net 0 "")
@@ -28929,6 +28929,55 @@
 		(layer "Edge.Cuts")
 		(uuid "f5781935-bce3-4ce4-9745-439ddc8102f8")
 	)
+	(gr_text "3V3"
+		(at 65.8114 120.6754 0)
+		(layer "F.SilkS")
+		(uuid "3c47943e-7347-4d15-bad2-3ed72209b964")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+			(justify left bottom)
+		)
+	)
+	(gr_text "VIN"
+		(at 65.8114 115.5954 0)
+		(layer "F.SilkS")
+		(uuid "80866c92-00ea-4d94-bf1f-d6b2a7ca4847")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+			(justify left bottom)
+		)
+	)
+	(gr_text "GND"
+		(at 65.8114 118.1354 0)
+		(layer "F.SilkS")
+		(uuid "d6e526b1-69ad-4888-899b-9402fcfd270b")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+			(justify left bottom)
+		)
+	)
+	(gr_text "ESP-01S"
+		(locked yes)
+		(at 68.51071 89.66955 0)
+		(layer "F.SilkS")
+		(uuid "e628a1bc-3ac2-4b91-a549-73b6a515b474")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+			(justify left bottom)
+		)
+	)
 	(gr_text "${PRJ_NAME} ${PRJ_REVISION}, ${PRJ_DATE}"
 		(at 63.8556 126.746 0)
 		(layer "F.SilkS")
@@ -55313,9 +55362,17 @@
 		)
 	)
 	(group ""
-		(uuid "4ab9ecf5-abc5-43fe-b375-8e0d79f18e00")
+		(uuid "3aa6762e-87e0-40cf-94fb-6c79fe9ca7cb")
 		(locked yes)
-		(members "d820edde-8ae0-4da0-8973-3ad2fe5a2ae9" "de12b274-2a6e-492c-b6fc-8a5622de27ed")
+		(members "d820edde-8ae0-4da0-8973-3ad2fe5a2ae9" "de12b274-2a6e-492c-b6fc-8a5622de27ed"
+			"e628a1bc-3ac2-4b91-a549-73b6a515b474"
+		)
+	)
+	(group ""
+		(uuid "caf5e1c9-f6da-440a-bd5d-26894fc57c72")
+		(members "3c47943e-7347-4d15-bad2-3ed72209b964" "80866c92-00ea-4d94-bf1f-d6b2a7ca4847"
+			"d6e526b1-69ad-4888-899b-9402fcfd270b"
+		)
 	)
 	(embedded_fonts no)
 )
