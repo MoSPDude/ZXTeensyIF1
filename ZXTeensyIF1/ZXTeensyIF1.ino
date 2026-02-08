@@ -1057,19 +1057,28 @@ FASTRUN void isrWrEvent()
         uint32_t gpioSix = (*(volatile uint32_t *)IMXRT_GPIO6_ADDRESS);
         if ((gpioSix & DIVMMC_RAM_WRITE_MASK) == A13_PIN_BITMASK)
         {
+            // Perform high ROM area (0x2000) write
+            uint16_t address = decodeRamAddress(gpioSix);
+
+            // Perform ZXC2 address based paging
+            if (zxC2Present && !zxC2Lock &&
+                ((address & 0xffc0) == 0x1fc0))
+            {
+                zxC2BankPtr = ((address & 0x0f) << 1);
+                zxC2Paged = ((address & 0x10) == 0);
+                zxC2Lock = ((address & 0x20) != 0);
+                updateRomIndex(true);
+            }
+
+            // Perform Multiface 128 RAM write
             if (romSelected == ROM_MF128)
             {
-                // Perform Multiface 128 RAM write
-                uint8_t data = readData();
-                uint16_t address = (0x2000 | decodeRamAddress(gpioSix));
-                romPtr[address] = data;
+                romPtr[(0x2000 | address)] = readData();
             } else if ((romSelected == ROM_DIVMMC) &&
                 (!divMmcMapRam || divMmcConMem || !divMmcRamBankThree))
             {
                 // Perform DivMMC RAM write
-                uint8_t data = readData();
-                uint16_t address = decodeRamAddress(gpioSix);
-                divMmcRamPtr[address] = data;
+                divMmcRamPtr[address] = readData();
             }
         } else if ((gpioSix & IOREQ_PIN_BITMASK) == 0x00000000)
         {
