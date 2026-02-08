@@ -15,7 +15,8 @@ A Teensy 4.1 powered DivMMC and ZX Interface 1 clone,
     * NMI button and soft ROM
 * ZX Interface 2, and ZXC2 ROM emulation
     * Implements ZXC2 ROM banking
-* ESP-01S module via UART
+* ESP-01S module via UART5 (Serial8)
+    * Requires the 9V power rail for the 3.3V regulator
     * Available on ports 0x143B (5179) for RX and 0x133B (4923) for TX
     * https://www.specnext.com/the-next-on-the-network/
 * Soft ROM emulation
@@ -77,10 +78,10 @@ the DivMMC and enable the Interface 1.
 ## SD Card Setup
 
 * ROOT/
+    * MENU.ROM
     * MF128.ROM (MD5SUM: ca8c9d97c8aedd718d1081fad2e3af8d)
     * ESXMMC.BIN (MD5SUM: fa50b0258e52b8d72bd83cc2fb6e1013)
     * IF1.ROM (Optional, MD5SUM: 31b704ae925305e74f50699271fddd9a)
-    * MENU.ROM
     * ROMS/
         * (ZX Spectrum ROMs ending ".rom")
         * (Interface 2 and ZXC2 ROMs ending ".bin")
@@ -95,17 +96,28 @@ ROM next time.
 To firmware update, place the file on the SD card and select the option from the Menu ROM -
 then wait for the Spectrum to restart (!! It will take a minute !!).
 
+### Preparing the SD Card
+
+ESXDOS has trouble loading if it is not "early" on the SD card,
+
+* Format the SD card with FAT32
+* Extract ESXDOS on computer, and transfer all directories and ESXMMC.BIN to the SD card
+* Transfer the MF128.ROM, MENU.ROM and ZXTEENSY.CFG
+* Create ROMS directory, and add other ROMs
+* Add any other files
+
 ## Version History
 
 ### Hardware
 
 * v0.5 PCB prototype
     * HAS NOT BEEN MANUFACTURED YET
-    * Moved the ROMCS and DataDir output to pins 36 and 37, to free up Serial8 pins
-    * Added an ESP-01S header, and Pololu D24V5F3 header
-        * The Pololu D24V5F3 is a 3.3v regulator to power the ESP-01S module
+    * Moved the ROMCS and DataDir output to pins 36 and 37, to free up pins 34 and 35
+    * Added an ESP-01S header, and header for 3.3V regulator (eg. Pololu D24V5F3)
+        * The ESP-01S can take over 300mA, so requires a separate regulator
+        * The Pololu D24V5F3 is a 3.3V 500mA regulator module, available from The Pi Hut
         * I had to re-organise the left side of the board to make room
-    * Connected the Serial8 pins 34 and 35, to the ESP-01S header
+    * Connected the UART5 (Serial8) pins 34 and 35, to the ESP-01S header
 * v0.2 PCB prototype
     * First PCBs made, and tested
         * Microdrive, RS232, ZX Net and nROMCS on external edge connector working
@@ -197,7 +209,7 @@ the ZX Interface 1,
 
 ## +2A/+3 soft ROM on Spectrum 128K/+2 (Grey) machines
 
-Spectrum 128K, +2 (Grey) and similar machines (ZX Max 128 Issue 3) require a modification to
+Spectrum 128K, +2 (Grey) and similar machines (eg. ZX Max 128 Issue 3) require a modification to
 support the +2A/+3 soft ROM.
 
 Without it, accesses to the Secondary Memory Control register (0x1FFD) also affect the original
@@ -210,11 +222,11 @@ The BANK decoding is performed by a PAL10H8 chip, which can be swapped for a GAL
 the "Unrainer/IN 7FFD" fix - see https://spectrumforeveryone.com/technical/applying-the-unrainerin-7ffd-fix-to-128grey-2-machines/ and
 Velesoft https://velesoft.speccy.cz/zx/umbrella/umbrella.htm for the original article and files.
 
-Unrainer fixed GAL16V8 with socket and wire can be bought from the Retroleum shop at
+Unrainer fixed GAL16V8s with socket and wire can be bought from the Retroleum shop at
 https://retroleum.co.uk/.
 
-But, by adding a "BANK = ... & ZA14" term, then the GAL can also modify the decoding
-to support the +2A/+3 soft ROM.
+But, by adding a "BANK = ... & ZA14" term, then the GAL will support the decoding
+required for the +2A/+3 soft ROM.
 
 I've placed the updated files in the GAL folder.
 
