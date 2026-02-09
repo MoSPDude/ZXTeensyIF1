@@ -186,6 +186,7 @@ volatile bool divMmcAutoMap = false;
 volatile bool divMmcConMem = false;
 volatile bool divMmcMapRam = false;
 volatile bool divMmcRamBankThree = false;
+volatile bool divMmcExtRamEnabled = false;
 volatile uint8_t* divMmcRamPtr;
 const uint16_t PAGE_BANK_DIVMMC = (BANK_ROM0 | BANK_ROM1 | BANK_ROM3);
 
@@ -668,6 +669,7 @@ void loadZXC2RomFile(File RomFile)
     if (count > 0)
     {
         zxC2Present = true;
+        divMmcExtRamEnabled = false;
         romArrayPresent |= BANK_RAM;
         for (uint8_t i_ = 1; i_ < EXT_RAM_PAGE_COUNT; ++i_)
         {
@@ -699,6 +701,31 @@ void loadForegroundRom()
                 break;
         }
         RomFile.close();
+    }
+}
+
+void initialiseRamBanks()
+{
+    // Initialise the RAM banks
+    divMmcExtRamEnabled = true;
+    for (uint8_t i_ = 0; i_ < RAM_PAGE_COUNT; ++i_)
+    {
+        for (uint16_t j_ = 0; j_ < RAM_PAGE_SIZE; ++j_)
+        {
+            divMmcRamArray[i_][j_] = 0xff;
+        }
+    }
+    for (uint8_t i_ = 0; i_ < EXT_RAM_PAGE_COUNT; ++i_)
+    {
+        for (uint16_t j_ = 0; j_ < RAM_PAGE_SIZE; ++j_)
+        {
+            divMmcExtRamArray[i_][j_] = 0xff;
+        }
+    }
+    for (uint16_t j_ = RAM_PAGE_SIZE; j_ < ROM_PAGE_SIZE; ++j_)
+    {
+        romArray[ROM_DIVMMC][j_] = 0xff;
+        romArray[ROM_MF128][j_] = 0xff;
     }
 }
 
@@ -762,25 +789,7 @@ void handleStateResetEntry()
     if (!afterFirstReset)
     {
         // Initialise the RAM banks
-        for (uint8_t i_ = 0; i_ < RAM_PAGE_COUNT; ++i_)
-        {
-            for (uint16_t j_ = 0; j_ < RAM_PAGE_SIZE; ++j_)
-            {
-                divMmcRamArray[i_][j_] = 0xff;
-            }
-        }
-        for (uint8_t i_ = 0; i_ < EXT_RAM_PAGE_COUNT; ++i_)
-        {
-            for (uint16_t j_ = 0; j_ < RAM_PAGE_SIZE; ++j_)
-            {
-                divMmcExtRamArray[i_][j_] = 0xff;
-            }
-        }
-        for (uint16_t j_ = RAM_PAGE_SIZE; j_ < ROM_PAGE_SIZE; ++j_)
-        {
-            romArray[ROM_DIVMMC][j_] = 0xff;
-            romArray[ROM_MF128][j_] = 0xff;
-        }
+        initialiseRamBanks();
 
         // Reset the soft ROM detection state
         romArrayPresent = 0;
@@ -902,6 +911,18 @@ void handleStateResetMenu()
 
 void handleStateReset()
 {
+    // Re-initialise the RAM banks, when RAM is being used as ROM
+    if ((globalState != STATE_RESET_MENU) && ((romArrayPresent & BANK_RAM) != 0))
+    {
+        if (menuPaged)
+        {
+            initialiseRamBanks();
+        } else {
+            // Reload the menu after ZXC2 ROM
+            afterFirstReset = false;
+        }
+    }
+
     // Reset the banking state
     menuPaged = false;
     menuSelected = false;
@@ -1207,7 +1228,7 @@ FASTRUN void isrWrEvent()
 
                             // DivMMC RAM banking
                             data &= (EXT_RAM_PAGE_COUNT + RAM_PAGE_COUNT - 1);
-                            if (!zxC2Present && (data >= RAM_PAGE_COUNT))
+                            if (divMmcExtRamEnabled && (data >= RAM_PAGE_COUNT))
                             {
                                 divMmcRamPtr = divMmcExtRamArray[(data - RAM_PAGE_COUNT)];
                                 divMmcRamBankThree = false;
