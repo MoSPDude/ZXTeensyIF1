@@ -21,8 +21,8 @@
 #define FAST_SD_CLK_FREQ 24000000ULL
 #define FAST_SD_TICK_CYCCNT ((TEENSY_CLK_FREQ / FAST_SD_CLK_FREQ) / 2)
 
-// Allow ~350ms for reset/button to debounce (at 816MHz, TRIGGER_DELAY_CNT = 0x4B22E9)
-#define TRIGGER_DELAY_MS 350
+// Allow ~500ms for reset/button to debounce (at 816MHz, TRIGGER_DELAY_CNT = 0x6B5672)
+#define TRIGGER_DELAY_MS 500
 #define TRIGGER_DELAY_CNT ((TRIGGER_DELAY_MS * TEENSY_CLK_FREQ) / (SD_TICK_CYCCNT * 1000))
 
 extern "C" uint32_t set_arm_clock(uint32_t frequency);
@@ -179,23 +179,26 @@ const uint16_t RAM_PAGE_SIZE = 0x2000;
 volatile uint8_t divMmcRamArray[RAM_PAGE_COUNT][RAM_PAGE_SIZE] __attribute__((aligned(16)));
 volatile DMAMEM uint8_t divMmcExtRamArray[EXT_RAM_PAGE_COUNT][RAM_PAGE_SIZE] __attribute__((aligned(16)));
 volatile bool divMmcPresent = false;
+volatile bool divMmcEnabled = false;
+volatile bool divMmcToggle = false;
 volatile bool divMmcPaged = false;
 volatile bool divMmcAutoMap = false;
 volatile bool divMmcConMem = false;
 volatile bool divMmcMapRam = false;
 volatile bool divMmcRamBankThree = false;
 volatile uint8_t* divMmcRamPtr;
-volatile bool divMmcRemoval = false;
 const uint16_t PAGE_BANK_DIVMMC = (BANK_ROM0 | BANK_ROM1 | BANK_ROM3);
 
 // Multiface 128
 volatile bool mf128Present = false;
+volatile bool mf128Enabled = false;
 volatile bool mf128Paged = false;
 volatile bool mf128VideoRam = false;
 volatile bool mf128ActiveNMI = false;
 
 // Interface 1
 volatile bool interface1Present = false;
+volatile bool interface1Enabled = false;
 volatile bool interface1Paged = false;
 volatile bool interface1Removed = false;
 const uint16_t PAGE_BANK_MF128_IF1 = (BANK_ROM0 | BANK_ROM1 | BANK_ROM3 | BANK_MF128);
@@ -388,12 +391,12 @@ inline __attribute__((always_inline)) bool isGlobalStateReset()
 
 inline __attribute__((always_inline)) bool isDivMmcSelected()
 {
-    return (divMmcPresent && ((romArraySelected & (BANK_MF128 | BANK_IF1)) == 0));
+    return (divMmcEnabled && ((romArraySelected & (BANK_MF128 | BANK_IF1)) == 0));
 }
 
 inline __attribute__((always_inline)) void divMmcUpdateInterfaceOne()
 {
-    if ((!interface1Present && !interface1Removed) || isDivMmcSelected())
+    if (!interface1Present || isDivMmcSelected())
     {
         digitalWriteFast(IF1_DIS_PIN, 1);
     } else {
@@ -905,14 +908,16 @@ void handleStateReset()
     rom1Paged = false;
     rom23Paged = false;
     interface1Paged = false;
-    interface1Removed = false;
-    divMmcRemoval = false;
+    interface1Enabled = false;
     divMmcPaged = false;
+    divMmcEnabled = false;
+    divMmcToggle = false;
     divMmcConMem = false;
     divMmcAutoMap = false;
     divMmcMapRam = false;
     divMmcRamPtr = divMmcRamArray[0];
     mf128Paged = false;
+    mf128Enabled = false;
     mf128VideoRam = false;
     mf128ActiveNMI = false;
     zxC2Paged = false;
@@ -926,7 +931,7 @@ void handleStateReset()
     digitalWriteFast(NMI_PIN, 0);
 
     // Blink the LED
-    delay(150);
+    delay(250);
     digitalWriteFast(LED_PIN, 1);
 
     // Perform specific actions
@@ -956,11 +961,7 @@ void handleStateReset()
         {
             // The Interface 1 can be enabled by switching back
             // into 128k mode (".128")
-            if (interface1Present)
-            {
-                interface1Removed = true;
-                interface1Present = false;
-            }
+            divMmcEnabled = true;
 
             // Close the SD card to hand to the DivMMC
             SD.sdfs.end();
@@ -968,9 +969,12 @@ void handleStateReset()
 
             // Wait for any previous SD accesses to finish
             divMmcSpi.flush();
+        } else if (interface1Present)
+        {
+            interface1Enabled = true;
         }
 
-        // If UART is present, then enable Serial8
+        // If UART is present, then enable
         if (uartPresent)
         {
             espUart.begin(0);
@@ -978,7 +982,7 @@ void handleStateReset()
     }
 
     // Enable the ROM, if present
-    delay(100);
+    delay(250);
     if (romArrayPresent != 0)
     {
         updateRomIndex(true);
@@ -1117,21 +1121,22 @@ FASTRUN void isrWrEvent()
                     }
 
                     // Detect 0x7ffd write access to disable DivMMC
-                    if (isPort7F && interface1Removed &&
+                    if (isPort7F && interface1Present && divMmcEnabled &&
                         divMmcPaged && ((data & 0x10) == 0x0))
                     {
-                        interface1Removed = false;
-                        divMmcRemoval = true;
+                        divMmcToggle = true;
                     }
                 }
             } else {
                 switch (port_)
                 {
                     case 0x3f :
-                        if (mf128ActiveNMI)
+                        mf128ActiveNMI = false;
+                        if (mf128Enabled)
                         {
-                            mf128ActiveNMI = false;
-                            updateRomIndex(true);
+                            mf128Enabled = false;
+                            divMmcEnabled = divMmcPresent;
+                            interface1Enabled = (interface1Present && !divMmcEnabled);
                         }
                         break;
                     case 0x3b :
@@ -1149,11 +1154,7 @@ FASTRUN void isrWrEvent()
                         }
                         break;
                     case 0xbf :
-                        if (mf128ActiveNMI)
-                        {
-                            mf128ActiveNMI = false;
-                            updateRomIndex(true);
-                        }
+                        mf128ActiveNMI = false;
                         break;
                     case 0xe7 :
                         if (isDivMmcSelected())
@@ -1289,6 +1290,9 @@ FASTRUN void isrRdEvent()
                         {
                             mf128ActiveNMI = true;
                             mf128Paged = true;
+                            mf128Enabled = true;
+                            divMmcEnabled = false;
+                            interface1Enabled = interface1Present;
                             updateRomIndex(true);
                         }
 
@@ -1296,7 +1300,7 @@ FASTRUN void isrRdEvent()
                         writeRomData(address);
 
                         // Send the NMI to the DivMMC, if not Multiface 128
-                        if (divMmcPresent && !mf128ActiveNMI)
+                        if (divMmcEnabled && !mf128ActiveNMI)
                         {
                             divMmcPaged = true;
                             divMmcAutoMap = true;
@@ -1323,7 +1327,7 @@ FASTRUN void isrRdEvent()
                                 updateRomIndex(true);
                             }
 
-                            if (divMmcPresent && !mf128Paged)
+                            if (divMmcEnabled && !mf128Paged)
                             {
                                 // Detect M1 cycle for DivMMC paging
                                 if ((address & 0xff00) == 0x3d00)
@@ -1350,7 +1354,7 @@ FASTRUN void isrRdEvent()
                                 writeRomData(address);
 
                                 // Detect M1 cycle for Interface 1 paging
-                                if (interface1Present &&
+                                if (interface1Enabled &&
                                     ((address == 0x08) || (address == 0x1708)))
                                 {
                                     // M1 cycle for Interface 1 paging
@@ -1384,11 +1388,11 @@ FASTRUN void isrRdEvent()
                                 updateRomIndex(false);
 
                                 // Disable the DivMMC, and enable the Interface 1
-                                if (divMmcRemoval)
+                                if (divMmcToggle)
                                 {
-                                    divMmcRemoval = false;
-                                    divMmcPresent = false;
-                                    interface1Present = true;
+                                    divMmcToggle = false;
+                                    divMmcEnabled = false;
+                                    interface1Enabled = interface1Present;
                                 }
                             }
                             break;
@@ -1404,7 +1408,7 @@ FASTRUN void isrRdEvent()
                             writeRomData(address);
 
                             // Detect M1 cycle for Interface 1 paging
-                            if (interface1Present &&
+                            if (interface1Enabled &&
                                 ((address == 0x08) || (address == 0x1708)))
                             {
                                 // M1 cycle for Interface 1 paging
@@ -1444,18 +1448,18 @@ FASTRUN void isrRdEvent()
                     }
                     break;
                 case 0x3f :
-                    if (mf128Present)
+                    if (mf128Paged)
                     {
-                        if (mf128Paged)
-                        {
-                            mf128Paged = false;
-                            updateRomIndex(true);
-                        }
+                        mf128Paged = false;
+                        updateRomIndex(true);
+                    }
+                    if (mf128Enabled)
+                    {
                         writeData(mf128VideoRam ? 0x80 : 0x00);
                     }
                     break;
                 case 0xbf :
-                    if (mf128Present)
+                    if (mf128Enabled)
                     {
                         if (!mf128Paged)
                         {
