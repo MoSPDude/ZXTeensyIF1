@@ -15,10 +15,13 @@ A Teensy 4.1 powered DivMMC and ZX Interface 1 clone,
     * NMI button and soft ROM
 * ZX Interface 2, and ZXC2 ROM emulation
     * Implements ZXC2 ROM banking
-* ESP-01S module via UART5 (Serial8)
+* ESP-01S module via TX8/RX8
     * Requires the 9V power rail for the 3.3V regulator
     * Available on ports 0x143B (5179) for RX and 0x133B (4923) for TX
     * https://www.specnext.com/the-next-on-the-network/
+* Kempston USB mouse
+    * Not wired to the board - use a small lead that exits the case
+    * eg. StarTech.com "6in USB 2.0 Cable - USB A Female to USB Motherboard 4 Pin Header F/F"
 * Soft ROM emulation
     * Override the internal Spectrum ROM with ROMs from SD card
     * Supports 16KB (48K Spectrum), 32KB (128K Spectrum) and 64KB (+2A/+3 Spectrum) ROMs
@@ -117,7 +120,7 @@ ESXDOS has trouble loading if it is not "early" on the SD card,
         * The ESP-01S can take over 300mA, so requires a separate regulator
         * The Pololu D24V5F3 is a 3.3V 500mA regulator module, available from The Pi Hut
         * I had to re-organise the left side of the board to make room
-    * Connected the UART5 (Serial8) pins 34 and 35, to the ESP-01S header
+    * Connected RX8 pin 34 and TX8 pin 35, to the ESP-01S header
 * v0.2 PCB prototype
     * First PCBs made, and tested
         * Microdrive, RS232, ZX Net and nROMCS on external edge connector working
@@ -132,7 +135,8 @@ ESXDOS has trouble loading if it is not "early" on the SD card,
 
 ### Firmware
 
-* Added experimental UART for ESP-01S module on Serial8
+* Added experimental USB Host and USB Mouse for Kempston mouse emulation
+* Added experimental UART for ESP-01S module on TX8/RX8
     * Uses ports 0x143B (5179) for RX and 0x133B (4923) for TX
 * Added firmware update from SD card
     * Uses https://github.com/joepasquariello/FlasherX

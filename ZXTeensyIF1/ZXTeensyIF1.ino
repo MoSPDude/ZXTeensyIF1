@@ -8,6 +8,7 @@
 
 #include <SD.h>
 #include <SdFat.h>
+#include "USBHost_t36.h"
 #include "if1-2_rom.h"
 #include "RingBuffer.h"
 #include "SdSpiZXTeensy.h"
@@ -221,6 +222,16 @@ SdSpiZXTeensy divMmcSpi(FAST_SD_TICK_CYCCNT);
 // MB03+ UART
 volatile bool uartPresent = false;
 UartZXTeensy espUart;
+
+// USB Kempston mouse
+USBHost usbHost;
+USBHIDParser usbHidParser(usbHost);
+MouseController usbMouse(usbHost);
+volatile bool mousePresent = false;
+volatile bool mouseEnabled = false;
+volatile uint32_t usbMouseX = 0;
+volatile uint32_t usbMouseY = 0;
+volatile uint8_t usbMouseBtn = 0;
 
 // SPI and UART tick cycle counter
 volatile uint32_t globalCycleCount;
@@ -632,29 +643,33 @@ void loadSpectrumRomFile(File RomFile)
     zxC2Present = false;
 
     // Attempt to load four 16KB ROM banks
-    size_t count = RomFile.readBytes((char *)romArray[ROM_ROM0], ROM_PAGE_SIZE);
-    if (count > 0)
+    if (RomFile)
     {
-        romArrayPresent |= BANK_ROM0;
-        if (count >= ROM_PAGE_SIZE)
+        size_t count = RomFile.readBytes((char *)romArray[ROM_ROM0], ROM_PAGE_SIZE);
+        if (count > 0)
         {
-            count = RomFile.readBytes((char *)romArray[ROM_ROM1], ROM_PAGE_SIZE);
-            if (count > 0)
+            romArrayPresent |= BANK_ROM0;
+            if (count >= ROM_PAGE_SIZE)
             {
-                rom1Present = true;
-                romArrayPresent |= BANK_ROM1;
-                if (count >= ROM_PAGE_SIZE)
+                count = RomFile.readBytes((char *)romArray[ROM_ROM1], ROM_PAGE_SIZE);
+                if (count > 0)
                 {
-                    count = RomFile.readBytes((char *)romArray[ROM_ROM2], ROM_PAGE_SIZE);
-                    if (count > 0)
+                    rom1Present = true;
+                    romArrayPresent |= BANK_ROM1;
+                    if (count >= ROM_PAGE_SIZE)
                     {
-                        rom23Present = true;
-                        romArrayPresent |= (BANK_ROM2 | BANK_ROM3);
-                        count = RomFile.readBytes((char *)romArray[ROM_ROM3], ROM_PAGE_SIZE);
+                        count = RomFile.readBytes((char *)romArray[ROM_ROM2], ROM_PAGE_SIZE);
+                        if (count > 0)
+                        {
+                            rom23Present = true;
+                            romArrayPresent |= (BANK_ROM2 | BANK_ROM3);
+                            count = RomFile.readBytes((char *)romArray[ROM_ROM3], ROM_PAGE_SIZE);
+                        }
                     }
                 }
             }
         }
+        RomFile.close();
     }
 }
 
@@ -665,21 +680,25 @@ void loadZXC2RomFile(File RomFile)
     zxC2Present = false;
 
     // The ZXC2 cartridge is loaded into the DivMMC RAM area
-    size_t count = RomFile.readBytes((char *)divMmcExtRamArray[0], RAM_PAGE_SIZE);
-    if (count > 0)
+    if (RomFile)
     {
-        zxC2Present = true;
-        divMmcExtRamEnabled = false;
-        romArrayPresent |= BANK_RAM;
-        for (uint8_t i_ = 1; i_ < EXT_RAM_PAGE_COUNT; ++i_)
+        size_t count = RomFile.readBytes((char *)divMmcExtRamArray[0], RAM_PAGE_SIZE);
+        if (count > 0)
         {
-            size_t blk_count_ = RomFile.readBytes((char *)divMmcExtRamArray[i_], RAM_PAGE_SIZE);
-            count += blk_count_;
-            if (blk_count_ < RAM_PAGE_SIZE)
+            zxC2Present = true;
+            divMmcExtRamEnabled = false;
+            romArrayPresent |= BANK_RAM;
+            for (uint8_t i_ = 1; i_ < EXT_RAM_PAGE_COUNT; ++i_)
             {
-                break;
+                size_t blk_count_ = RomFile.readBytes((char *)divMmcExtRamArray[i_], RAM_PAGE_SIZE);
+                count += blk_count_;
+                if (blk_count_ < RAM_PAGE_SIZE)
+                {
+                    break;
+                }
             }
         }
+        RomFile.close();
     }
 }
 
@@ -687,20 +706,16 @@ void loadForegroundRom()
 {
     rom_type_t romType;
     File RomFile = menuGetRomFile(&romType);
-    if (RomFile)
+    switch (romType)
     {
-        switch (romType)
-        {
-            case TYPE_IF2 :
-                zxC2Lock = true;
-            case TYPE_ZXC2 :
-                loadZXC2RomFile(RomFile);
-                break;
-            default :
-                loadSpectrumRomFile(RomFile);
-                break;
-        }
-        RomFile.close();
+        case TYPE_IF2 :
+            zxC2Lock = true;
+        case TYPE_ZXC2 :
+            loadZXC2RomFile(RomFile);
+            break;
+        default :
+            loadSpectrumRomFile(RomFile);
+            break;
     }
 }
 
@@ -1000,6 +1015,14 @@ void handleStateReset()
         {
             espUart.begin(0);
         }
+
+        // If USB mouse is present, then enable
+        if (mousePresent && !mouseEnabled)
+        {
+            // Enable the USB host
+            usbHost.begin();
+            mouseEnabled = true;
+        }
     }
 
     // Enable the ROM, if present
@@ -1024,6 +1047,19 @@ void loop()
 
     // Run actions (eg. SD SPI) on regular ticks
     performOnClock();
+
+    // Perform USB host functions
+    if (mouseEnabled)
+    {
+        usbHost.Task();
+        if (usbMouse.available())
+        {
+            usbMouseX += (uint32_t)usbMouse.getMouseX();
+            usbMouseY -= (uint32_t)usbMouse.getMouseY();
+            usbMouseBtn = ~(usbMouse.getButtons());
+            usbMouse.mouseDataClear();
+        }
+    }
 }
 
 inline __attribute__((always_inline)) void writeRomData(uint16_t address)
@@ -1504,6 +1540,22 @@ FASTRUN void isrRdEvent()
                         }
                     }
                     break;
+                case 0xdf :
+                    if (mousePresent)
+                    {
+                        switch (decodeHighAddress(gpioSix))
+                        {
+                            case 0xfb :
+                                writeData(usbMouseX >> 1);
+                                break;
+                            case 0xff :
+                                writeData(usbMouseY >> 1);
+                                break;
+                            case 0xfa :
+                                writeData(usbMouseBtn);
+                                break;
+                        }
+                    }
             }
         }
     }
