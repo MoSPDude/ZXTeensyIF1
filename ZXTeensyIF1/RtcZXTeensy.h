@@ -4,9 +4,7 @@
 
 #include <TimeLib.h>
 
-#define DEFAULT_TIME 1767225600
-
-extern volatile uint32_t globalCycleCount;
+#define DEFAULT_TIME 1767225600 // 1st January 2026 at 00:00
 
 time_t getTeensy3Time()
 {
@@ -16,7 +14,7 @@ time_t getTeensy3Time()
 class RtcZXTeensy
 {
     protected :
-        volatile uint8_t regBank[16];
+        volatile uint8_t regBank[14];
         volatile bool hasHold;
         volatile bool is24Hour;
         volatile bool hasModified;
@@ -77,7 +75,7 @@ class RtcZXTeensy
     public :
         constexpr RtcZXTeensy() : regBank(), hasHold(false), is24Hour(true), hasModified(false)
         {
-            for (int i = 0; i < 13; ++i) {
+            for (int i = 0; i < 14; ++i) {
                 regBank[i] = 0;
             }
             setSyncProvider(getTeensy3Time);
@@ -92,6 +90,8 @@ class RtcZXTeensy
             {
                 case 0x0d :
                     return (hasHold ? 0x01 : 0x02);
+                case 0x0e :
+                    return regBank[13];
                 case 0x0f :
                     return (is24Hour ? 0x04 : 0x00);
                 default :
@@ -101,29 +101,26 @@ class RtcZXTeensy
 
         inline __attribute__((always_inline)) void write(uint8_t value, uint8_t data)
         {
-            regBank[value] = (data & 0x0f);
             switch (value)
             {
                 case 0x0d :
-                    if (data & 0x01)
+                    if (hasModified)
                     {
-                        updateRegisters();
-                        hasHold = true;
+                        hasModified = false;
+                        updateTime();
                     } else {
-                        hasHold = false;
-                        if (hasModified)
-                        {
-                            updateTime();
-                            hasModified = false;
-                        }
+                        updateRegisters();
                     }
+                    hasHold = (data & 0x01);
                     break;
                 case 0x0e :
+                    regBank[13] = (data & 0x0f);
                     break;
                 case 0x0f :
                     is24Hour = (data & 0x04);
                     break;
                 default :
+                    regBank[value] = (data & 0x0f);
                     hasModified = true;
                     break;
             }
