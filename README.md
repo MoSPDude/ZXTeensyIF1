@@ -30,6 +30,13 @@ A Teensy 4.1 powered DivMMC and ZX Interface 1 clone,
 * External ROM support
     * ZX Interface 1 edge connector supports other ROM based hardware
     * eg. Retroleum SMART card, real ZX Interface 2 hardware etc.
+* RTC module from the Teensy 4.1
+    * Accessed as a RTC-72421 on ports 0x7X3B
+        * The time is only read when register 0xD sets HOLD to 1
+    * Uses a minor bugfixed RTC.SYS from https://velesoft.speccy.cz/zx/rtcmodule/index.htm
+        * Patched byte 6 from 0x0D to 0x7D
+    * Not wired to the board - attach a coin cell battery to VBAT
+        * See https://www.pjrc.com/store/teensy41.html#timing
 * Menu ROM derived from TomDDGs ZXPicoIF2Lite ROMExplorer
 
 The ZX Interface 1 v2 ROM is included in compiled firmware, and as noted on other

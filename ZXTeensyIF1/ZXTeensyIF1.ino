@@ -13,6 +13,7 @@
 #include "RingBuffer.h"
 #include "SdSpiZXTeensy.h"
 #include "UartZXTeensy.h"
+#include "RtcZXTeensy.h"
 
 // Run the Teensy 4.1 with slight overclock at 816MHz
 // Run the SD card at ~7MHz (at 816MHz, SD_TICK_CYCCNT = 58)
@@ -232,6 +233,9 @@ volatile bool mouseEnabled = false;
 volatile uint32_t usbMouseX = 0;
 volatile uint32_t usbMouseY = 0;
 volatile uint8_t usbMouseBtn = 0;
+
+// RTC module
+RtcZXTeensy rtcTeensy;
 
 // SPI and UART tick cycle counter
 volatile uint32_t globalCycleCount;
@@ -1197,16 +1201,22 @@ FASTRUN void isrWrEvent()
                         }
                         break;
                     case 0x3b :
-                        if (uartPresent)
                         {
-                            switch (decodeHighAddress(gpioSix))
+                            uint8_t highPort = decodeHighAddress(gpioSix);
+                            if ((highPort & 0xf0) == 0x70)
                             {
-                                case 0x13 :
-                                    espUart.writeData(UartZXTeensy::UART_WRITE, readData());
-                                    break;
-                                case 0x14 :
-                                    espUart.writeData(UartZXTeensy::UART_SET_BAUD, readData());
-                                    break;
+                                rtcTeensy.write((highPort & 0x0f), readData());
+                            } else if (uartPresent)
+                            {
+                                switch (highPort)
+                                {
+                                    case 0x13 :
+                                        espUart.writeData(UartZXTeensy::UART_WRITE, readData());
+                                        break;
+                                    case 0x14 :
+                                        espUart.writeData(UartZXTeensy::UART_SET_BAUD, readData());
+                                        break;
+                                }
                             }
                         }
                         break;
@@ -1527,16 +1537,22 @@ FASTRUN void isrRdEvent()
                     }
                     break;
                 case 0x3b :
-                    if (uartPresent)
                     {
-                        switch (decodeHighAddress(gpioSix))
+                        uint8_t highPort = decodeHighAddress(gpioSix);
+                        if ((highPort & 0xf0) == 0x70)
                         {
-                            case 0x13 :
-                                writeData(espUart.getStatusByte());
-                                break;
-                            case 0x14 :
-                                writeData(espUart.hasReadData() ? espUart.readData() : 0x00);
-                                break;
+                            writeData(rtcTeensy.read(highPort & 0x0f));
+                        } else if (uartPresent)
+                        {
+                            switch (highPort)
+                            {
+                                case 0x13 :
+                                    writeData(espUart.getStatusByte());
+                                    break;
+                                case 0x14 :
+                                    writeData(espUart.hasReadData() ? espUart.readData() : 0x00);
+                                    break;
+                            }
                         }
                     }
                     break;
