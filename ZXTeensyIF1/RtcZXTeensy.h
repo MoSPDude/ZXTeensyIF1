@@ -43,6 +43,36 @@ class RtcZXTeensy
             regBank[11] = yrs / 10;
             regBank[12] = weekday();
         }
+
+        inline __attribute__((always_inline)) void updateTime()
+        {
+            int secs = (regBank[1] * 10) + regBank[0];
+            int mins = (regBank[3] * 10) + regBank[2];
+            int hrs = ((regBank[5] & 0x03) * 10) + regBank[4];
+            if (!is24Hour)
+            {
+                if (regBank[5] & 0x04)
+                {
+                    if (hrs < 12)
+                    {
+                        hrs += 12;
+                    } else {
+                        hrs = 12;
+                    }
+                } else if (hrs >= 12)
+                {
+                    hrs = 0;
+                }
+            }
+            int days = (regBank[7] * 10) + regBank[6];
+            int mnts = (regBank[9] * 10) + regBank[8];
+            int yrs = (regBank[11] * 10) + regBank[10];
+            setTime(hrs, mins, secs, days, mnts, yrs);
+            time_t timeNow = now();
+            Teensy3Clock.set(timeNow);
+            setTime(timeNow);
+            updateRegisters();
+        }
         
     public :
         constexpr RtcZXTeensy() : regBank(), hasHold(false), is24Hour(true), hasModified(false)
@@ -83,6 +113,7 @@ class RtcZXTeensy
                         hasHold = false;
                         if (hasModified)
                         {
+                            updateTime();
                             hasModified = false;
                         }
                     }

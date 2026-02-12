@@ -22,6 +22,13 @@ A Teensy 4.1 powered DivMMC and ZX Interface 1 clone,
 * Kempston USB mouse
     * Not wired to the board - use a small lead that exits the case
     * eg. StarTech.com "6in USB 2.0 Cable - USB A Female to USB Motherboard 4 Pin Header F/F"
+* RTC module from the Teensy
+    * Accessed as a RTC-72421 on ports 0x7X3B
+        * The time is only read or written when register 0xD sets HOLD to 1
+    * Uses a minor bugfixed RTC.SYS from https://velesoft.speccy.cz/zx/rtcmodule/index.htm
+        * Patched byte 6 from 0x0D to 0x7D
+    * Not wired to the board - attach a coin cell battery to VBAT
+        * See https://www.pjrc.com/store/teensy41.html#timing
 * Soft ROM emulation
     * Override the internal Spectrum ROM with ROMs from SD card
     * Supports 16KB (48K Spectrum), 32KB (128K Spectrum) and 64KB (+2A/+3 Spectrum) ROMs
@@ -30,13 +37,6 @@ A Teensy 4.1 powered DivMMC and ZX Interface 1 clone,
 * External ROM support
     * ZX Interface 1 edge connector supports other ROM based hardware
     * eg. Retroleum SMART card, real ZX Interface 2 hardware etc.
-* RTC module from the Teensy 4.1
-    * Accessed as a RTC-72421 on ports 0x7X3B
-        * The time is only read when register 0xD sets HOLD to 1
-    * Uses a minor bugfixed RTC.SYS from https://velesoft.speccy.cz/zx/rtcmodule/index.htm
-        * Patched byte 6 from 0x0D to 0x7D
-    * Not wired to the board - attach a coin cell battery to VBAT
-        * See https://www.pjrc.com/store/teensy41.html#timing
 * Menu ROM derived from TomDDGs ZXPicoIF2Lite ROMExplorer
 
 The ZX Interface 1 v2 ROM is included in compiled firmware, and as noted on other
@@ -96,6 +96,9 @@ the DivMMC and enable the Interface 1.
         * (ZX Spectrum ROMs ending ".rom")
         * (Interface 2 and ZXC2 ROMs ending ".bin")
     * (Other ESXDOS files)
+    * SYS/
+        * RTC.SYS (Optional, for RTC access)
+        * (Other ESXDOS files)
     * ZXTEENSY.CFG (Saved configuration from Menu ROM)
     * ZXTEENSY.HEX (Optional, firmware update)
 
@@ -142,6 +145,7 @@ ESXDOS has trouble loading if it is not "early" on the SD card,
 
 ### Firmware
 
+* Added experimental RTC access via ports 0x7X3B
 * Added experimental USB Host and USB Mouse for Kempston mouse emulation
 * Added experimental UART for ESP-01S module on TX8/RX8
     * Uses ports 0x143B (5179) for RX and 0x133B (4923) for TX
