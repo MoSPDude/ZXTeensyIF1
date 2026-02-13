@@ -3,7 +3,7 @@
 
 ![image](./Images/pcb-v0.2.JPG "Prototype PCB")
 
-A Teensy 4.1 powered DivMMC and ZX Interface 1 clone,
+A Teensy 4.1 powered DivMMC and ZX Interface 1 clone for the ZX Spectrum 48K/128K/+2 (Grey) machines,
 
 * ZX Interface 1
     * Requires the 9V and 5V power rails
@@ -31,7 +31,7 @@ A Teensy 4.1 powered DivMMC and ZX Interface 1 clone,
         * See https://www.pjrc.com/store/teensy41.html#timing
 * Soft ROM emulation
     * Override the internal Spectrum ROM with ROMs from SD card
-    * Supports 16KB (48K Spectrum), 32KB (128K Spectrum) and 64KB (+2A/+3 Spectrum) ROMs
+    * Supports 16KB (Spectrum 48K), 32KB (Spectrum 128K/+2 (Grey)) and 64KB (Spectrum +2A/+3) ROMs
         * The +2A/+3 soft ROM support requires port decoding changes (see below)
     * Provides the Interface 1 ROM, Multiface 128 ROM and DivMMC ROM
 * External ROM support
@@ -211,8 +211,8 @@ the Interface 1 behaviour.
 
 ### Early prototype
 
-The veroboard prototype used the edge connector A4 (as N/C on 48K spectrums) to signal back into
-the ZX Interface 1,
+The veroboard prototype used the edge connector A4 (as N/C on the Spectrum 48K) to signal back
+into the Interface 1,
 
 * Disconnect the base of Q11 from the Interface 1 ULA IC1 pin 10
     * It will probably be soldered directly onto the ULA pin!
@@ -231,7 +231,7 @@ Without it, accesses to the Secondary Memory Control register (0x1FFD) also affe
 Memory Control register (0x7FFD) due to the partial decoding. (More info at
 https://worldofspectrum.org/faq/reference/128kreference.htm)
 
-### 128K/Grey +2 Memory Control port decoding
+### Spectrum 128K/+2 (Grey) Memory Control port decoding
 
 The BANK decoding is performed by a PAL10H8 chip, which can be swapped for a GAL16V8 to apply
 the "Unrainer/IN 7FFD" fix - see https://spectrumforeveryone.com/technical/applying-the-unrainerin-7ffd-fix-to-128grey-2-machines/ and
@@ -251,7 +251,7 @@ I've placed the updated files in the GAL folder.
 * Program the GAL16V8 with GALNEW2A.JED, and fit into socket
     * Again, taking care with the orientation!
 
-### ZX Max 128 Issue 3 +2A/+3 Memory Control port decoding
+### ZX Max 128 Issue 3 Memory Control port decoding
 
 The modification is shown at
 https://github.com/DonSuperfo/ZX-Max-128/blob/main/Issue%203/Modify%20for%20%2B3%20ROM.pdf,

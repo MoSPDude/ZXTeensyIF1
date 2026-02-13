@@ -554,6 +554,13 @@ inline __attribute__((always_inline)) void updateRomIndex(bool pageNow)
     }
 }
 
+FLASHMEM void startup_early_hook()
+{
+    // Force initial reset
+    pinMode(RESET_PIN, OUTPUT);
+    digitalWriteFast(RESET_PIN, 1);
+}
+
 void setup()
 {
     // Apply slight overclock
