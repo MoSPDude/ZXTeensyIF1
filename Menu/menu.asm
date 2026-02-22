@@ -25,7 +25,7 @@ MEM_ORG     EQU      0x0000  ; start of code
 MEM_NMI     EQU     MEM_ORG + 0x0038
 MEM_LTBL    EQU     MEM_ORG + 0x1000 ; lookup table MEM_LTBLP-512
 MEM_LTBLP   EQU     MEM_LTBL + 0x200 ; lookup table start
-MEM_OFFSET  EQU     MEM_LTBL - 9;
+MEM_OFFSET  EQU     MEM_LTBLP - 9;
 ; ------------------------------------------+----------------------------------
 ; initial set-up
 ; ------------------------------------------+----------------------------------
@@ -71,6 +71,7 @@ _mempage:
 _menu:
     ld hl,_compressedBlank                    ; blank explorer screen
     call _decompressScr                     ; decompress screen
+_menu2:
     ld de,MEM_SCR+1                         ; start of ZX Spectrum ROM Explorer vx.x text on screen
     exx                                     ; alt
     ld de,_menuHeader
@@ -335,12 +336,14 @@ _left100:
 ; Write the menu index to the Teensy at port 0xeb, then redraw any changes
 ; ------------------------------------------+----------------------------------
 _romSelected:
+    ld hl,_compressedBlank                    ; blank explorer screen
+    call _decompressScr                     ; decompress screen
     ld a,(MEM_ROM)
     out (0xeb),a
     nop
     nop
     nop
-    jp _menu
+    jp _menu2
 ; ------------------------------------------+----------------------------------
 ; Find correct MEM_ROMTXT start depending on page and load into MEM_TXT
 ; ------------------------------------------+----------------------------------

@@ -100,11 +100,11 @@ void generateMenu(volatile uint8_t* romPtr)
     }
 
     // Write the version and menu dimensions
-    uint16_t address = ((romPtr[0x0FF9] << 8) + romPtr[0x0FF8]);
+    uint16_t address = ((romPtr[0x11F9] << 8) + romPtr[0x11F8]);
     strncpy((char*)&romPtr[address], VERSION_STR, 9);
-    address = ((romPtr[0x0FFC] << 8) + romPtr[0x0FFB]);
+    address = ((romPtr[0x11FC] << 8) + romPtr[0x11FB]);
     romPtr[address] = (menuTotalLines - 1);
-    address = ((romPtr[0x0FFF] << 8) + romPtr[0x0FFE]);
+    address = ((romPtr[0x11FF] << 8) + romPtr[0x11FE]);
     romPtr[address] = (menuPage + 1);
 }
 
