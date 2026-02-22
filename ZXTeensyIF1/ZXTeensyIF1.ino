@@ -27,6 +27,7 @@
 #define TRIGGER_DELAY_MS 500
 #define TRIGGER_DELAY_CNT ((TRIGGER_DELAY_MS * TEENSY_CLK_FREQ) / (SD_TICK_CYCCNT * 1000))
 
+extern "C" volatile uint32_t systick_millis_count;
 extern "C" uint32_t set_arm_clock(uint32_t frequency);
 
 const char PROGMEM VERSION_STR[9] = ZXTEENSY_VERSION;
@@ -559,6 +560,12 @@ FLASHMEM void startup_early_hook()
     // Force initial reset
     pinMode(RESET_PIN, OUTPUT);
     digitalWriteFast(RESET_PIN, 1);
+}
+
+FLASHMEM void startup_middle_hook()
+{
+  // force millis() to be 300 to skip startup delays
+  systick_millis_count = 300;
 }
 
 void setup()
