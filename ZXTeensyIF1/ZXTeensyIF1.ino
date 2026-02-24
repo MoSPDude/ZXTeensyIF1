@@ -1,7 +1,4 @@
 
-// Must be set in SdFat/src/SdFatConfig.h
-#define SPI_DRIVER_SELECT 2
-
 #define ZXTEENSY_VERSION "20260223"
 #define ENABLE_BUILTIN_ROM_IF1
 //#define DEBUG_OUTPUT
@@ -11,7 +8,7 @@
 #include "USBHost_t36.h"
 #include "if1-2_rom.h"
 #include "RingBuffer.h"
-#include "SdSpiZXTeensy.h"
+#include "SdSdhcZXTeensy.h"
 #include "UartZXTeensy.h"
 #include "RtcZXTeensy.h"
 
@@ -219,7 +216,7 @@ volatile bool menuSelected = false;
 volatile uint8_t menuSelectedIndex = 0;
 
 // DivMMC SPI/SD
-SdSpiZXTeensy divMmcSpi(FAST_SD_TICK_CYCCNT);
+SdSdhcZXTeensy divMmcSpi;
 
 // MB03+ UART
 volatile bool uartPresent = false;
@@ -326,8 +323,8 @@ inline __attribute__((always_inline)) void performOnClock()
         globalCycleCount = cycle_;
 
         // Perform SPI and UART on clock ticks
-        divMmcSpi.onTick();
         espUart.onTick();
+        divMmcSpi.onTick();
 
         // Debounce the reset detection
         switch (resetTrigState)
@@ -857,8 +854,7 @@ void handleStateResetEntry()
             digitalWriteFast(SD_CLK_PIN, 0);
 
             // Attempt to initialise the SD card
-            while (!SD.sdfs.begin(SdSpiConfig(SD_CS_PIN, DEDICATED_SPI,
-                SD_SCK_MHZ(1), &divMmcSpi)))
+            while (!SD.begin(BUILTIN_SDCARD))
             {
                 ++retries_;
                 delay(5);
@@ -1017,7 +1013,8 @@ void handleStateReset()
             // into 128k mode (".128")
             divMmcEnabled = true;
 
-            // Close the SD card to hand to the DivMMC
+            // Pass the SD card to the DivMMC
+            divMmcSpi.begin(SD.sdfs.card());
             SD.sdfs.end();
             sdCardPresent = false;
 
@@ -1243,10 +1240,10 @@ FASTRUN void isrWrEvent()
                             // DivMMC card select
                             if ((readData() & 0x01) != 0)
                             {
-                                divMmcSpi.writeData(SdSpiZXTeensy::SD_SPI_DISABLE, 0xff);
+                                divMmcSpi.writeData(SdSdhcZXTeensy::SD_SPI_DISABLE, 0xff);
                                 digitalWriteFast(LED_PIN, 1);
                             } else {
-                                divMmcSpi.writeData(SdSpiZXTeensy::SD_SPI_ENABLE, 0xff);
+                                divMmcSpi.writeData(SdSdhcZXTeensy::SD_SPI_ENABLE, 0xff);
                                 digitalWriteFast(LED_PIN, 0);
                             }
                         }
@@ -1262,7 +1259,7 @@ FASTRUN void isrWrEvent()
                         } else if (isDivMmcSelected())
                         {
                             // DivMMC write
-                            divMmcSpi.writeData(SdSpiZXTeensy::SD_SPI_WRITE, readData());
+                            divMmcSpi.writeData(SdSdhcZXTeensy::SD_SPI_WRITE, readData());
                         }
                         break;
                     case 0xe3 :
@@ -1520,11 +1517,11 @@ FASTRUN void isrRdEvent()
                             writeData(divMmcSpi.readData());
                             if (!divMmcSpi.hasReadData())
                             {
-                                divMmcSpi.writeData(SdSpiZXTeensy::SD_SPI_READ, 0xff);
+                                divMmcSpi.writeData(SdSdhcZXTeensy::SD_SPI_READ, 0xff);
                             }
                         } else {
                             writeData(0xff);
-                            divMmcSpi.writeData(SdSpiZXTeensy::SD_SPI_READ, 0xff);
+                            divMmcSpi.writeData(SdSdhcZXTeensy::SD_SPI_READ, 0xff);
                         }
                     }
                     break;
