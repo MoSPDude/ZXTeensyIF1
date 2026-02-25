@@ -120,11 +120,6 @@ const uint8_t OUTPUT_PINS[] = {
     LED_PIN, ROMCS_PIN, NMI_PIN, IF1_DIS_PIN
 };
 
-const uint8_t SD_CS_PIN = 46;
-const uint8_t SD_OUT_PIN = 45;
-const uint8_t SD_CLK_PIN = 44;
-const uint8_t SD_IN_PIN = 43;
-
 // Mask for A15, A14, ^RD, and ^MREQ
 const uint32_t ROM_READ_MASK = (A15_PIN_BITMASK | A14_PIN_BITMASK |
     RD_PIN_BITMASK | MREQ_PIN_BITMASK);
@@ -136,7 +131,7 @@ const uint32_t IO_READ_MASK = (IOREQ_PIN_BITMASK | RD_PIN_BITMASK);
 const uint32_t DIVMMC_RAM_WRITE_MASK = (A15_PIN_BITMASK | A14_PIN_BITMASK |
     A13_PIN_BITMASK | MREQ_PIN_BITMASK);
 
-// Number of SD retries
+// Number of SD detection retries
 const uint8_t NUM_SD_RETRIES = 5;
 
 // Global state
@@ -211,6 +206,7 @@ volatile bool zxC2Lock = false;
 volatile uint8_t zxC2BankPtr = 0x00;
 
 // Boot menu ROM
+volatile bool menuEnterOnReset = false;
 volatile bool menuPaged = false;
 volatile bool menuSelected = false;
 volatile uint8_t menuSelectedIndex = 0;
@@ -597,21 +593,6 @@ void setup()
     CORE_PIN12_PADCONFIG |= IOMUXC_PAD_SRE | IOMUXC_PAD_SPEED(3);
     CORE_PIN32_PADCONFIG |= IOMUXC_PAD_SRE | IOMUXC_PAD_SPEED(3);
 
-    // Configure SD card I/Os
-    pinMode(SD_IN_PIN, INPUT_PULLUP); // 43
-    pinMode(42, INPUT);
-    pinMode(47, INPUT);
-    pinMode(SD_CS_PIN, OUTPUT);
-
-    // Set the SD CS pin to deselect card
-    digitalWriteFast(SD_CS_PIN, 1);
-
-    // Configure SD CLK and MISO to high speed
-    pinMode(SD_OUT_PIN, OUTPUT); // 45
-    CORE_PIN45_PADCONFIG |= IOMUXC_PAD_SRE | IOMUXC_PAD_SPEED(3);
-    pinMode(SD_CLK_PIN, OUTPUT); // 44
-    CORE_PIN44_PADCONFIG |= IOMUXC_PAD_SRE | IOMUXC_PAD_SPEED(3);
-
     // Force the spectrum into reset
     globalCycleCount = ARM_DWT_CYCCNT;
     setState(STATE_RESET);
@@ -792,12 +773,23 @@ void handleStateResetEntry()
     }
 #endif
 
-    // Detect button being pressed for menu ROM
+    // Detect first reset, or button being pressed, for menu ROM
     bool isButtonHeld = false;
     if (!digitalReadFast(BUTTON_PIN))
     {
-        // Re-initialise into the menu ROM
         isButtonHeld = true;
+        menuEnterOnReset = true;
+
+        // Wait for button release
+        while (!digitalReadFast(BUTTON_PIN))
+        {
+            delay(75);
+        }
+    }
+
+    // Re-initialise into the menu ROM
+    if (menuEnterOnReset)
+    {
         afterFirstReset = false;
         isDeviceDisabled = false;
 
@@ -806,12 +798,6 @@ void handleStateResetEntry()
         {
             SD.sdfs.end();
             sdCardPresent = false;
-        }
-
-        // Wait for button release
-        while (!digitalReadFast(BUTTON_PIN))
-        {
-            delay(75);
         }
     }
 
@@ -838,31 +824,20 @@ void handleStateResetEntry()
     delay(250);
     if (!isDeviceDisabled && !sdCardPresent)
     {
-        // Wait for any previous SD accesses to finish, and clear buffers of any
-        // idle state
-        divMmcSpi.flush();
+        // Hand the SD card over the SdFat library
+        divMmcSpi.end();
 
-        // Detect the SD card
-        pinMode(SD_CS_PIN, INPUT_PULLDOWN);
-        if (digitalReadFast(SD_CS_PIN))
+        // Attempt to initialise the SD card
+        uint8_t retries_ = 0;
+        sdCardPresent = true;
+        while (!SD.sdfs.begin(SdioConfig(FIFO_SDIO)))
         {
-            uint8_t retries_ = 0;
-            sdCardPresent = true;
-            pinMode(SD_CS_PIN, OUTPUT);
-            digitalWriteFast(SD_CS_PIN, 1);
-            digitalWriteFast(SD_OUT_PIN, 1);
-            digitalWriteFast(SD_CLK_PIN, 0);
-
-            // Attempt to initialise the SD card
-            while (!SD.begin(BUILTIN_SDCARD))
+            ++retries_;
+            delay(5);
+            if (retries_ > NUM_SD_RETRIES)
             {
-                ++retries_;
-                delay(5);
-                if (retries_ > NUM_SD_RETRIES)
-                {
-                    sdCardPresent = false;
-                    break;
-                }
+                sdCardPresent = false;
+                break;
             }
         }
     }
@@ -905,7 +880,7 @@ void handleStateResetEntry()
         loadForegroundRom();
 
         // Load menu ROM into the DivMMC RAM area
-        if ((isButtonHeld || (!afterFirstReset && bootIntoMenu)) &&
+        if ((menuEnterOnReset || (!afterFirstReset && bootIntoMenu)) &&
             !digitalReadFast(ROMCS_IN_PIN) &&
             (loadRomImage("menu.rom", (char *)divMmcRamArray[0], RAM_PAGE_SIZE) > 0))
         {
@@ -920,6 +895,7 @@ void handleStateResetEntry()
 
     // First reset completed
     afterFirstReset = true;
+    menuEnterOnReset = false;
 }
 
 void handleStateResetMenu()
@@ -930,9 +906,6 @@ void handleStateResetMenu()
     // Close the SD card to reload the system
     SD.sdfs.end();
     sdCardPresent = false;
-
-    // Wait for any previous SD accesses to finish
-    divMmcSpi.flush();
 
     // Perform a full reset
     handleStateResetEntry();
@@ -947,8 +920,8 @@ void handleStateReset()
         {
             initialiseRamBanks();
         } else {
-            // Reload the menu after ZXC2 ROM
-            afterFirstReset = false;
+            // Reload the menu after ZXC2 cartridge
+            menuEnterOnReset = true;
         }
     }
 
@@ -1009,17 +982,19 @@ void handleStateReset()
         // If DivMMC is present, then disable Interface 1
         if (divMmcPresent)
         {
-            // The Interface 1 can be enabled by switching back
-            // into 128k mode (".128")
-            divMmcEnabled = true;
-
-            // Pass the SD card to the DivMMC
-            divMmcSpi.begin(SD.sdfs.card());
+            // Hand the SD card over to the DivMMC
             SD.sdfs.end();
             sdCardPresent = false;
+            if (SD.sdfs.cardBegin(SdioConfig(FIFO_SDIO)))
+            {
+                divMmcSpi.begin(SD.sdfs.card());
 
-            // Wait for any previous SD accesses to finish
-            divMmcSpi.flush();
+                // The Interface 1 can be enabled by switching back
+                // into 128k mode (".128")
+                divMmcEnabled = true;
+            } else {
+                divMmcPresent = false;
+            }
         } else if (interface1Present)
         {
             interface1Enabled = true;
@@ -1375,7 +1350,7 @@ FASTRUN void isrRdEvent()
                         }
 
                         // Write ROM data to bus
-                        writeRomData(address);
+                        writeRomData(0x66);
 
                         // Send the NMI to the DivMMC, if not Multiface 128
                         if (divMmcEnabled && !mf128ActiveNMI)
@@ -1390,7 +1365,7 @@ FASTRUN void isrRdEvent()
                         digitalWriteFast(NMI_PIN, 0);
                     } else {
                         // No pending NMI - write ROM data to bus
-                        writeRomData(address);
+                        writeRomData(0x66);
                     }
                 } else {
                     switch (romSelected)

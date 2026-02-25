@@ -268,7 +268,7 @@ class SdSdhcZXTeensy
                             }
                         } else if (dataIndex >= 0x202)
                         {
-                            // Consume the CRC bits, then send data response
+                            // Consume the CRC bytes, then send data response
                             writeReadData(0x05);
                         }
                     }
@@ -484,6 +484,7 @@ class SdSdhcZXTeensy
         }
 
         void begin(SdCard* card);
+        void end(void);
 
         inline __attribute__((always_inline)) uint8_t readData()
         {

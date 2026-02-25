@@ -81,3 +81,12 @@ void SdSdhcZXTeensy::begin(SdCard* card)
     Serial.begin(115200);
 #endif
 }
+
+void SdSdhcZXTeensy::end(void)
+{
+    if (sdCard)
+    {
+        sdCard->end();
+        sdCard = 0;
+    }
+}
