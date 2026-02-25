@@ -84,6 +84,7 @@ void SdSdhcZXTeensy::begin(SdCard* card)
 
 void SdSdhcZXTeensy::end(void)
 {
+    flush();
     if (sdCard)
     {
         sdCard->end();

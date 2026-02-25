@@ -825,10 +825,8 @@ void handleStateResetEntry()
     if (!isDeviceDisabled && !sdCardPresent)
     {
         // Hand the SD card over the SdFat library
-        divMmcSpi.end();
-
-        // Attempt to initialise the SD card
         uint8_t retries_ = 0;
+        divMmcSpi.end();
         sdCardPresent = true;
         while (!SD.sdfs.begin(SdioConfig(FIFO_SDIO)))
         {
@@ -904,8 +902,11 @@ void handleStateResetMenu()
     menuPerformAction();
 
     // Close the SD card to reload the system
-    SD.sdfs.end();
-    sdCardPresent = false;
+    if (sdCardPresent)
+    {
+        SD.sdfs.end();
+        sdCardPresent = false;
+    }
 
     // Perform a full reset
     handleStateResetEntry();
@@ -982,9 +983,15 @@ void handleStateReset()
         // If DivMMC is present, then disable Interface 1
         if (divMmcPresent)
         {
+            // Close the SD card to hand to the DivMMC
+            if (sdCardPresent)
+            {
+                SD.sdfs.end();
+                sdCardPresent = false;
+            }
+
             // Hand the SD card over to the DivMMC
-            SD.sdfs.end();
-            sdCardPresent = false;
+            divMmcSpi.end();
             if (SD.sdfs.cardBegin(SdioConfig(FIFO_SDIO)))
             {
                 divMmcSpi.begin(SD.sdfs.card());
