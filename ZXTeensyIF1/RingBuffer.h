@@ -3,6 +3,7 @@
 #define RING_BUFFER_H
 
 #include <cstddef>
+#include <string.h>
 
 template <size_t BUFFER_SIZE> class RingBuffer
 {
@@ -36,6 +37,24 @@ template <size_t BUFFER_SIZE> class RingBuffer
         {
             buffer[bufferHead] = data;
             bufferHead = (bufferHead + 1) % BUFFER_SIZE;
+        }
+
+        inline __attribute__((always_inline)) void writeBlock(uint8_t* data, size_t size)
+        {
+            if (size >= BUFFER_SIZE)
+            {
+                size = BUFFER_SIZE - 1;
+            }
+            uint16_t nextHead = (bufferHead + size) % BUFFER_SIZE;
+            if (nextHead < bufferHead)
+            {
+                size_t partSize = (BUFFER_SIZE - bufferHead);
+                memcpy((void*)&(buffer[bufferHead]), data, partSize);
+                memcpy((void*)buffer, &(data[partSize]), (size - partSize));
+            } else {
+                memcpy((void*)&buffer[bufferHead], data, size);
+            }
+            bufferHead = nextHead;
         }
 
         inline __attribute__((always_inline)) uint8_t readRaw()

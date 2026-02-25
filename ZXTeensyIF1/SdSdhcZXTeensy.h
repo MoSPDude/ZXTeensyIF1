@@ -160,6 +160,7 @@ class SdSdhcZXTeensy
         bool dataActive;
         uint32_t dataRegister;
         uint32_t dataIndex;
+        uint8_t dmaBuffer[512];
 
         inline __attribute__((always_inline)) void writeReadData(uint8_t data)
         {
@@ -190,41 +191,19 @@ class SdSdhcZXTeensy
         {
             if (currentCommand != CMD_WRITE_BLOCK)
             {
-                if (USDHC1_PRES_STATE & SDHC_PRSSTAT_BREN)
+                dataRegister = USDHC1_INT_STATUS;
+                USDHC1_INT_STATUS = dataRegister;
+                if (dataRegister & SDHC_IRQSTAT_TC)
                 {
-                    if (!dataActive)
-                    {
-                        writeReadData(0xFE);
-                        dataActive = true;
-                        dataIndex = 0;
-#ifdef DEBUG_SDHC_OUTPUT
-                        Serial.println("RB");
-#endif
-                    }
-                    for (uint32_t i = 0; i < FIFO_WML; i++)
-                    {
-                        dataRegister = USDHC1_DATA_BUFF_ACC_PORT;
-                        writeReadData(dataRegister);
-                        writeReadData(dataRegister >> 8);
-                        writeReadData(dataRegister >> 16);
-                        writeReadData(dataRegister >> 24);
-                        dataIndex += 4;
-                    }
-                    dataRegister = USDHC1_INT_STATUS;
-                    USDHC1_INT_STATUS = dataRegister;
-                    if (dataRegister & SDHC_IRQSTAT_TC)
-                    {
-                        // Generate the two CRC bytes
-                        writeReadData(0x00);
-                        writeReadData(0x00);
-#ifdef DEBUG_SDHC_OUTPUT
-                        Serial.println("RE");
-                        Serial.println(dataIndex, HEX);
-#endif
-                        currentState = STATE_IDLE;
-                        dataActive = false;
-                        return true;
-                    }
+                    writeReadData(0xFE);
+                    sdSpiReadBuffer.writeBlock(dmaBuffer, 512);
+
+                    // Generate the two CRC bytes
+                    writeReadData(0x00);
+                    writeReadData(0x00);
+                    currentState = STATE_IDLE;
+                    dataActive = false;
+                    return true;
                 }
             } else if (hasData)
             {
@@ -352,9 +331,10 @@ class SdSdhcZXTeensy
                             // Send real command to the SDHC controller
                             uint32_t xfertype = SDHC_XFERTYP_CMDINX(CMD_READ_SINGLE_BLOCK) |
                                 SDHC_XFERTYP_DPSEL | CMD_RESP_R1;
+                            USDHC1_DS_ADDR  = (uint32_t)dmaBuffer;
                             USDHC1_BLK_ATT = 0x00010200;
                             USDHC1_MIX_CTRL &= 0xFFFFFF00;
-                            USDHC1_MIX_CTRL |= 0x00000010;
+                            USDHC1_MIX_CTRL |= 0x00000011;
                             USDHC1_PROT_CTRL |= SDHC_PROCTL_SABGREQ;
                             USDHC1_CMD_ARG = commandArgument;
                             USDHC1_CMD_XFR_TYP = xfertype;
@@ -479,7 +459,7 @@ class SdSdhcZXTeensy
         constexpr SdSdhcZXTeensy() : sdCard(0), cardSelected(false),
             isActive(false), isSdIdle(true), currentState(STATE_IDLE),
             currentCommand(CMD_IDLE), commandAppCmd(false), commandArgument(0),
-            dataActive(false), dataRegister(0), dataIndex(0)
+            dataActive(false), dataRegister(0), dataIndex(0), dmaBuffer()
         {
         }
 
