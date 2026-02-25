@@ -90,6 +90,7 @@ const uint8_t MREQ_PIN = 24;
 const uint8_t IOREQ_PIN = 25;
 const uint8_t M1_PIN = 4;
 const uint8_t ESP_ENABLE = 28;
+const uint8_t SD_CS_PIN = 46;
 
 const uint8_t INPUT_PINS[] = {
     RESET_IN_PIN, MREQ_PIN, RD_PIN, IOREQ_PIN, WR_PIN, M1_PIN, ROMCS_IN_PIN,
@@ -132,7 +133,7 @@ const uint32_t DIVMMC_RAM_WRITE_MASK = (A15_PIN_BITMASK | A14_PIN_BITMASK |
     A13_PIN_BITMASK | MREQ_PIN_BITMASK);
 
 // Number of SD detection retries
-const uint8_t NUM_SD_RETRIES = 5;
+const uint8_t NUM_SD_RETRIES = 3;
 
 // Global state
 volatile bool bootIntoMenu = false;
@@ -621,6 +622,13 @@ void setup()
     NVIC_SET_PRIORITY(IRQ_LPUART5, 64);
 }
 
+bool detectSdCard()
+{
+    pinMode(SD_CS_PIN, INPUT_PULLDOWN);
+    delayMicroseconds(5);
+    return digitalReadFast(SD_CS_PIN);
+}
+
 bool beginSdfsSd()
 {
     if (divMmcCardPresent)
@@ -630,16 +638,20 @@ bool beginSdfsSd()
     }
     if (!sdCardPresent)
     {
-        uint8_t retries_ = 0;
-        while (!SD.sdfs.begin(SdioConfig(FIFO_SDIO)))
+        if (detectSdCard())
         {
-            if (++retries_ > NUM_SD_RETRIES)
+            uint8_t retries_ = 0;
+            while (!SD.sdfs.begin(SdioConfig(FIFO_SDIO)))
             {
-                return false;
+                if (++retries_ > NUM_SD_RETRIES)
+                {
+                    return false;
+                }
             }
-            delay(5);
+            sdCardPresent = true;
+        } else {
+            return false;
         }
-        sdCardPresent = true;
     }
     return true;
 }
@@ -653,7 +665,7 @@ bool beginDivMmcSd()
     }
     if (!divMmcCardPresent)
     {
-        if (SD.sdfs.cardBegin(SdioConfig(FIFO_SDIO)))
+        if (detectSdCard() && SD.sdfs.cardBegin(SdioConfig(FIFO_SDIO)))
         {
             divMmcSpi.begin(SD.sdfs.card());
         } else {
