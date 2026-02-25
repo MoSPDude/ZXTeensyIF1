@@ -60,10 +60,10 @@
 
 void SdSdhcZXTeensy::begin(SdCard* card)
 {
+    // NOTE: Do NOT clear isSdIdle as the DivMMC can warm reset
     sdCard = card;
     cardSelected = false;
     isActive = false;
-    isSdIdle = true;
     currentState = SdSdhcZXTeensy::STATE_IDLE;
     currentCommand = SdSdhcZXTeensy::CMD_IDLE;
     commandAppCmd = false;

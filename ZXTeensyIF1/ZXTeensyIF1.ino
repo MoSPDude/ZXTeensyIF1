@@ -138,7 +138,9 @@ const uint8_t NUM_SD_RETRIES = 5;
 volatile bool bootIntoMenu = false;
 volatile bool afterFirstReset = false;
 volatile bool isDeviceDisabled = false;
+volatile bool loadRomSets = false;
 volatile bool sdCardPresent = false;
+volatile bool divMmcCardPresent = false;
 volatile run_state_t globalState = STATE_RESET;
 volatile bool busRdActive = false;
 volatile bool nmiPending = false;
@@ -181,6 +183,7 @@ volatile bool divMmcAutoMap = false;
 volatile bool divMmcConMem = false;
 volatile bool divMmcMapRam = false;
 volatile bool divMmcRamBankThree = false;
+volatile bool divMmcPreserveRam = false;
 volatile bool divMmcExtRamEnabled = false;
 volatile uint8_t* divMmcRamPtr;
 const uint16_t PAGE_BANK_DIVMMC = (BANK_ROM0 | BANK_ROM1 | BANK_ROM3);
@@ -199,13 +202,13 @@ volatile bool interface1Paged = false;
 volatile bool interface1Removed = false;
 const uint16_t PAGE_BANK_MF128_IF1 = (BANK_ROM0 | BANK_ROM1 | BANK_ROM3 | BANK_MF128);
 
-// ZXC2 cartridge (reuses divMmcRamArray)
+// ZXC2 cartridge (reuses divMmcExtRamArray)
 volatile bool zxC2Present = false;
 volatile bool zxC2Paged = false;
 volatile bool zxC2Lock = false;
 volatile uint8_t zxC2BankPtr = 0x00;
 
-// Boot menu ROM
+// Boot menu ROM (reuses divMmcRamArray)
 volatile bool menuEnterOnReset = false;
 volatile bool menuPaged = false;
 volatile bool menuSelected = false;
@@ -618,6 +621,63 @@ void setup()
     NVIC_SET_PRIORITY(IRQ_LPUART5, 64);
 }
 
+bool beginSdfsSd()
+{
+    if (divMmcCardPresent)
+    {
+        divMmcSpi.end();
+        divMmcCardPresent = false;
+    }
+    if (!sdCardPresent)
+    {
+        uint8_t retries_ = 0;
+        while (!SD.sdfs.begin(SdioConfig(FIFO_SDIO)))
+        {
+            if (++retries_ > NUM_SD_RETRIES)
+            {
+                return false;
+            }
+            delay(5);
+        }
+        sdCardPresent = true;
+    }
+    return true;
+}
+
+bool beginDivMmcSd()
+{
+    if (sdCardPresent)
+    {
+        SD.sdfs.end();
+        sdCardPresent = false;
+    }
+    if (!divMmcCardPresent)
+    {
+        if (SD.sdfs.cardBegin(SdioConfig(FIFO_SDIO)))
+        {
+            divMmcSpi.begin(SD.sdfs.card());
+        } else {
+            return false;
+        }
+        divMmcCardPresent = true;
+    }
+    return true;
+}
+
+void endSd()
+{
+    if (sdCardPresent)
+    {
+        SD.sdfs.end();
+        sdCardPresent = false;
+    }
+    if (divMmcCardPresent)
+    {
+        divMmcSpi.end();
+        divMmcCardPresent = false;
+    }
+}
+
 uint16_t loadRomImage(const char* filename, char* ptr, const uint16_t size)
 {
     uint16_t count = 0;
@@ -717,27 +777,12 @@ void loadForegroundRom()
 
 void initialiseRamBanks()
 {
-    // Initialise the RAM banks
     divMmcExtRamEnabled = true;
-    for (uint8_t i_ = 0; i_ < RAM_PAGE_COUNT; ++i_)
-    {
-        for (uint16_t j_ = 0; j_ < RAM_PAGE_SIZE; ++j_)
-        {
-            divMmcRamArray[i_][j_] = 0xff;
-        }
-    }
-    for (uint8_t i_ = 0; i_ < EXT_RAM_PAGE_COUNT; ++i_)
-    {
-        for (uint16_t j_ = 0; j_ < RAM_PAGE_SIZE; ++j_)
-        {
-            divMmcExtRamArray[i_][j_] = 0xff;
-        }
-    }
-    for (uint16_t j_ = RAM_PAGE_SIZE; j_ < ROM_PAGE_SIZE; ++j_)
-    {
-        romArray[ROM_DIVMMC][j_] = 0xff;
-        romArray[ROM_MF128][j_] = 0xff;
-    }
+    romArrayPresent &= ~(BANK_RAM);
+    memset((void*)divMmcRamArray, 0xFF, (RAM_PAGE_COUNT * RAM_PAGE_SIZE));
+    memset((void*)divMmcExtRamArray, 0xFF, (EXT_RAM_PAGE_COUNT * RAM_PAGE_SIZE));
+    memset((void*)&(romArray[ROM_DIVMMC][RAM_PAGE_SIZE]), 0xFF, RAM_PAGE_SIZE);
+    memset((void*)&(romArray[ROM_MF128][RAM_PAGE_SIZE]), 0xFF, RAM_PAGE_SIZE);
 }
 
 void handleStateResetEntry()
@@ -787,27 +832,17 @@ void handleStateResetEntry()
         }
     }
 
-    // Re-initialise into the menu ROM
+    // Prepare to reset into the menu ROM
     if (menuEnterOnReset)
     {
         afterFirstReset = false;
         isDeviceDisabled = false;
-
-        // Close the SD card to reload the system
-        if (sdCardPresent)
-        {
-            SD.sdfs.end();
-            sdCardPresent = false;
-        }
+        divMmcPreserveRam = false;
     }
 
-    // Perform first reset initialisation
+    // Reset the soft ROM detection state
     if (!afterFirstReset)
     {
-        // Initialise the RAM banks
-        initialiseRamBanks();
-
-        // Reset the soft ROM detection state
         romArrayPresent = 0;
         rom1Present = false;
         rom23Present = false;
@@ -815,85 +850,75 @@ void handleStateResetEntry()
         divMmcPresent = false;
         mf128Present = false;
         zxC2Present = false;
+
+        // Load the ROMs
+        loadRomSets = true;
+    }
+
+    // Initialise the RAM banks
+    if (!divMmcPreserveRam)
+    {
+        initialiseRamBanks();
     }
 
     // Reset the UART state, and clear buffers of any idle data
     espUart.end();
 
-    // Initialise the SD card
+    // Initialise the device
     delay(250);
-    if (!isDeviceDisabled && !sdCardPresent)
+    if (!isDeviceDisabled)
     {
-        // Hand the SD card over the SdFat library
-        uint8_t retries_ = 0;
-        divMmcSpi.end();
-        sdCardPresent = true;
-        while (!SD.sdfs.begin(SdioConfig(FIFO_SDIO)))
-        {
-            ++retries_;
-            delay(5);
-            if (retries_ > NUM_SD_RETRIES)
-            {
-                sdCardPresent = false;
-                break;
-            }
-        }
-    }
-
-    // Load the built-in Interface 1 soft ROM
+        // Load the built-in Interface 1 soft ROM
 #ifdef ENABLE_BUILTIN_ROM_IF1
-    memcpy((void *)romArray[ROM_IF1], BUILTIN_ROM_IF1, BUILTIN_ROM_IF1_SIZE);
-    romArrayPresent |= BANK_IF1;
+        memcpy((void *)romArray[ROM_IF1], BUILTIN_ROM_IF1, BUILTIN_ROM_IF1_SIZE);
+        romArrayPresent |= BANK_IF1;
 #endif
 
-    // Load ROMs from the SD card
-    if (sdCardPresent)
-    {
-        // Load device ROMs
-        if (!afterFirstReset)
+        // Load ROMs from the SD card
+        if (loadRomSets)
         {
-            // Load DivMMC Esxdos ROM
-            if (loadRomImage("esxmmc.bin", (char *)romArray[ROM_DIVMMC], RAM_PAGE_SIZE) > 0)
+            loadRomSets = false;
+            if (beginSdfsSd())
             {
-                romArrayPresent |= BANK_DIVMMC;
-            }
+                // Load DivMMC Esxdos ROM
+                if (loadRomImage("esxmmc.bin", (char *)romArray[ROM_DIVMMC], RAM_PAGE_SIZE) > 0)
+                {
+                    romArrayPresent |= BANK_DIVMMC;
+                }
 
-            // Load Multiface 128 ROM
-            if (loadRomImage("mf128.rom", (char *)romArray[ROM_MF128], RAM_PAGE_SIZE) > 0)
-            {
-                romArrayPresent |= BANK_MF128;
-            }
+                // Load Multiface 128 ROM
+                if (loadRomImage("mf128.rom", (char *)romArray[ROM_MF128], RAM_PAGE_SIZE) > 0)
+                {
+                    romArrayPresent |= BANK_MF128;
+                }
 
-            // Load Interface 1 ROM
-            if (loadRomImage("if1.rom", (char *)romArray[ROM_IF1], ROM_PAGE_SIZE) > 0)
+                // Load Interface 1 ROM
+                if (loadRomImage("if1.rom", (char *)romArray[ROM_IF1], ROM_PAGE_SIZE) > 0)
+                {
+                    romArrayPresent |= BANK_IF1;
+                }
+
+                // Load configuration
+                menuLoadConfiguration();
+
+                // Load foreground ROM
+                loadForegroundRom();
+
+                // Load menu ROM into the DivMMC RAM area
+                if ((menuEnterOnReset || (!afterFirstReset && bootIntoMenu)) &&
+                    !digitalReadFast(ROMCS_IN_PIN) &&
+                    (loadRomImage("menu.rom", (char *)divMmcRamArray[0], RAM_PAGE_SIZE) > 0))
+                {
+                    menuPaged = true;
+                    romArrayPresent |= BANK_RAM;
+                }
+            } else if (!isButtonHeld)
             {
-                romArrayPresent |= BANK_IF1;
+                // Button without SD card disables the built-in Interface 1 soft ROM
+                interface1Present = ((romArrayPresent & BANK_IF1) != 0);
             }
         }
-
-        // Load configuration
-        menuLoadConfiguration();
-
-        // Load foreground ROM
-        loadForegroundRom();
-
-        // Load menu ROM into the DivMMC RAM area
-        if ((menuEnterOnReset || (!afterFirstReset && bootIntoMenu)) &&
-            !digitalReadFast(ROMCS_IN_PIN) &&
-            (loadRomImage("menu.rom", (char *)divMmcRamArray[0], RAM_PAGE_SIZE) > 0))
-        {
-            menuPaged = true;
-            romArrayPresent |= BANK_RAM;
-        }
-    } else if (!isButtonHeld)
-    {
-        // Button without SD card disables the built-in Interface 1 soft ROM
-        interface1Present = true;
     }
-
-    // First reset completed
-    afterFirstReset = true;
-    menuEnterOnReset = false;
 }
 
 void handleStateResetMenu()
@@ -901,29 +926,36 @@ void handleStateResetMenu()
     // Perform the menu action
     menuPerformAction();
 
-    // Close the SD card to reload the system
-    if (sdCardPresent)
-    {
-        SD.sdfs.end();
-        sdCardPresent = false;
-    }
+    // Close the SD card, to load new ROMs
+    endSd();
+    loadRomSets = true;
 
     // Perform a full reset
     handleStateResetEntry();
 }
 
+void handleWarmStateReset()
+{
+    // Preserve DivMMC RAM when enabled
+    divMmcPreserveRam = divMmcEnabled;
+
+    // Load the existing ROMs on reset in menu
+    if (menuPaged)
+    {
+        loadRomSets = true;
+    } else if ((romArrayPresent & BANK_RAM) != 0)
+    {
+        // Reload the menu after ZXC2 cartridge
+        menuEnterOnReset = true;
+    }
+}
+
 void handleStateReset()
 {
-    // Re-initialise the RAM banks, when RAM is being used as ROM
-    if ((globalState != STATE_RESET_MENU) && ((romArrayPresent & BANK_RAM) != 0))
+    // Handle actions before warm reset
+    if (afterFirstReset)
     {
-        if (menuPaged)
-        {
-            initialiseRamBanks();
-        } else {
-            // Reload the menu after ZXC2 cartridge
-            menuEnterOnReset = true;
-        }
+        handleWarmStateReset();
     }
 
     // Reset the banking state
@@ -969,6 +1001,10 @@ void handleStateReset()
             break;
     }
 
+    // Flag that reset has occurred
+    afterFirstReset = true;
+    menuEnterOnReset = false;
+
     // Populate the menu when active
     if (menuPaged)
     {
@@ -983,19 +1019,8 @@ void handleStateReset()
         // If DivMMC is present, then disable Interface 1
         if (divMmcPresent)
         {
-            // Close the SD card to hand to the DivMMC
-            if (sdCardPresent)
+            if (beginDivMmcSd())
             {
-                SD.sdfs.end();
-                sdCardPresent = false;
-            }
-
-            // Hand the SD card over to the DivMMC
-            divMmcSpi.end();
-            if (SD.sdfs.cardBegin(SdioConfig(FIFO_SDIO)))
-            {
-                divMmcSpi.begin(SD.sdfs.card());
-
                 // The Interface 1 can be enabled by switching back
                 // into 128k mode (".128")
                 divMmcEnabled = true;

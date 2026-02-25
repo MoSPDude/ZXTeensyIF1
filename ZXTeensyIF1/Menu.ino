@@ -216,6 +216,7 @@ bool menuPerformSelection(uint8_t index)
 {
     if (index >= menuTotalLines)
     {
+        // Fully reset on out-of-bounds index error
         afterFirstReset = false;
         menuAction = MENU_ACTION_LOAD_ROM;
         return true;
@@ -241,9 +242,10 @@ bool menuPerformSelection(uint8_t index)
                 menuAction = MENU_ACTION_LOAD_ROM;
                 return true;
             case 1 :
-                // Temporarily disable device, and reset
-                menuAction = MENU_ACTION_LOAD_ROM;
+                // Temporarily disable device, and fully reset
                 isDeviceDisabled = true;
+                afterFirstReset = false;
+                menuAction = MENU_ACTION_LOAD_ROM;
                 return true;
             case 2 :
                 // Perform firmware update, if available
