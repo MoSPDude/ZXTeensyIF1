@@ -1379,38 +1379,33 @@ FASTRUN void isrRdEvent()
                     writeRomData(address);
                 } else if (address == 0x66)
                 {
-                    if (nmiPending)
+                    // Send the NMI to the Multiface 128
+                    if (mf128Present && nmiPending && !mf128ActiveNMI &&
+                        ((romArraySelected & PAGE_BANK_MF128_IF1) != 0))
                     {
-                        // Send the NMI to the Multiface 128
-                        if (mf128Present && !mf128ActiveNMI &&
-                            ((romArraySelected & PAGE_BANK_MF128_IF1) != 0))
-                        {
-                            mf128ActiveNMI = true;
-                            mf128Paged = true;
-                            mf128Enabled = true;
-                            divMmcEnabled = false;
-                            interface1Enabled = interface1Present;
-                            updateRomIndex(true);
-                        }
-
-                        // Write ROM data to bus
-                        writeRomData(0x66);
-
-                        // Send the NMI to the DivMMC, if not Multiface 128
-                        if (divMmcEnabled && !mf128ActiveNMI)
-                        {
-                            divMmcPaged = true;
-                            divMmcAutoMap = true;
-                            updateRomIndex(false);
-                        }
-
-                        // Release NMI on entry to interrupt handler
-                        nmiPending = false;
-                        digitalWriteFast(NMI_PIN, 0);
-                    } else {
-                        // No pending NMI - write ROM data to bus
-                        writeRomData(0x66);
+                        mf128ActiveNMI = true;
+                        mf128Paged = true;
+                        mf128Enabled = true;
+                        divMmcEnabled = false;
+                        interface1Enabled = interface1Present;
+                        updateRomIndex(true);
                     }
+
+                    // Write ROM data to bus
+                    writeRomData(address);
+
+                    // Send the NMI to the DivMMC, if not Multiface 128
+                    if (divMmcEnabled && !mf128ActiveNMI &&
+                        ((romArraySelected & PAGE_BANK_DIVMMC) != 0))
+                    {
+                        divMmcPaged = true;
+                        divMmcAutoMap = true;
+                        updateRomIndex(false);
+                    }
+
+                    // Release NMI on entry to interrupt handler
+                    nmiPending = false;
+                    digitalWriteFast(NMI_PIN, 0);
                 } else {
                     switch (romSelected)
                     {
