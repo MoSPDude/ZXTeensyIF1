@@ -6,9 +6,12 @@
 
 #define DEFAULT_TIME 1767225600 // 1st January 2026 at 00:00
 
+extern unsigned long rtc_get(void);
+extern void rtc_set(unsigned long t);
+
 time_t getTeensy3Time()
 {
-  return Teensy3Clock.get();
+  return rtc_get();
 }
 
 class RtcZXTeensy
@@ -18,6 +21,7 @@ class RtcZXTeensy
         volatile bool hasHold;
         volatile bool is24Hour;
         volatile bool hasModified;
+        volatile bool needsRtcSet;
 
         inline __attribute__((always_inline)) void updateRegisters()
         {
@@ -66,21 +70,23 @@ class RtcZXTeensy
             int mnts = (regBank[9] * 10) + regBank[8];
             int yrs = (regBank[11] * 10) + regBank[10];
             setTime(hrs, mins, secs, days, mnts, yrs);
-            time_t timeNow = now();
-            Teensy3Clock.set(timeNow);
-            setTime(timeNow);
-            updateRegisters();
+            setSyncProvider(0);
+            needsRtcSet = true;
         }
-        
+
     public :
-        constexpr RtcZXTeensy() : regBank(), hasHold(false), is24Hour(true), hasModified(false)
+        constexpr RtcZXTeensy() : regBank(), hasHold(false), is24Hour(true),
+            hasModified(false), needsRtcSet(false)
         {
             for (int i = 0; i < 14; ++i) {
                 regBank[i] = 0;
             }
             setSyncProvider(getTeensy3Time);
-            Teensy3Clock.set(DEFAULT_TIME);
-            setTime(DEFAULT_TIME);
+            if (year() < 2026)
+            {
+                setTime(DEFAULT_TIME);
+                rtc_set(DEFAULT_TIME);
+            }
             updateRegisters();
         }
 
@@ -106,8 +112,8 @@ class RtcZXTeensy
                 case 0x0d :
                     if (hasModified)
                     {
-                        hasModified = false;
                         updateTime();
+                        hasModified = false;
                     } else {
                         updateRegisters();
                     }
@@ -123,6 +129,16 @@ class RtcZXTeensy
                     regBank[value] = (data & 0x0f);
                     hasModified = true;
                     break;
+            }
+        }
+
+        inline __attribute__((always_inline)) void updateRtc()
+        {
+            if (needsRtcSet)
+            {
+                setSyncProvider(getTeensy3Time);
+                rtc_set(now());
+                needsRtcSet = false;
             }
         }
 };

@@ -911,6 +911,9 @@ void handleStateResetEntry()
     // Reset the UART state, and clear buffers of any idle data
     espUart.end();
 
+    // Update the RTC registers, if necessary
+    rtcTeensy.updateRtc();
+
     // Initialise the device
     delay(250);
     if (!isDeviceDisabled)
