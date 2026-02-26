@@ -1,7 +1,7 @@
 
-#define ZXTEENSY_VERSION "20260223"
+#define ZXTEENSY_VERSION "20260226"
 #define ENABLE_BUILTIN_ROM_IF1
-//#define DEBUG_OUTPUT
+//define DEBUG_OUTPUT
 
 #include <SD.h>
 #include <SdFat.h>
@@ -241,12 +241,17 @@ volatile uint32_t globalCycleCount;
 #ifdef DEBUG_OUTPUT
 
 // Debug data buffer
-const uint16_t DEBUG_BUFFER_SIZE = 128;
+const uint16_t DEBUG_BUFFER_SIZE = 32768;
 RingBuffer<DEBUG_BUFFER_SIZE> debugBuffer;
 
-inline __attribute__((always_inline)) void writeDebugData(uint8_t data)
+inline __attribute__((always_inline)) bool writeDebugData(uint8_t data)
 {
-    debugBuffer.write(data);
+    if (debugBuffer.canWrite())
+    {
+        debugBuffer.write(data);
+        return true;
+    }
+    return false;
 }
 
 inline __attribute__((always_inline)) uint8_t readDebugData()
@@ -262,6 +267,34 @@ inline __attribute__((always_inline)) uint8_t readDebugData()
 inline __attribute__((always_inline)) bool hasDebugData()
 {
     return debugBuffer.canRead();
+}
+
+volatile bool debugTraceOn = false;
+
+inline __attribute__((always_inline)) void traceDebug(uint16_t address)
+{
+    if (!debugTraceOn && !menuPaged && (address == 0x66))
+    {
+        debugTraceOn = true;
+        debugBuffer.clear();
+    }
+    if (debugTraceOn)
+    {
+        if (writeDebugData(romSelected))
+        {
+            if (writeDebugData(address >> 8))
+            {
+                if (!writeDebugData(address))
+                {
+                    debugTraceOn = false;
+                }
+            } else {
+                debugTraceOn = false;
+            }
+        } else {
+            debugTraceOn = false;
+        }
+    }
 }
 
 #endif
@@ -803,15 +836,17 @@ void handleStateResetEntry()
     if (afterFirstReset)
     {
         // Dump the debug buffer
+        Serial.printf("START\n");
         while (hasDebugData())
         {
             while ( (uint) Serial.availableForWrite() <  0x400);
-            Serial.printf("%02x%02x\n", readDebugData(), readDebugData());
+            Serial.printf("%02x%02x%02x, ", readDebugData(), readDebugData(), readDebugData());
         }
-        Serial.printf("END\n");
+        Serial.printf("\nEND\n");
+        while ( (uint) Serial.availableForWrite() <  0x400);
 
         // Dump the RAM banks
-        for (uint8_t i_ = 0; i_ < RAM_PAGE_COUNT; ++i_)
+        /*for (uint8_t i_ = 0; i_ < RAM_PAGE_COUNT; ++i_)
         {
             for (uint16_t j_ = 0; j_ < RAM_PAGE_SIZE; j_ += 0x400)
             {
@@ -826,7 +861,7 @@ void handleStateResetEntry()
                 while ( (uint) Serial.availableForWrite() <  0x400);
                 Serial.write((char*)&divMmcExtRamArray[i_][j_], 0x400);
             }
-        }
+        }*/
     }
 #endif
 
@@ -1514,6 +1549,10 @@ FASTRUN void isrRdEvent()
                             break;
                     }
                 }
+
+#ifdef DEBUG_OUTPUT
+                traceDebug(address);
+#endif
             }
         } else if (!busRdActive && ((gpioSix & IO_READ_MASK) == 0x00000000))
         {

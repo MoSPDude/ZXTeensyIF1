@@ -65,9 +65,9 @@
 #include "usb_serial.h"
 #include <SdFat.h>
 
-//define DEBUG_SDHC_OUTPUT
-
 #define FIFO_WML 16
+
+//define USE_READ_DMA
 
 #define MAKE_REG_MASK(m,s) (((uint32_t)(((uint32_t)(m) << s))))
 #define MAKE_REG_SET(x,m,s) (((uint32_t)(((uint32_t)(x) & m) << s)))
@@ -126,7 +126,11 @@ class SdSdhcZXTeensy
         } command_t;
 
     protected :
+#ifdef USE_READ_DMA
         static const size_t READ_BUFFER_SIZE = 1024;
+#else
+        static const size_t READ_BUFFER_SIZE = 32;
+#endif
         static const size_t WRITE_BUFFER_SIZE = 8;
 
         const uint32_t CMD_RESP_NONE = SDHC_XFERTYP_RSPTYP(0);
@@ -160,13 +164,13 @@ class SdSdhcZXTeensy
         bool dataActive;
         uint32_t dataRegister;
         uint32_t dataIndex;
+
+#ifdef USE_READ_DMA
         uint8_t dmaBuffer[512];
+#endif
 
         inline __attribute__((always_inline)) void writeReadData(uint8_t data)
         {
-#ifdef DEBUG_SDHC_OUTPUT
-            Serial.println(data, HEX);
-#endif
             sdSpiReadBuffer.write(data);
         }
 
@@ -191,6 +195,7 @@ class SdSdhcZXTeensy
         {
             if (currentCommand != CMD_WRITE_BLOCK)
             {
+#ifdef USE_READ_DMA
                 dataRegister = USDHC1_INT_STATUS;
                 USDHC1_INT_STATUS = dataRegister;
                 if (dataRegister & SDHC_IRQSTAT_TC)
@@ -205,6 +210,38 @@ class SdSdhcZXTeensy
                     dataActive = false;
                     return true;
                 }
+#else
+                if (dataActive || (USDHC1_PRES_STATE & SDHC_PRSSTAT_BREN))
+                {
+                    if (!dataActive)
+                    {
+                        writeReadData(0xFE);
+                        dataActive = true;
+                    }
+                    if (!hasReadData())
+                    {
+                        dataRegister = USDHC1_DATA_BUFF_ACC_PORT;
+                        writeReadData(dataRegister);
+                        writeReadData(dataRegister >> 8);
+                        writeReadData(dataRegister >> 16);
+                        writeReadData(dataRegister >> 24);
+                        if (!(USDHC1_PRES_STATE & SDHC_PRSSTAT_BREN))
+                        {
+                            dataRegister = USDHC1_INT_STATUS;
+                            USDHC1_INT_STATUS = dataRegister;
+                            if (dataRegister & SDHC_IRQSTAT_TC)
+                            {
+                                // Generate the two CRC bytes
+                                writeReadData(0x00);
+                                writeReadData(0x00);
+                                currentState = STATE_IDLE;
+                                dataActive = false;
+                                return true;
+                            }
+                        }
+                    }
+                }
+#endif
             } else if (hasData)
             {
                 if (dataActive)
@@ -218,7 +255,8 @@ class SdSdhcZXTeensy
                             currentState = STATE_IDLE;
                             dataActive = false;
                             return true;
-                        } else {
+                        } else if (!hasReadData())
+                        {
                             // Send busy response
                             writeReadData(0x00);
                         }
@@ -269,18 +307,9 @@ class SdSdhcZXTeensy
                 if (status & SDHC_IRQSTAT_CMD_ERROR)
                 {
                     // TODO: Command error
-#ifdef DEBUG_SDHC_OUTPUT
-                    Serial.println(0xFF, HEX);
-#endif
                     writeReadData(isSdIdle ? 0x7F : 0x7E);
                     currentState = STATE_IDLE;
                 } else {
-#ifdef DEBUG_SDHC_OUTPUT
-                    Serial.println(USDHC1_CMD_RSP0, HEX);
-                    Serial.println(USDHC1_CMD_RSP1, HEX);
-                    Serial.println(USDHC1_CMD_RSP2, HEX);
-                    Serial.println(USDHC1_CMD_RSP3, HEX);
-#endif
                     switch (currentCommand)
                     {
                         case CMD_READ_SINGLE_BLOCK :
@@ -291,9 +320,6 @@ class SdSdhcZXTeensy
                             writeStatusData();
                             writeReadData(0xFF);
                             currentState = STATE_DATA;
-#ifdef DEBUG_SDHC_OUTPUT
-                            Serial.println("RR");
-#endif
                             break;
                         default :
                             writeStatusData();
@@ -306,11 +332,6 @@ class SdSdhcZXTeensy
 
         void executeCommand()
         {
-
-#ifdef DEBUG_SDHC_OUTPUT
-            Serial.println(currentCommand, HEX);
-            Serial.println(commandArgument, HEX);
-#endif
             if (commandAppCmd)
             {
                 commandAppCmd = false;
@@ -331,10 +352,14 @@ class SdSdhcZXTeensy
                             // Send real command to the SDHC controller
                             uint32_t xfertype = SDHC_XFERTYP_CMDINX(CMD_READ_SINGLE_BLOCK) |
                                 SDHC_XFERTYP_DPSEL | CMD_RESP_R1;
-                            USDHC1_DS_ADDR  = (uint32_t)dmaBuffer;
                             USDHC1_BLK_ATT = 0x00010200;
                             USDHC1_MIX_CTRL &= 0xFFFFFF00;
+#ifdef USE_READ_DMA
+                            USDHC1_DS_ADDR  = (uint32_t)dmaBuffer;
                             USDHC1_MIX_CTRL |= 0x00000011;
+#else
+                            USDHC1_MIX_CTRL |= 0x00000010;
+#endif
                             USDHC1_PROT_CTRL |= SDHC_PROCTL_SABGREQ;
                             USDHC1_CMD_ARG = commandArgument;
                             USDHC1_CMD_XFR_TYP = xfertype;
@@ -459,7 +484,10 @@ class SdSdhcZXTeensy
         constexpr SdSdhcZXTeensy() : sdCard(0), cardSelected(false),
             isActive(false), isSdIdle(true), currentState(STATE_IDLE),
             currentCommand(CMD_IDLE), commandAppCmd(false), commandArgument(0),
-            dataActive(false), dataRegister(0), dataIndex(0), dmaBuffer()
+            dataActive(false), dataRegister(0), dataIndex(0)
+#ifdef USE_READ_DMA
+            , dmaBuffer()
+#endif
         {
         }
 
