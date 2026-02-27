@@ -340,9 +340,10 @@ _romSelected:
     call _decompressScr                     ; decompress screen
     ld a,(MEM_ROM)
     out (0xeb),a
-    nop
-    nop
-    nop
+    ld b, 5
+_pauseSelected:
+    halt
+    djnz _pauseSelected
     jp _menu2
 ; ------------------------------------------+----------------------------------
 ; Find correct MEM_ROMTXT start depending on page and load into MEM_TXT
