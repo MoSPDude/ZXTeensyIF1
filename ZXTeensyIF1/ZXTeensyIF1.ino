@@ -24,6 +24,10 @@
 #define TRIGGER_DELAY_MS 500
 #define TRIGGER_DELAY_CNT ((TRIGGER_DELAY_MS * TEENSY_CLK_FREQ) / (SD_TICK_CYCCNT * 1000))
 
+// If reset is held for an additional 2 seconds, then perform a hard reset
+#define HARD_RESET_DELAY_MS 2000
+#define HARD_RESET_DELAY_CNT ((HARD_RESET_DELAY_MS * TEENSY_CLK_FREQ) / (SD_TICK_CYCCNT * 1000))
+
 extern "C" volatile uint32_t systick_millis_count;
 extern "C" uint32_t set_arm_clock(uint32_t frequency);
 
@@ -149,6 +153,7 @@ volatile bool nmiPending = false;
 // Reset and NMI debouncing
 volatile trigger_state_t resetTrigState = TRIGGER_ACTIVE;
 volatile uint32_t resetTrigExitCount = TRIGGER_DELAY_CNT;
+volatile uint32_t resetHardTrigCount = HARD_RESET_DELAY_CNT;
 volatile trigger_state_t buttonTrigState = TRIGGER_READY;
 volatile uint32_t buttonTrigExitCount = 0;
 
@@ -375,6 +380,13 @@ inline __attribute__((always_inline)) void performOnClock()
                 {
                     resetTrigState = TRIGGER_DELAY;
                     resetTrigExitCount = TRIGGER_DELAY_CNT;
+                } else {
+                    --resetHardTrigCount;
+                    if (resetHardTrigCount == 0)
+                    {
+                        afterFirstReset = false;
+                        setState(STATE_RESET);
+                    }
                 }
                 break;
             case TRIGGER_DELAY :
@@ -386,7 +398,8 @@ inline __attribute__((always_inline)) void performOnClock()
                         resetTrigState = TRIGGER_READY;
                     }
                 } else {
-                    resetTrigExitCount = TRIGGER_DELAY_CNT;
+                    resetTrigState = TRIGGER_HOLD;
+                    resetHardTrigCount = HARD_RESET_DELAY_CNT;
                 }
                 break;
             default :
@@ -486,12 +499,14 @@ void setState(run_state_t state_)
             break;
         case STATE_ROM_ENABLE :
             resetTrigState = TRIGGER_HOLD;
+            resetHardTrigCount = HARD_RESET_DELAY_CNT;
             digitalWriteFast(DATA_DIS_PIN, 0);
             digitalWriteFast(RESET_PIN, 0);
             digitalWriteFast(LED_PIN, 1);
             break;
         case STATE_ROM_DISABLE :
             resetTrigState = TRIGGER_HOLD;
+            resetHardTrigCount = HARD_RESET_DELAY_CNT;
             digitalWriteFast(DATA_DIS_PIN, 1);
             digitalWriteFast(RESET_PIN, 0);
             digitalWriteFast(LED_PIN, 0);
@@ -1040,6 +1055,10 @@ void handleStateReset()
     romSelected = ROM_ROM0;
     romArraySelected = BANK_ROM0;
 
+    // Reset the USB detection state
+    mousePresent = false;
+    joystickPresent = false;
+
     // Clear any pending NMI
     nmiPending = false;
     digitalWriteFast(NMI_PIN, 0);
@@ -1107,11 +1126,9 @@ void handleStateReset()
                 usbKeyboard.attachRelease(usbKeyboardReleased);
                 usbEnabled = true;
 
-                // Delay to allow USB interrupts to initialise
+                // Delay to allow USB devices to initialise
                 delay(250);
             }
-            mousePresent = false;
-            joystickPresent = false;
         }
     }
 
