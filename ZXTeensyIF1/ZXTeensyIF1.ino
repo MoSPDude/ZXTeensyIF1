@@ -1,5 +1,5 @@
 
-#define ZXTEENSY_VERSION "20260226"
+#define ZXTEENSY_VERSION "20260227"
 #define ENABLE_BUILTIN_ROM_IF1
 //define DEBUG_OUTPUT
 
@@ -222,15 +222,23 @@ SdSdhcZXTeensy divMmcSpi;
 volatile bool uartPresent = false;
 UartZXTeensy espUart;
 
-// USB Kempston mouse
+// USB Kempston mouse and gamepad
 USBHost usbHost;
-USBHIDParser usbHidParser(usbHost);
+USBHub usbHub1(usbHost);
+USBHub usbHub2(usbHost);
+USBHIDParser usbHidParser1(usbHost);
+USBHIDParser usbHidParser2(usbHost);
 MouseController usbMouse(usbHost);
+JoystickController usbJoystick(usbHost);
+KeyboardController usbKeyboard(usbHost);
+volatile bool usbPresent = false;
+volatile bool usbEnabled = false;
 volatile bool mousePresent = false;
-volatile bool mouseEnabled = false;
-volatile uint32_t usbMouseX = 0;
-volatile uint32_t usbMouseY = 0;
-volatile uint8_t usbMouseBtn = 0;
+volatile uint32_t mouseX = 0;
+volatile uint32_t mouseY = 0;
+volatile uint8_t mouseBtn = 0;
+volatile bool joystickPresent = false;
+volatile uint8_t joystickData = 0;
 
 // RTC module
 RtcZXTeensy rtcTeensy;
@@ -1088,12 +1096,22 @@ void handleStateReset()
             espUart.begin(0);
         }
 
-        // If USB mouse is present, then enable
-        if (mousePresent && !mouseEnabled)
+        // If USB mouse/gamepad is present, then enable
+        if (usbPresent)
         {
             // Enable the USB host
-            usbHost.begin();
-            mouseEnabled = true;
+            if (!usbEnabled)
+            {
+                usbHost.begin();
+                usbKeyboard.attachPress(usbKeyboardPressed);
+                usbKeyboard.attachRelease(usbKeyboardReleased);
+                usbEnabled = true;
+
+                // Delay to allow USB interrupts to initialise
+                delay(250);
+            }
+            mousePresent = false;
+            joystickPresent = false;
         }
     }
 
@@ -1121,17 +1139,124 @@ void loop()
     performOnClock();
 
     // Perform USB host functions
-    if (mouseEnabled)
+    if (usbEnabled)
     {
         usbHost.Task();
         if (usbMouse.available())
         {
-            usbMouseX += (uint32_t)usbMouse.getMouseX();
-            usbMouseY -= (uint32_t)usbMouse.getMouseY();
-            usbMouseBtn = ~(usbMouse.getButtons());
+            mouseX += (uint32_t)usbMouse.getMouseX();
+            mouseY -= (uint32_t)usbMouse.getMouseY();
+            mouseBtn = ~(usbMouse.getButtons());
+            mousePresent = true;
             usbMouse.mouseDataClear();
         }
+        if (usbJoystick.available())
+        {
+            uint8_t data = 0;
+            uint32_t buttons = usbJoystick.getButtons();
+            switch (usbJoystick.joystickType())
+            {
+                case JoystickController::PS4 :
+                    break;
+                case JoystickController::PS3 :
+                    break;
+                default :
+                    // D-Pad
+                    uint32_t dpadButtons = (buttons & 0xF00) >> 8;
+                    if (dpadButtons != 0)
+                    {
+                        const static uint8_t dpadMap[16] = { 0x00,
+                            0x08, 0x04, 0x0C, 0x02, 0x0A, 0x06, 0x0E,
+                            0x01, 0x09, 0x05, 0x0D, 0x03, 0x0B, 0x07, 0x0F };
+                        data |= dpadMap[dpadButtons];
+                    }
+
+                    // A and X as Fire 1
+                    if (buttons & 0x30)
+                    {
+                        data |= 0x10;
+                    }
+
+                    // B and Y as Fire 2
+                    if (buttons & 0xc0)
+                    {
+                        data |= 0x20;
+                    }
+                    break;
+            }
+            joystickData = data;
+            joystickPresent = true;
+            usbJoystick.joystickDataClear();
+        }
     }
+}
+
+void usbKeyboardPressed(int key)
+{
+    uint8_t data = joystickData;
+    switch (key)
+    {
+        case 'q' :
+        case KEYD_UP :
+            data |= 0x08;
+            break;
+        case 'a' :
+        case KEYD_DOWN :
+            data |= 0x04;
+            break;
+        case 'o' :
+        case KEYD_LEFT :
+            data |= 0x02;
+            break;
+        case 'p' :
+        case KEYD_RIGHT :
+            data |= 0x01;
+            break;
+        case ' ' :
+        case 'm' :
+        case '\n' :
+            data |= 0x10;
+            break;
+        case 'n' :
+            data |= 0x20;
+            break;
+    }
+    joystickData = data;
+    joystickPresent = true;
+}
+
+void usbKeyboardReleased(int key)
+{
+    uint8_t data = joystickData;
+    switch (key)
+    {
+        case 'q' :
+        case KEYD_UP :
+            data &= ~(0x08);
+            break;
+        case 'a' :
+        case KEYD_DOWN :
+            data &= ~(0x04);
+            break;
+        case 'o' :
+        case KEYD_LEFT :
+            data &= ~(0x02);
+            break;
+        case 'p' :
+        case KEYD_RIGHT :
+            data &= ~(0x01);
+            break;
+        case ' ' :
+        case 'm' :
+        case '\n' :
+            data &= ~(0x10);
+            break;
+        case 'n' :
+            data &= ~(0x20);
+            break;
+    }
+    joystickData = data;
+    joystickPresent = true;
 }
 
 inline __attribute__((always_inline)) void writeRomData(uint16_t address)
@@ -1606,7 +1731,7 @@ FASTRUN void isrRdEvent()
                 case 0x3b :
                     {
                         uint8_t highPort = decodeHighAddress(gpioSix);
-                        if ((highPort & 0xf0) == 0x70)
+                        if (divMmcPresent && ((highPort & 0xf0) == 0x70))
                         {
                             writeData(rtcTeensy.read(highPort & 0x0f));
                         } else if (uartPresent)
@@ -1629,16 +1754,23 @@ FASTRUN void isrRdEvent()
                         switch (decodeHighAddress(gpioSix))
                         {
                             case 0xfb :
-                                writeData(usbMouseX >> 1);
+                                writeData(mouseX >> 1);
                                 break;
                             case 0xff :
-                                writeData(usbMouseY >> 1);
+                                writeData(mouseY >> 1);
                                 break;
                             case 0xfa :
-                                writeData(usbMouseBtn);
+                                writeData(mouseBtn);
                                 break;
                         }
                     }
+                    break;
+                case 0x1f :
+                    if (joystickPresent)
+                    {
+                        writeData(joystickData);
+                    }
+                    break;
             }
         }
     }

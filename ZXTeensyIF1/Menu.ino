@@ -15,7 +15,7 @@ typedef struct {
     char interface1Present;
     char mf128Present;
     char uartPresent;
-    char mousePresent;
+    char usbPresent;
     char bootIntoMenu;
     char romName[(ROM_NAME_LEN + 1)];
 } cfg_data_t;
@@ -131,7 +131,7 @@ char* menuGenerateSettings(char* ptr)
         ptr = menuAddSetting(ptr, "Multiface 128 not present", 0);
     }
     ptr = menuAddSetting(ptr, "Enable ESP-01S UART", uartPresent);
-    ptr = menuAddSetting(ptr, "Enable Kempston USB mouse", mousePresent);
+    ptr = menuAddSetting(ptr, "Enable Kempston USB mouse/gamepad", usbPresent);
     return ptr;
 }
 
@@ -285,7 +285,7 @@ bool menuPerformSelection(uint8_t index)
                 menuConfigChanged = true;
                 break;
             case 8 :
-                mousePresent = !mousePresent;
+                usbPresent = !usbPresent;
                 menuConfigChanged = true;
                 break;
             default :
@@ -430,7 +430,7 @@ void menuClearConfiguration()
     interface1Present = false;
     mf128Present = false;
     uartPresent = false;
-    mousePresent = false;
+    usbPresent = false;
     bootIntoMenu = true;
     cfgData.bootIntoMenu = bootIntoMenu;
     strncpy(cfgData.romName, INTERNAL_ROM_NAME, ROM_NAME_LEN);
@@ -462,7 +462,7 @@ void menuLoadConfiguration()
                     mf128Present = cfgData.mf128Present;
                 }
                 uartPresent = cfgData.uartPresent;
-                mousePresent = cfgData.mousePresent;
+                usbPresent = cfgData.usbPresent;
                 bootIntoMenu = cfgData.bootIntoMenu;
                 cfgData.romName[ROM_NAME_LEN] = 0;
             }
@@ -487,7 +487,7 @@ void menuSaveConfiguration()
             cfgData.interface1Present = interface1Present;
             cfgData.mf128Present = mf128Present;
             cfgData.uartPresent = uartPresent;
-            cfgData.mousePresent = mousePresent;
+            cfgData.usbPresent = usbPresent;
             cfgData.bootIntoMenu = bootIntoMenu;
             cfgData.romName[ROM_NAME_LEN] = 0;
             cfgFile.write((char*)&cfgData, sizeof(cfgData));
