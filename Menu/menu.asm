@@ -41,18 +41,14 @@ MEM_OFFSET  EQU     MEM_LTBLP - 9;
     ld a,0x80                                ; set i to 0x80
     ld i,a
     ld sp,MEM_SP                            ; stack pointer
-_memrom:
-    ld a,0                                    ; set start rom (0-x)
-    ld (MEM_ROM),a
-_mempos:
-    ld a,0                                    ; set start pos (0-20)
-    ld (MEM_POS),a
-_mempage:
-    ld a,1                                    ; set start page (1-x)
-    ld (MEM_PAGE),a
+    ; start at first line on first page
     xor a
-    ld (MEM_KEYL),a                            ; reset last key
-    ld de,_textData
+    ld (MEM_ROM),a
+    ld (MEM_POS),a
+    ld (MEM_KEYL),a                           ; reset last key
+    ld a,1
+    ld (MEM_PAGE),a
+    ;
     call _txtMem                            ; set start txt mem for page
     ld a,%00000111                            ; white border
     out (0xfe),a
@@ -340,10 +336,21 @@ _romSelected:
     call _decompressScr                     ; decompress screen
     ld a,(MEM_ROM)
     out (0xeb),a
-    ld b, 5
+    ld b, 6
 _pauseSelected:
     halt
     djnz _pauseSelected
+    ld b,a
+    ld a,(_maxroms+1)
+    cp b
+    jp nc, _menu2
+    ; out of bounds, reset to first page
+    xor a
+    ld (MEM_ROM),a
+    ld (MEM_POS),a
+    ld a,1
+    ld (MEM_PAGE),a
+    call _txtMem
     jp _menu2
 ; ------------------------------------------+----------------------------------
 ; Find correct MEM_ROMTXT start depending on page and load into MEM_TXT
@@ -477,7 +484,7 @@ _lf100:
     ld c,0                                     ; reset rotation
     jr _pltTextLoop
 _noLf:
-    cp 52                                    ; check for invalid char <28
+    cp 48                                    ; check for invalid char <24
     ret c
     exx                                     ; norm
     ld l,a
@@ -543,7 +550,9 @@ _verText:
 ; Left Aligned Sinclair ZX Spectrum Font - used for variable width font routine
 ;   first 6 are icons, then space (32) to copyright (127) (128+4 *8=1056b)
 ; ------------------------------------------+----------------------------------
-    DEFB    128,128,128,128,128,128,128,128 ; 26 - left hand side
+    DEFB    128,128,128,128,128,128,128,128 ; 24 - left hand side
+    DEFB    128,176,174,177,161,161,191,128 ; 25 - directory
+    DEFB    128,176,174,177,161,161,191,128 ; 26 - directory
     DEFB    128,130,132,132,136,168,144,128 ; 27 - checkmark
     DEFB    127,197,245,238,221,197,127,  0 ; 28 - zxc_l
     DEFB    252,102, 94,222, 94,102,252,  0 ; 29 - zxc_r
@@ -649,7 +658,7 @@ _shiftedFontData:
 ; ------------------------------------------+----------------------------------
 ; Length of each Char - used for variable width font routine (100b)
 ; ------------------------------------------+----------------------------------
-    defb 8,8,8,8,8,8                        ; 6 icons
+    defb 8,8,8,8,8,8,8,8                        ; 8 icons
 _gapLengthData:                                ; start at space (32)
     defb 4,2,5,7,6,7,7,3,3,3,6,6,3,6,3,6,7,6,7,7,7,7,7,7,7,7,2,3,4,6,4,7
 ;          ! " # $ % & ' ( ) * + , - . / 0 1 2 3 4 5 6 7 8 9 : ; < = > ?

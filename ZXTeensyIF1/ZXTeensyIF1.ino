@@ -34,6 +34,15 @@ extern "C" uint32_t set_arm_clock(uint32_t frequency);
 const char PROGMEM VERSION_STR[9] = ZXTEENSY_VERSION;
 
 typedef enum {
+    MENU_ACTION_SETTING,
+    MENU_ACTION_LOAD_ROM,
+    MENU_ACTION_LOAD_CART,
+    MENU_ACTION_UPDATE_FW,
+    MENU_ACTION_BROWSER_CD,
+    MENU_ACTION_BROWSER_OPEN
+} menu_action_t;
+
+typedef enum {
     STATE_ROM_DISABLE = 0x00,
     STATE_ROM_ENABLE  = 0x01,
     STATE_RESET       = 0x02,
@@ -74,7 +83,7 @@ typedef enum {
 typedef enum {
     TYPE_ROM,
     TYPE_ZXC2,
-    TYPE_IF2
+    TYPE_CART
 } rom_type_t;
 
 // I/O pin assignments
@@ -832,7 +841,7 @@ void loadForegroundRom()
     File RomFile = menuGetRomFile(&romType);
     switch (romType)
     {
-        case TYPE_IF2 :
+        case TYPE_CART :
             zxC2Lock = true;
         case TYPE_ZXC2 :
             loadZXC2RomFile(RomFile);
@@ -1025,6 +1034,16 @@ void handleWarmStateReset()
 
 void handleStateReset()
 {
+    // Delay to allow reset to take effect
+    delay(250);
+
+    // Blink the LED
+    digitalWriteFast(LED_PIN, 1);
+
+    // Clear any pending NMI
+    nmiPending = false;
+    digitalWriteFast(NMI_PIN, 0);
+
     // Handle actions before warm reset
     if (afterFirstReset)
     {
@@ -1059,14 +1078,6 @@ void handleStateReset()
     mousePresent = false;
     joystickPresent = false;
 
-    // Clear any pending NMI
-    nmiPending = false;
-    digitalWriteFast(NMI_PIN, 0);
-
-    // Blink the LED
-    delay(250);
-    digitalWriteFast(LED_PIN, 1);
-
     // Perform specific actions
     switch (globalState)
     {
@@ -1085,7 +1096,7 @@ void handleStateReset()
     // Populate the menu when active
     if (menuPaged)
     {
-        generateMenu(divMmcRamArray[0]);
+        menuInitialise(divMmcRamArray[0]);
     } else {
         // If ZXC2 cartridge is present, then page in immediately
         if (zxC2Present)
