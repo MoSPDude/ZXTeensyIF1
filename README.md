@@ -19,7 +19,7 @@ A Teensy 4.1 powered DivMMC and ZX Interface 1 clone for the ZX Spectrum 48K/128
     * Requires the 9V power rail for the 3.3V regulator
     * Available on ports 0x143B (5179) for RX and 0x133B (4923) for TX
     * https://www.specnext.com/the-next-on-the-network/
-* Kempston USB mouse
+* Kempston USB mouse and gamepad
     * Not wired to the board - use a small lead that exits the case
     * eg. StarTech.com "6in USB 2.0 Cable - USB A Female to USB Motherboard 4 Pin Header F/F"
 * RTC module from the Teensy
@@ -34,10 +34,12 @@ A Teensy 4.1 powered DivMMC and ZX Interface 1 clone for the ZX Spectrum 48K/128
     * Supports 16KB (Spectrum 48K), 32KB (Spectrum 128K/+2 (Grey)) and 64KB (Spectrum +2A/+3) ROMs
         * The +2A/+3 soft ROM support requires port decoding changes (see below)
     * Provides the Interface 1 ROM, Multiface 128 ROM and DivMMC ROM
+* Menu ROM derived from TomDDGs ZXPicoIF2Lite ROMExplorer
+* Z80 snapshot loading from TomDDGs ZXPicoIF2Lite
+    * Integrated "z80torom" for loading 'z80' and 'sna' files
 * External ROM support
     * ZX Interface 1 edge connector supports other ROM based hardware
     * eg. Retroleum SMART card, real ZX Interface 2 hardware etc.
-* Menu ROM derived from TomDDGs ZXPicoIF2Lite ROMExplorer
 
 The ZX Interface 1 v2 ROM is included in compiled firmware, and as noted on other
 sources "Amstrad have kindly given their permission for the redistribution
@@ -48,10 +50,22 @@ ZX Interface 1 attached to my ZX Max 128 - as I own a ZX Microdrive as well as a
 (https://github.com/TomDDG/ZXPicoMD) ... and didn't want to keep disconnecting the ZX
 Interface 1.
 
+## Credits
+
+Full credits to the following projects - this project gathers and integrates from
+many various sources.
+
 It borrows content, ideas and inspiration from,
 
+* http://www.pjrc.com/teensy/
+    * Teensyduino Core and SdFat libraries - provides all the Teensy 4.1 functionality
+    * Reused parts of code for the RTC, SDHC and UART drivers
 * https://github.com/SensoriumEmbedded/TeensyROM
     * Initial code and parts for the Teensy 4.1 firmware
+* https://github.com/TomDDG/ZXPicoIF2Lite
+    * ROM menu source code, Z80 snapshot loader, and the idea of a soft ROM
+* https://github.com/joepasquariello/FlasherX
+    * Teensy 4.x OTA upgrade library
 * https://github.com/liveboxandy/ZX-Interface-1-Recreated
     * Re-used the ZX Interface 1 board layout and schematic
 * https://github.com/ZXSpectrumVault/rom-disassemblies
@@ -60,16 +74,16 @@ It borrows content, ideas and inspiration from,
     * ZX Interface 1 schematic
 * https://divide.speccy.cz/files/pgm_model.txt
     * DivIDE programming model
-* https://github.com/TomDDG/ZXPicoIF2Lite
-    * ROM menu source code, and the idea of a soft ROM
-* https://github.com/joepasquariello/FlasherX
-    * Teensy 4.x OTA upgrade library
 * https://www.thingiverse.com/thing:6500064
     * Also from TomDDG, a replacement ZX Interface 1 case
 
+Without the above projects, this would not have been possible!
+
 ## Current Status
 
-First v0.2 PCBs have come back from PCBWay, and are being tested with my 48K Spectrum, and my
+Updated v0.7 PCBs have been sent to PCBWay...
+
+The first v0.2 PCBs had come back from PCBWay, and been tested with my 48K Spectrum, and my
 ZX Max 128 Issue 3. Some parts have come from a donor ZX Interface 1 that needed a new old-stock
 LA15-312 ULA from eBay.
 
@@ -123,8 +137,8 @@ ESXDOS has trouble loading if it is not "early" on the SD card,
 
 ### Hardware
 
-* v0.5 PCB prototype
-    * HAS NOT BEEN MANUFACTURED YET
+* v0.7 PCB prototype
+    * PCBs have been sent for manufacturing
     * Moved the ROMCS and DataDir output to pins 36 and 37, to free up pins 34 and 35
     * Added an ESP-01S header, and header for 3.3V regulator (eg. Pololu D24V5F3)
         * The ESP-01S can take over 300mA, so requires a separate regulator
@@ -145,8 +159,12 @@ ESXDOS has trouble loading if it is not "early" on the SD card,
 
 ### Firmware
 
+* Implemented the Z80 snapshot loader from TomDDGs ZXPicoIF2Lite
+* Implemented DivMMC SPI to SDHC bridge driver
+    * No longer needs the soft SPI driver, or SPI_DRIVER_SELECT change
 * Added experimental RTC access via ports 0x7X3B
-* Added experimental USB Host and USB Mouse for Kempston mouse emulation
+* Added experimental USB host, mouse, joystick and keyboard for Kempston mouse and gamepad emulation
+    * USB keyboard responds to "QAOPNM", Space, Enter and arrow keys as Kempston joystick
 * Added experimental UART for ESP-01S module on TX8/RX8
     * Uses ports 0x143B (5179) for RX and 0x133B (4923) for TX
 * Added firmware update from SD card
@@ -169,9 +187,7 @@ hexadecimal format, as embedded in the compiled firmware.
 ## Building the firmware
 
 * Setup the Arduino IDE 2.3.6 for the Teensy 4.1
-    * "Teensy (for Arduino IDE 2.0.4 or later)" v1.59.0
-* Modify "%LOCALAPPDATA%\Arduino15\packages\teensy\hardware\avr\1.59.0\libraries\SdFat\src\SdFatConfig.h",
-  to define SPI_DRIVER_SELECT as 2
+    * "Teensy (for Arduino IDE 2.0.4 or later)" v1.60.0
 * Open ZXTeensyIF1\ZXTeensyIF1.ino
 * Set Board to Teensy 4.1
 * Set Optimize to "Fastest with LTO"

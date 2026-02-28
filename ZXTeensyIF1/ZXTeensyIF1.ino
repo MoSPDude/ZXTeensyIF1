@@ -78,18 +78,31 @@ typedef enum {
 } bank_select_t;
 
 typedef enum {
+    // 16KB ROMs
     ROM_ROM0,
     ROM_ROM1,
     ROM_ROM2,
     ROM_ROM3,
     ROM_IF1,
+    ROM_MF128, // Upper ROM_MF128 is MF128 RAM
+    // 8KB ROMs
     ROM_DIVMMC,
-    ROM_MF128,
-    // "ROMs" below use DivMMC RAM
-    ROM_ZXC2,   // ROM_PAGE_COUNT
+    // "Dynamic ROMs" that use DivMMC RAM
+    ROM_ZXC2,
     ROM_SNA,
     ROM_MENU
-} rom_index_t;
+} rom_select_t;
+
+typedef enum {
+    ROM_PAGE_ROM0      = 0,
+    ROM_PAGE_ROM1      = 2,
+    ROM_PAGE_ROM2      = 4,
+    ROM_PAGE_ROM3      = 6,
+    ROM_PAGE_IF1       = 8,
+    ROM_PAGE_MF128     = 10,
+    ROM_PAGE_DIVMMC    = 12,
+    ROM_PAGE_COUNT
+} rom_page_t;
 
 typedef enum {
     TYPE_ROM,
@@ -180,11 +193,11 @@ volatile trigger_state_t buttonTrigState = TRIGGER_READY;
 volatile uint32_t buttonTrigExitCount = 0;
 
 // ROM banking
-const rom_index_t ROM_PAGE_COUNT = ROM_ZXC2;
-const uint16_t ROM_PAGE_SIZE = 0x4000;
-volatile rom_index_t romSelected = ROM_ROM0;
+const uint16_t RAM_PAGE_SIZE = 0x2000;
+const uint16_t ROM_PAGE_SIZE = (RAM_PAGE_SIZE * 2);
+volatile rom_select_t romSelected = ROM_ROM0;
 volatile bank_select_t romArraySelected = BANK_ROM0;
-volatile uint8_t romArray[ROM_PAGE_COUNT][ROM_PAGE_SIZE] __attribute__((aligned(16)));
+volatile uint8_t romArray[ROM_PAGE_COUNT][RAM_PAGE_SIZE] __attribute__((aligned(16)));
 volatile uint8_t* romPtr = romArray[0];
 volatile uint16_t romArrayPresent = 0;
 volatile bool romEnabled = false;
@@ -200,7 +213,6 @@ volatile bool rom23Paged = false;
 // DivMMC with total 512KB of RAM
 const uint16_t RAM_PAGE_COUNT = 16;
 const uint16_t EXT_RAM_PAGE_COUNT = 48;
-const uint16_t RAM_PAGE_SIZE = 0x2000;
 volatile uint8_t divMmcRamArray[RAM_PAGE_COUNT][RAM_PAGE_SIZE] __attribute__((aligned(16)));
 volatile DMAMEM uint8_t divMmcExtRamArray[EXT_RAM_PAGE_COUNT][RAM_PAGE_SIZE] __attribute__((aligned(16)));
 volatile bool divMmcPresent = false;
@@ -600,7 +612,8 @@ inline __attribute__((always_inline)) void updateRomIndex(bool pageNow)
                 {
                     romPtr = divMmcRamArray[3];
                 } else {
-                    romPtr = romArray[ROM_DIVMMC];
+                    // 8KB ROM
+                    romPtr = romArray[ROM_PAGE_DIVMMC];
                 }
                 break;
             case ROM_ZXC2 :
@@ -611,7 +624,8 @@ inline __attribute__((always_inline)) void updateRomIndex(bool pageNow)
                 romPtr = divMmcRamArray[0];
                 break;
             default :
-                romPtr = romArray[romSelected];
+                // 16KB ROMs are two ROM pages
+                romPtr = romArray[(romSelected * 2)];
                 break;
         }
         if (!romEnabled)
@@ -802,25 +816,25 @@ void loadSpectrumRomFile(File RomFile)
     // Attempt to load four 16KB ROM banks
     if (RomFile)
     {
-        size_t count = RomFile.readBytes((char *)romArray[ROM_ROM0], ROM_PAGE_SIZE);
+        size_t count = RomFile.readBytes((char *)romArray[ROM_PAGE_ROM0], ROM_PAGE_SIZE);
         if (count > 0)
         {
             romArrayPresent |= BANK_ROM0;
             if (count >= ROM_PAGE_SIZE)
             {
-                count = RomFile.readBytes((char *)romArray[ROM_ROM1], ROM_PAGE_SIZE);
+                count = RomFile.readBytes((char *)romArray[ROM_PAGE_ROM1], ROM_PAGE_SIZE);
                 if (count > 0)
                 {
                     rom1Present = true;
                     romArrayPresent |= BANK_ROM1;
                     if (count >= ROM_PAGE_SIZE)
                     {
-                        count = RomFile.readBytes((char *)romArray[ROM_ROM2], ROM_PAGE_SIZE);
+                        count = RomFile.readBytes((char *)romArray[ROM_PAGE_ROM2], ROM_PAGE_SIZE);
                         if (count > 0)
                         {
                             rom23Present = true;
                             romArrayPresent |= (BANK_ROM2 | BANK_ROM3);
-                            count = RomFile.readBytes((char *)romArray[ROM_ROM3], ROM_PAGE_SIZE);
+                            count = RomFile.readBytes((char *)romArray[ROM_PAGE_ROM3], ROM_PAGE_SIZE);
                         }
                     }
                 }
@@ -913,8 +927,7 @@ void initialiseRamBanks()
     romArrayPresent &= ~(BANK_RAM);
     memset((void*)divMmcRamArray, 0xFF, (RAM_PAGE_COUNT * RAM_PAGE_SIZE));
     memset((void*)divMmcExtRamArray, 0xFF, (EXT_RAM_PAGE_COUNT * RAM_PAGE_SIZE));
-    memset((void*)&(romArray[ROM_DIVMMC][RAM_PAGE_SIZE]), 0xFF, RAM_PAGE_SIZE);
-    memset((void*)&(romArray[ROM_MF128][RAM_PAGE_SIZE]), 0xFF, RAM_PAGE_SIZE);
+    memset((void*)&(romArray[ROM_PAGE_MF128][RAM_PAGE_SIZE]), 0xFF, RAM_PAGE_SIZE);
 }
 
 void handleStateResetEntry()
@@ -1011,7 +1024,7 @@ void handleStateResetEntry()
     {
         // Load the built-in Interface 1 soft ROM
 #ifdef ENABLE_BUILTIN_ROM_IF1
-        memcpy((void *)romArray[ROM_IF1], BUILTIN_ROM_IF1, BUILTIN_ROM_IF1_SIZE);
+        memcpy((void *)romArray[ROM_PAGE_IF1], BUILTIN_ROM_IF1, BUILTIN_ROM_IF1_SIZE);
         romArrayPresent |= BANK_IF1;
 #endif
 
@@ -1022,19 +1035,19 @@ void handleStateResetEntry()
             if (beginSdfsSd())
             {
                 // Load DivMMC Esxdos ROM
-                if (loadRomImage("esxmmc.bin", (char *)romArray[ROM_DIVMMC], RAM_PAGE_SIZE) > 0)
+                if (loadRomImage("esxmmc.bin", (char *)romArray[ROM_PAGE_DIVMMC], RAM_PAGE_SIZE) > 0)
                 {
                     romArrayPresent |= BANK_DIVMMC;
                 }
 
                 // Load Multiface 128 ROM
-                if (loadRomImage("mf128.rom", (char *)romArray[ROM_MF128], RAM_PAGE_SIZE) > 0)
+                if (loadRomImage("mf128.rom", (char *)romArray[ROM_PAGE_MF128], RAM_PAGE_SIZE) > 0)
                 {
                     romArrayPresent |= BANK_MF128;
                 }
 
                 // Load Interface 1 ROM
-                if (loadRomImage("if1.rom", (char *)romArray[ROM_IF1], ROM_PAGE_SIZE) > 0)
+                if (loadRomImage("if1.rom", (char *)romArray[ROM_PAGE_IF1], ROM_PAGE_SIZE) > 0)
                 {
                     romArrayPresent |= BANK_IF1;
                 }
@@ -1430,7 +1443,7 @@ FASTRUN void isrWrEvent()
             {
                 case ROM_MF128 :
                     // Perform Multiface 128 RAM write
-                    romPtr[(0x2000 | address)] = readData();
+                    romPtr[(RAM_PAGE_SIZE | address)] = readData();
                     break;
                 case ROM_DIVMMC :
                     // Perform DivMMC RAM write
