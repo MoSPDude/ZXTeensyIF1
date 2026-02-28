@@ -13,20 +13,18 @@
 #include "RtcZXTeensy.h"
 
 // Run the Teensy 4.1 with slight overclock at 816MHz
-// Run the SD card at ~7MHz (at 816MHz, SD_TICK_CYCCNT = 58)
+// Tick the SD and Serial at 14MHz
 #define TEENSY_CLK_FREQ 816000000ULL
-#define SD_CLK_FREQ 7000000ULL
-#define SD_TICK_CYCCNT ((TEENSY_CLK_FREQ / SD_CLK_FREQ) / 2)
-#define FAST_SD_CLK_FREQ 24000000ULL
-#define FAST_SD_TICK_CYCCNT ((TEENSY_CLK_FREQ / FAST_SD_CLK_FREQ) / 2)
+#define TICK_FREQ 14000000ULL
+#define TICK_CYCCNT (TEENSY_CLK_FREQ / TICK_FREQ)
 
 // Allow ~500ms for reset/button to debounce (at 816MHz, TRIGGER_DELAY_CNT = 0x6B5672)
 #define TRIGGER_DELAY_MS 500
-#define TRIGGER_DELAY_CNT ((TRIGGER_DELAY_MS * TEENSY_CLK_FREQ) / (SD_TICK_CYCCNT * 1000))
+#define TRIGGER_DELAY_CNT ((TRIGGER_DELAY_MS * TEENSY_CLK_FREQ) / (TICK_CYCCNT * 1000))
 
 // If reset is held for an additional 2 seconds, then perform a hard reset
 #define HARD_RESET_DELAY_MS 2000
-#define HARD_RESET_DELAY_CNT ((HARD_RESET_DELAY_MS * TEENSY_CLK_FREQ) / (SD_TICK_CYCCNT * 1000))
+#define HARD_RESET_DELAY_CNT ((HARD_RESET_DELAY_MS * TEENSY_CLK_FREQ) / (TICK_CYCCNT * 1000))
 
 extern "C" volatile uint32_t systick_millis_count;
 extern "C" uint32_t set_arm_clock(uint32_t frequency);
@@ -41,6 +39,12 @@ typedef enum {
     MENU_ACTION_BROWSER_CD,
     MENU_ACTION_BROWSER_OPEN
 } menu_action_t;
+
+typedef enum {
+    ICON_TYPE_NONE,
+    ICON_TYPE_ZXC2,
+    ICON_TYPE_CART
+} icon_type_t;
 
 typedef enum {
     STATE_ROM_DISABLE = 0x00,
@@ -373,7 +377,7 @@ inline __attribute__((always_inline)) uint8_t decodeHighAddress(uint32_t gpioSix
 inline __attribute__((always_inline)) void performOnClock()
 {
     uint32_t cycle_ = ARM_DWT_CYCCNT;
-    if ((cycle_ - globalCycleCount) >= SD_TICK_CYCCNT)
+    if ((cycle_ - globalCycleCount) >= TICK_CYCCNT)
     {
         globalCycleCount = cycle_;
 

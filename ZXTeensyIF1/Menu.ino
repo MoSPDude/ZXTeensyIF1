@@ -32,32 +32,35 @@ bool menuConfigReload = true;
 bool menuHasUpdateFw = false;
 
 // Menu structure
-char* menuPtr;
-char* menuEndPtr;
-uint8_t menuEntries;
-menu_type_t menuCurrent;
+DMAMEM char* menuPtr;
+DMAMEM char* menuEndPtr;
+DMAMEM uint8_t menuEntries;
+DMAMEM menu_type_t menuCurrent;
 DMAMEM menu_entry_t menu[255];
-volatile menu_action_t menuAction = MENU_ACTION_SETTING;
+volatile DMAMEM menu_action_t menuAction;
 
 // Menu file browser
-char browserPath[MAX_PATH];
+DMAMEM char browserPath[MAX_PATH];
 
 // Menu page creation
-uint8_t menuPage;
-uint8_t menuPageLine;
+DMAMEM uint8_t menuPage;
+DMAMEM uint8_t menuPageLine;
 
 void menuInsertEntry(menu_action_t action, uint8_t index, const char* ptr)
 {
     menu[menuEntries].action = action;
     menu[menuEntries].index = index;
+
+    // The label pointer will be zero if the label has been truncated, or
+    // cannot be used (eg. non-printable characters)
     menu[menuEntries].ptr = ptr;
     ++menuEntries;
 }
 
-char* menuAddSetting(menu_action_t action, uint8_t index, char* ptr, const char* label, 
+char* menuInsertSetting(menu_action_t action, uint8_t index, char* ptr, const char* label,
     bool checked)
 {
-    menuInsertEntry(action, index, ptr);
+    menuInsertEntry(action, index, 0);
     *ptr++ = (checked ? 27 : 24);
     unsigned int len = strlen(label);
     ptr = strncpy(ptr, label, len) + len;
@@ -76,17 +79,79 @@ char* menuAddSetting(menu_action_t action, uint8_t index, char* ptr, const char*
 
 inline __attribute__((always_inline)) char* menuInsertSpacer(char* ptr)
 {
-    return menuAddSetting(MENU_ACTION_SETTING, 2, ptr, "", 0);
+    return menuInsertSetting(MENU_ACTION_SETTING, 2, ptr, "", 0);
 }
 
-char* menuAddFile(uint8_t index, char* ptr, const char* filename)
+char* menuInsertFile(menu_action_t action, icon_type_t icon, uint8_t index, char* ptr,
+    const char* filename)
 {
-    const char* startPtr = ptr;
-    *ptr++ = ((stricmp(filename, cfgData.romName) == 0) ? 27 : 24);
+    // Truncate the file name
+    // NOTE: labelPtr will be zero if the name is truncated, or contains non-printable
+    // characters
     unsigned int len = strlen(filename);
+    const char* labelPtr;
+    if (len > 32)
+    {
+        labelPtr = 0;
+        for (size_t i = 0; i < 31; ++i)
+        {
+            *ptr++ = (filename[i] >= 128) ? '?' : filename[i];
+        }
+        *ptr++ = '>';
+    } else {
+        labelPtr = ptr;
+        for (size_t i = 0; i < len; ++i)
+        {
+            if (filename[i] >= 128)
+            {
+                *ptr++ = '?';
+                labelPtr = 0;
+            } else {
+                *ptr++ = filename[i];
+            }
+        }
+    }
+
+    // Add menu entry
+    menuInsertEntry(action, index, labelPtr);
+
+    // Add icon
+    switch (icon)
+    {
+        case ICON_TYPE_ZXC2 :
+            *ptr++ = 9;
+            *ptr++ = 28;
+            *ptr++ = 29;
+            break;
+        case ICON_TYPE_CART :
+            *ptr++ = 9;
+            *ptr++ = 30;
+            *ptr++ = 31;
+            break;
+        default :
+            break;
+    }
+
+    // Add new line, and update menu dimensions
+    if (menuPageLine < 20)
+    {
+        *ptr = 10;
+        ++menuPageLine;
+    } else {
+        *ptr = 0;
+        menuPageLine = 0;
+        ++menuPage;
+    }
+    return (ptr+1);
+}
+
+char* menuAddRomFile(uint8_t index, char* ptr, const char* filename)
+{
+    // Add check mark against active ROM
+    *ptr++ = ((stricmp(filename, cfgData.romName) == 0) ? 27 : 24);
 
     // Find the file extension
-    uint8_t icon = 2;
+    icon_type_t icon = ICON_TYPE_CART;
     char *fileext = strrchr(filename, '.');
     menu_action_t action = MENU_ACTION_LOAD_CART;
     if (fileext != 0)
@@ -94,125 +159,47 @@ char* menuAddFile(uint8_t index, char* ptr, const char* filename)
         if (stricmp(fileext + 1, "rom") == 0)
         {
             action = MENU_ACTION_LOAD_ROM;
-            len = (fileext - filename);
-            icon = 0;
+            icon = ICON_TYPE_NONE;
         } else if (stricmp(fileext + 1, "bin") == 0)
         {
-            len = (fileext - filename);
-            icon = 1;
+            icon = ICON_TYPE_ZXC2;
         }
     }
 
-    // Add menu entry
-    menuInsertEntry(action, index, startPtr);
-
-    // Truncate the file name
-    if (len > 32)
-    {
-        len = 32;
-    }
-    strncpy(ptr, filename, len);
-    ptr += len;
-
-    // Add icon
-    switch (icon)
-    {
-        case 1 :
-            *ptr++ = 9;
-            *ptr++ = 28;
-            *ptr++ = 29;
-            break;
-        case 2 :
-            *ptr++ = 9;
-            *ptr++ = 30;
-            *ptr++ = 31;
-            break;
-        default :
-            break;
-    }
-
-    // Add new line, and update menu dimensions
-    if (menuPageLine < 20)
-    {
-        *ptr = 10;
-        ++menuPageLine;
-    } else {
-        *ptr = 0;
-        menuPageLine = 0;
-        ++menuPage;
-    }
-    return (ptr+1);
+    // Insert the menu entry
+    return menuInsertFile(action, icon, index, ptr, filename);
 }
 
-char* menuAddBrowser(uint8_t index, char* ptr, File entry)
+char* menuAddBrowserFile(uint8_t index, char* ptr, File entry)
 {
-    const char* startPtr = ptr;
+    // Add directory icons, and find the file extension
     const char* filename = entry.name();
-    unsigned int len = strlen(filename);
-    *ptr++ = (entry.isDirectory() ? 25 : 24);
-
-    // Find the file extension
-    uint8_t icon = 0;
-    if (!entry.isDirectory())
+    icon_type_t icon = ICON_TYPE_NONE;
+    if (entry.isDirectory())
     {
+        *ptr++ = 25;
+    } else {
+        *ptr++ = 24;
         char *fileext = strrchr(filename, '.');
-        icon = 2;
         if (fileext != 0)
         {
             if (stricmp(fileext + 1, "rom") == 0)
             {
-                len = (fileext - filename);
+                icon = ICON_TYPE_CART;
             } else if (stricmp(fileext + 1, "bin") == 0)
             {
-                len = (fileext - filename);
-                icon = 1;
+                icon = ICON_TYPE_ZXC2;
             }
         }
     }
 
-    // Add menu entry
-    menuInsertEntry((entry.isDirectory() ? MENU_ACTION_BROWSER_CD :
-        MENU_ACTION_BROWSER_OPEN), index, startPtr);
-
-    // Truncate the file name
-    if (len > 32)
-    {
-        len = 32;
-    }
-    strncpy(ptr, filename, len);
-    ptr += len;
-
-    // Add icon
-    switch (icon)
-    {
-        case 1 :
-            *ptr++ = 9;
-            *ptr++ = 28;
-            *ptr++ = 29;
-            break;
-        case 2 :
-            *ptr++ = 9;
-            *ptr++ = 30;
-            *ptr++ = 31;
-            break;
-        default :
-            break;
-    }
-
-    // Add new line, and update menu dimensions
-    if (menuPageLine < 20)
-    {
-        *ptr = 10;
-        ++menuPageLine;
-    } else {
-        *ptr = 0;
-        menuPageLine = 0;
-        ++menuPage;
-    }
-    return (ptr+1);
+    // Insert the menu entry
+    return menuInsertFile(
+        (entry.isDirectory() ? MENU_ACTION_BROWSER_CD : MENU_ACTION_BROWSER_OPEN),
+        icon, index, ptr, filename);
 }
 
-void menuGenerateBrowser(char* ptr)
+char* menuGenerateBrowser(char* ptr)
 {
     File directory = SD.open(browserPath, FILE_READ);
     if (directory)
@@ -220,13 +207,13 @@ void menuGenerateBrowser(char* ptr)
         if (directory.isDirectory())
         {
             uint8_t index = 0;
-            ptr = menuAddSetting(MENU_ACTION_BROWSER_CD, 0xFF, ptr, "..", 0);
+            ptr = menuInsertSetting(MENU_ACTION_BROWSER_CD, 0xFF, ptr, "..", 0);
             while (true)
             {
                 File entry = directory.openNextFile();
                 if (entry)
                 {
-                    ptr = menuAddBrowser(index, ptr, entry);
+                    ptr = menuAddBrowserFile(index, ptr, entry);
                     entry.close();
                     ++index;
                 } else {
@@ -243,16 +230,14 @@ void menuGenerateBrowser(char* ptr)
         }
         directory.close();
     }
-
-    // End of menu
-    *(ptr-1) = 0;
+    return ptr;
 }
 
-void menuGenerateSettings(char* ptr)
+char* menuGenerateSettings(char* ptr)
 {
-    ptr = menuAddSetting(MENU_ACTION_SETTING, 0, ptr, "Save and Restart", 0);
-    ptr = menuAddSetting(MENU_ACTION_SETTING, 1, ptr, "Disable and Restart", 0);
-    ptr = menuAddSetting(MENU_ACTION_SETTING, 0xFE, ptr, "Browse SD card", 0);
+    ptr = menuInsertSetting(MENU_ACTION_SETTING, 0, ptr, "Save and Restart", 0);
+    ptr = menuInsertSetting(MENU_ACTION_SETTING, 1, ptr, "Disable and Restart", 0);
+    ptr = menuInsertSetting(MENU_ACTION_SETTING, 0xFE, ptr, "Browse SD card", 0);
     ptr = menuInsertSpacer(ptr);
 
     // Add firmware update option, if available
@@ -261,31 +246,31 @@ void menuGenerateSettings(char* ptr)
     {
         menuHasUpdateFw = true;
         fwUpdateFile.close();
-        ptr = menuAddSetting(MENU_ACTION_UPDATE_FW, 0, ptr, "Update firmware and Restart", 0);
+        ptr = menuInsertSetting(MENU_ACTION_UPDATE_FW, 0, ptr, "Update firmware and Restart", 0);
     } else {
         menuHasUpdateFw = false;
     }
 
     // Add settings menu
-    ptr = menuAddSetting(MENU_ACTION_SETTING, 3, ptr, "Boot into Menu", bootIntoMenu);
+    ptr = menuInsertSetting(MENU_ACTION_SETTING, 3, ptr, "Boot into Menu", bootIntoMenu);
     if ((romArrayPresent & BANK_DIVMMC) != 0)
     {
-        ptr = menuAddSetting(MENU_ACTION_SETTING, 4, ptr, "Enable DivMMC", divMmcPresent);
+        ptr = menuInsertSetting(MENU_ACTION_SETTING, 4, ptr, "Enable DivMMC", divMmcPresent);
     }
     if ((romArrayPresent & BANK_IF1) != 0)
     {
-        ptr = menuAddSetting(MENU_ACTION_SETTING, 5, ptr, "Enable Interface 1", interface1Present);
+        ptr = menuInsertSetting(MENU_ACTION_SETTING, 5, ptr, "Enable Interface 1", interface1Present);
     }
     if ((romArrayPresent & BANK_MF128) != 0)
     {
-        ptr = menuAddSetting(MENU_ACTION_SETTING, 6, ptr, "Enable Multiface 128", mf128Present);
+        ptr = menuInsertSetting(MENU_ACTION_SETTING, 6, ptr, "Enable Multiface 128", mf128Present);
     }
-    ptr = menuAddSetting(MENU_ACTION_SETTING, 7, ptr, "Enable ESP-01S UART", uartPresent);
-    ptr = menuAddSetting(MENU_ACTION_SETTING, 8, ptr, "Enable Kempston USB mouse/gamepad", usbPresent);
+    ptr = menuInsertSetting(MENU_ACTION_SETTING, 7, ptr, "Enable ESP-01S UART", uartPresent);
+    ptr = menuInsertSetting(MENU_ACTION_SETTING, 8, ptr, "Enable Kempston USB mouse/gamepad", usbPresent);
     ptr = menuInsertSpacer(ptr);
 
     // List ROM files
-    ptr = menuAddSetting(MENU_ACTION_SETTING, 0xFF, ptr, "Internal ROM",
+    ptr = menuInsertSetting(MENU_ACTION_SETTING, 0xFF, ptr, "Internal ROM",
         (stricmp(cfgData.romName, INTERNAL_ROM_NAME) == 0));
     File romDirectory = SD.open("ROMS", FILE_READ);
     if (romDirectory)
@@ -300,7 +285,7 @@ void menuGenerateSettings(char* ptr)
                 {
                     if (!entry.isDirectory())
                     {
-                        ptr = menuAddFile(index, ptr, entry.name());
+                        ptr = menuAddRomFile(index, ptr, entry.name());
                     }
                     entry.close();
                     ++index;
@@ -318,9 +303,7 @@ void menuGenerateSettings(char* ptr)
         }
         romDirectory.close();
     }
-
-    // End of menu
-    *(ptr-1) = 0;
+    return ptr;
 }
 
 void menuGenerate()
@@ -335,25 +318,29 @@ void menuGenerate()
     switch (menuCurrent)
     {
         case MENU_TYPE_SETTINGS :
-            menuGenerateSettings(textPtr);
+            textPtr = menuGenerateSettings(textPtr);
             break;
         case MENU_TYPE_BROWSER :
-            menuGenerateBrowser(textPtr);
+            textPtr = menuGenerateBrowser(textPtr);
             break;
     }
+
+    // End of menu
+    *(textPtr - 1) = 0;
 
     // Store the menu dimensions
     uint16_t address = ((menuPtr[0x11FC] << 8) + menuPtr[0x11FB]);
     menuPtr[address] = (menuEntries - 1);
     address = ((menuPtr[0x11FF] << 8) + menuPtr[0x11FE]);
-    menuPtr[address] = (menuPage + 1);
+    menuPtr[address] = ((menuPageLine != 0) ? (menuPage + 1) : menuPage);
 }
 
 void menuInitialise(volatile uint8_t* romPtr)
 {
-    // Build the menu
+    // Store the menu pointers
+    // NOTE: Allow for ROM_NAME_LEN, left icon, tab, 2 x right icons, and new-line
     menuPtr = (char*)romPtr;
-    menuEndPtr = menuPtr + ROM_PAGE_SIZE - 36;
+    menuEndPtr = menuPtr + ROM_PAGE_SIZE - (ROM_NAME_LEN + 5);
 
     // Store the version information
     uint16_t address = ((menuPtr[0x11F9] << 8) + menuPtr[0x11F8]);
@@ -361,6 +348,7 @@ void menuInitialise(volatile uint8_t* romPtr)
 
     // Generate the menu
     menuCurrent = MENU_TYPE_SETTINGS;
+    menuAction = MENU_ACTION_SETTING;
     menuGenerate();
 }
 
@@ -376,6 +364,7 @@ bool menuPerformSelection(uint8_t index)
 
     menuAction = menu[index].action;
     uint8_t entryIndex = menu[index].index;
+    char* entryPtr = (char*)menu[index].ptr;
     switch (menuAction)
     {
         case MENU_ACTION_SETTING :
@@ -452,21 +441,24 @@ bool menuPerformSelection(uint8_t index)
             break;
         case MENU_ACTION_LOAD_ROM :
             menuConfigChanged = true;
-            updateRomName(entryIndex);
+            updateRomName(entryIndex, entryPtr);
             return true;
         case MENU_ACTION_LOAD_CART :
-            updateRomName(entryIndex);
+            updateRomName(entryIndex, entryPtr);
             return true;
         case MENU_ACTION_BROWSER_CD :
-            if (!updateBrowserPath(entryIndex))
+            if (!updateBrowserPath(entryIndex, entryPtr))
             {
                 menuCurrent = MENU_TYPE_SETTINGS;
             }
             break;
         case MENU_ACTION_BROWSER_OPEN :
-            updateBrowserPath(entryIndex);
-            // TODO:
-            menuCurrent = MENU_TYPE_SETTINGS;
+            if (updateBrowserPath(entryIndex, entryPtr))
+            {
+                return true;
+            } else {
+                menuCurrent = MENU_TYPE_SETTINGS;
+            }
             break;
     }
 
@@ -484,6 +476,7 @@ void menuPerformAction()
             flashUpdate(FLASH_FILENAME);
             break;
         case MENU_ACTION_LOAD_CART :
+        case MENU_ACTION_BROWSER_OPEN :
             // Load new ROM, without changing the configuration
             menuConfigReload = false;
             break;
@@ -511,8 +504,28 @@ rom_type_t getRomType(const char* fileName)
     return TYPE_CART;
 }
 
-void updateRomName(uint8_t fileIndex)
+void updateRomName(uint8_t fileIndex, char* filename)
 {
+    // Attempt to use the menu label as file name directly
+    if (filename != 0)
+    {
+        cfgData.romName[ROM_NAME_LEN] = 0;
+        for (size_t i = 0; i < ROM_NAME_LEN; ++i)
+        {
+            if (*filename < ' ')
+            {
+                cfgData.romName[i] = 0;
+                return;
+            } else if (*filename >= 128)
+            {
+                break;
+            } else {
+                cfgData.romName[i] = *filename++;
+            }
+        }
+    }
+
+    // Iterate the directory to find the file name
     File romDirectory = SD.open("ROMS", FILE_READ);
     if (romDirectory)
     {
@@ -544,8 +557,39 @@ void updateRomName(uint8_t fileIndex)
     }
 }
 
-bool updateBrowserPath(uint8_t fileIndex)
+bool updateBrowserPath(uint8_t fileIndex, char* filename)
 {
+    // Attempt to use the menu label as file name directly
+    if (filename != 0)
+    {
+        char tmpName[(ROM_NAME_LEN + 1)];
+        tmpName[ROM_NAME_LEN] = 0;
+        for (size_t i = 0; i < ROM_NAME_LEN; ++i)
+        {
+            if (*filename < ' ')
+            {
+                // Create new path
+                tmpName[i] = 0;
+                size_t pathLen = strlen(browserPath);
+                if ((pathLen + strlen(tmpName)) < (MAX_PATH - 2))
+                {
+                    if (pathLen > 1)
+                    {
+                        strcat(browserPath, "/");
+                    }
+                    strcat(browserPath, tmpName);
+                }
+                return true;
+            } else if (*filename >= 128)
+            {
+                break;
+            } else {
+                tmpName[i] = *filename++;
+            }
+        }
+    }
+
+    // Iterate the directory to find the file name
     File directory = SD.open(browserPath, FILE_READ);
     if (directory)
     {
@@ -562,6 +606,7 @@ bool updateBrowserPath(uint8_t fileIndex)
                         // Find ROM at matching directory index
                         if (index == fileIndex)
                         {
+                            // Create new path
                             size_t pathLen = strlen(browserPath);
                             if ((pathLen + strlen(entry.name())) < (MAX_PATH - 2))
                             {
@@ -603,10 +648,28 @@ bool updateBrowserPath(uint8_t fileIndex)
     return true;
 }
 
-File menuGetRomFile(rom_type_t* romType)
+File menuGetForegroundRomFile(rom_type_t* romType)
 {
     if (stricmp(cfgData.romName, INTERNAL_ROM_NAME) != 0)
     {
+        // Attempt to open the ROM file directly
+        if (strlen(cfgData.romName) < ROM_NAME_LEN)
+        {
+            strcpy(browserPath, "ROMS/");
+            strcat(browserPath, cfgData.romName);
+            File entry = SD.open(browserPath, FILE_READ);
+            if (entry)
+            {
+                if (!entry.isDirectory())
+                {
+                    *romType = getRomType(cfgData.romName);
+                    return entry;
+                }
+                entry.close();
+            }
+        }
+
+        // Iterate the directory to find the partial file name
         File romDirectory = SD.open("ROMS", FILE_READ);
         if (romDirectory)
         {
@@ -640,6 +703,39 @@ File menuGetRomFile(rom_type_t* romType)
     // Return closed File
     *romType = TYPE_ROM;
     return File();
+}
+
+File menuGetBrowserRomFile(rom_type_t* romType)
+{
+    File entry = SD.open(browserPath, FILE_READ);
+    if (entry)
+    {
+        if (!entry.isDirectory())
+        {
+            *romType = getRomType(entry.name());
+            if (*romType == TYPE_ROM)
+            {
+                *romType = TYPE_CART;
+            }
+            return entry;
+        }
+        entry.close();
+    }
+
+    // Return closed File
+    *romType = TYPE_ROM;
+    return File();
+}
+
+File menuGetRomFile(rom_type_t* romType)
+{
+    switch (menuAction)
+    {
+        case MENU_ACTION_BROWSER_OPEN :
+            return menuGetBrowserRomFile(romType);
+        default :
+            return menuGetForegroundRomFile(romType);
+    }
 }
 
 void menuClearConfiguration()
