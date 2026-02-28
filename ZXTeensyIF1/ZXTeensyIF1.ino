@@ -1531,7 +1531,7 @@ FASTRUN void isrWrEvent()
                     case 0x3b :
                         {
                             uint8_t highPort = decodeHighAddress(gpioSix);
-                            if ((highPort & 0xf0) == 0x70)
+                            if (divMmcPresent && ((highPort & 0xf0) == 0x70))
                             {
                                 rtcTeensy.write((highPort & 0x0f), readData());
                             } else if (uartPresent)
