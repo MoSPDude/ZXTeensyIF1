@@ -4,14 +4,16 @@
 #define ROM_NAME_LEN 32
 #define MAX_PATH 256
 
-static const uint8_t CHAR_BORDER = 24;
-static const uint8_t CHAR_DIR = 25;
-static const uint8_t CHAR_TICK = 26;
-static const uint8_t CHAR_DSK = 27;
-static const uint8_t CHAR_ZXC_L = 28;
-static const uint8_t CHAR_ZXC_R = 29;
-static const uint8_t CHAR_IF2_L = 30;
-static const uint8_t CHAR_IF2_R = 31;
+static const uint8_t CHAR_BORDER = 20;
+static const uint8_t CHAR_DIR = 21;
+static const uint8_t CHAR_TICK = 22;
+static const uint8_t CHAR_DSK = 23;
+static const uint8_t CHAR_ZXC_L = 24;
+static const uint8_t CHAR_ZXC_R = 25;
+static const uint8_t CHAR_IF2_L = 26;
+static const uint8_t CHAR_IF2_R = 27;
+static const uint8_t CHAR_Z80_L = 28;
+static const uint8_t CHAR_Z80_R = 29;
 
 typedef enum {
     MENU_TYPE_SETTINGS,
@@ -128,6 +130,10 @@ char* menuInsertFile(menu_action_t action, icon_type_t icon, uint8_t index, char
     // Add icon
     switch (icon)
     {
+        case ICON_TYPE_DSK :
+            *ptr++ = 9;
+            *ptr++ = CHAR_DSK;
+            break;
         case ICON_TYPE_ZXC2 :
             *ptr++ = 9;
             *ptr++ = CHAR_ZXC_L;
@@ -138,9 +144,11 @@ char* menuInsertFile(menu_action_t action, icon_type_t icon, uint8_t index, char
             *ptr++ = CHAR_IF2_L;
             *ptr++ = CHAR_IF2_R;
             break;
-        case ICON_TYPE_DSK :
+        case ICON_TYPE_Z80 :
             *ptr++ = 9;
-            *ptr++ = CHAR_DSK;
+            *ptr++ = CHAR_Z80_L;
+            *ptr++ = CHAR_Z80_R;
+            break;
         default :
             break;
     }
@@ -207,6 +215,11 @@ char* menuAddBrowserFile(uint8_t index, char* ptr, File entry)
             {
                 icon = ICON_TYPE_ZXC2;
                 action = MENU_ACTION_BROWSER_LOAD_ZXC2;
+            } else if ((stricmp(fileext + 1, "z80") == 0) ||
+                (stricmp(fileext + 1, "sna") == 0))
+            {
+                icon = ICON_TYPE_Z80;
+                action = MENU_ACTION_BROWSER_LOAD_Z80;
             } else if ((stricmp(fileext + 1, "dsk") == 0) ||
                 (stricmp(fileext + 1, "hdf") == 0))
             {
@@ -231,6 +244,7 @@ char* menuGenerateBrowserOpen(char* ptr)
     ptr = menuInsertSetting(MENU_ACTION_BROWSER_CD, 0xFF, ptr, "Cancel", 0);
     ptr = menuInsertSetting(MENU_ACTION_BROWSER_LOAD_CART, 0, ptr, "Load as ROM cartridge", 0);
     ptr = menuInsertSetting(MENU_ACTION_BROWSER_LOAD_ZXC2, 0, ptr, "Load as ZXC2 cartridge", 0);
+    ptr = menuInsertSetting(MENU_ACTION_BROWSER_LOAD_Z80, 0, ptr, "Load as Z80 snapshot", 0);
     ptr = menuInsertSetting(MENU_ACTION_BROWSER_LOAD_DSK, 0, ptr, "Load as disk image", 0);
     return ptr;
 }
@@ -374,6 +388,13 @@ void menuGenerate()
     menuPtr[address] = ((menuPageLine != 0) ? (menuPage + 1) : menuPage);
 }
 
+void menuResetAction()
+{
+    // Reset the menu actions
+    menuCurrent = MENU_TYPE_SETTINGS;
+    menuAction = MENU_ACTION_SETTING;
+}
+
 void menuInitialise(volatile uint8_t* romPtr)
 {
     // Store the menu pointers
@@ -386,8 +407,7 @@ void menuInitialise(volatile uint8_t* romPtr)
     strncpy((char*)&menuPtr[address], VERSION_STR, 9);
 
     // Generate the menu
-    menuCurrent = MENU_TYPE_SETTINGS;
-    menuAction = MENU_ACTION_SETTING;
+    menuResetAction();
     menuGenerate();
 }
 
@@ -495,6 +515,7 @@ bool menuPerformSelection(uint8_t index)
             break;
         case MENU_ACTION_BROWSER_LOAD_CART :
         case MENU_ACTION_BROWSER_LOAD_ZXC2 :
+        case MENU_ACTION_BROWSER_LOAD_Z80 :
             if ((menuCurrent == MENU_TYPE_BROWSER_OPEN) ||
                 updateBrowserPath(entryIndex, entryPtr))
             {
@@ -533,6 +554,7 @@ void menuPerformAction()
         case MENU_ACTION_LOAD_CART :
         case MENU_ACTION_BROWSER_LOAD_CART :
         case MENU_ACTION_BROWSER_LOAD_ZXC2 :
+        case MENU_ACTION_BROWSER_LOAD_Z80 :
             // Load new ROM, without changing the configuration
             menuConfigReload = false;
             break;
@@ -555,6 +577,12 @@ rom_type_t getRomType(const char* fileName)
         } else if (stricmp(fileext + 1, "rom") == 0)
         {
             return TYPE_ROM;
+        } else if (stricmp(fileext + 1, "z80") == 0)
+        {
+            return TYPE_Z80;
+        } else if (stricmp(fileext + 1, "sna") == 0)
+        {
+            return TYPE_SNA;
         }
     }
     return TYPE_CART;
@@ -777,6 +805,16 @@ File menuGetBrowserRomFile()
     return File();
 }
 
+File menuGetBrowserZ80File(rom_type_t* romType)
+{
+    File entry = menuGetBrowserRomFile();
+    if (entry)
+    {
+        *romType = ((getRomType(entry.name()) != TYPE_SNA) ? TYPE_Z80 : TYPE_SNA);
+    }
+    return entry;
+}
+
 File menuGetRomFile(rom_type_t* romType)
 {
     switch (menuAction)
@@ -787,6 +825,8 @@ File menuGetRomFile(rom_type_t* romType)
         case MENU_ACTION_BROWSER_LOAD_CART :
             *romType = TYPE_CART;
             return menuGetBrowserRomFile();
+        case MENU_ACTION_BROWSER_LOAD_Z80 :
+            return menuGetBrowserZ80File(romType);
         default :
             return menuGetForegroundRomFile(romType);
     }

@@ -40,14 +40,16 @@ typedef enum {
     MENU_ACTION_BROWSER_OPEN,
     MENU_ACTION_BROWSER_LOAD_CART,
     MENU_ACTION_BROWSER_LOAD_ZXC2,
+    MENU_ACTION_BROWSER_LOAD_Z80,
     MENU_ACTION_BROWSER_LOAD_DSK
 } menu_action_t;
 
 typedef enum {
     ICON_TYPE_NONE,
+    ICON_TYPE_DSK,
     ICON_TYPE_ZXC2,
     ICON_TYPE_CART,
-    ICON_TYPE_DSK
+    ICON_TYPE_Z80
 } icon_type_t;
 
 typedef enum {
@@ -85,13 +87,16 @@ typedef enum {
     ROM_MF128,
     // "ROMs" below use DivMMC RAM
     ROM_ZXC2,   // ROM_PAGE_COUNT
+    ROM_SNA,
     ROM_MENU
 } rom_index_t;
 
 typedef enum {
     TYPE_ROM,
     TYPE_ZXC2,
-    TYPE_CART
+    TYPE_CART,
+    TYPE_Z80,
+    TYPE_SNA
 } rom_type_t;
 
 // I/O pin assignments
@@ -230,6 +235,11 @@ volatile bool zxC2Present = false;
 volatile bool zxC2Paged = false;
 volatile bool zxC2Lock = false;
 volatile uint8_t zxC2BankPtr = 0x00;
+
+// Z80 snapshot loader banking
+volatile bool snaLoaderPresent = false;
+volatile bool snaLoaderPaged = false;
+volatile uint8_t snaLoaderBanks = 0;
 
 // Boot menu ROM (reuses divMmcRamArray)
 volatile bool menuEnterOnReset = false;
@@ -545,6 +555,10 @@ inline __attribute__((always_inline)) void updateRomIndex(bool pageNow)
     {
         romSelected = ROM_ZXC2;
         romArraySelected = BANK_RAM;
+    } else if (snaLoaderPaged)
+    {
+        romSelected = ROM_SNA;
+        romArraySelected = BANK_RAM;
     } else if (mf128Paged)
     {
         romSelected = ROM_MF128;
@@ -590,6 +604,7 @@ inline __attribute__((always_inline)) void updateRomIndex(bool pageNow)
                 }
                 break;
             case ROM_ZXC2 :
+            case ROM_SNA :
                 romPtr = divMmcExtRamArray[zxC2BankPtr];
                 break;
             case ROM_MENU :
@@ -777,11 +792,12 @@ uint16_t loadRomImage(const char* filename, char* ptr, const uint16_t size)
 
 void loadSpectrumRomFile(File RomFile)
 {
-    // Reset the Spectrum ROM and ZXC2 state
+    // Reset the Spectrum ROM and "DivMMC RAM as ROM" state
     romArrayPresent &= ~(BANK_ROM0 | BANK_ROM1 | BANK_ROM2 | BANK_ROM3 | BANK_RAM);
     rom1Present = false;
     rom23Present = false;
     zxC2Present = false;
+    snaLoaderPresent = false;
 
     // Attempt to load four 16KB ROM banks
     if (RomFile)
@@ -814,11 +830,12 @@ void loadSpectrumRomFile(File RomFile)
     }
 }
 
-void loadZXC2RomFile(File RomFile)
+bool loadZXC2RomFile(File RomFile)
 {
     // Reset the ZXC2 state only, as can page into the Spectrum ROM
     romArrayPresent &= ~(BANK_RAM);
     zxC2Present = false;
+    snaLoaderPresent = false;
 
     // The ZXC2 cartridge is loaded into the DivMMC RAM area
     if (RomFile)
@@ -841,23 +858,53 @@ void loadZXC2RomFile(File RomFile)
         }
         RomFile.close();
     }
+    return zxC2Present;
 }
 
-void loadForegroundRom()
+bool loadSnapshotFile(File RomFile, bool isSnaFile)
+{
+    // Reset the loader state only, as will page in the Spectrum ROM
+    romArrayPresent &= ~(BANK_RAM);
+    zxC2Present = false;
+    snaLoaderPresent = false;
+
+    // Convert the Z80 snapshot into a loader ROM, in the DivMMC RAM area
+    if (RomFile)
+    {
+        snaLoaderBanks = convertZ80toROM(RomFile, (uint8_t*)divMmcExtRamArray[0],
+            (uint8_t*)divMmcExtRamArray[(EXT_RAM_PAGE_COUNT - RAM_PAGE_COUNT)],
+            isSnaFile);
+        if (snaLoaderBanks > 0)
+        {
+            snaLoaderBanks <<= 1;
+            snaLoaderPresent = true;
+            divMmcExtRamEnabled = false;
+            romArrayPresent |= BANK_RAM;
+        }
+        RomFile.close();
+    }
+    return snaLoaderPresent;
+}
+
+bool loadForegroundRom()
 {
     rom_type_t romType;
     File RomFile = menuGetRomFile(&romType);
     switch (romType)
     {
         case TYPE_CART :
+            // Interface 2 cartridge is ZXC2 with paging locked
             zxC2Lock = true;
         case TYPE_ZXC2 :
-            loadZXC2RomFile(RomFile);
-            break;
+            return loadZXC2RomFile(RomFile);
+        case TYPE_Z80 :
+        case TYPE_SNA :
+            return loadSnapshotFile(RomFile, (romType != TYPE_Z80));
         default :
             loadSpectrumRomFile(RomFile);
             break;
     }
+    return true;
 }
 
 void initialiseRamBanks()
@@ -925,6 +972,9 @@ void handleStateResetEntry()
         afterFirstReset = false;
         isDeviceDisabled = false;
         divMmcPreserveRam = false;
+
+        // Clear the menu
+        menuResetAction();
     }
 
     // Reset the soft ROM detection state
@@ -937,6 +987,7 @@ void handleStateResetEntry()
         divMmcPresent = false;
         mf128Present = false;
         zxC2Present = false;
+        snaLoaderPresent = false;
 
         // Load the ROMs
         loadRomSets = true;
@@ -992,7 +1043,15 @@ void handleStateResetEntry()
                 menuLoadConfiguration();
 
                 // Load foreground ROM
-                loadForegroundRom();
+                if (!loadForegroundRom())
+                {
+                    if (afterFirstReset)
+                    {
+                        afterFirstReset = false;
+                        handleStateResetEntry();
+                        return;
+                    }
+                }
 
                 // Load menu ROM into the DivMMC RAM area
                 if ((menuEnterOnReset || (!afterFirstReset && bootIntoMenu)) &&
@@ -1079,6 +1138,7 @@ void handleStateReset()
     zxC2Paged = false;
     zxC2Lock = false;
     zxC2BankPtr = 0x00;
+    snaLoaderPaged = false;
     romSelected = ROM_ROM0;
     romArraySelected = BANK_ROM0;
 
@@ -1106,14 +1166,15 @@ void handleStateReset()
     {
         menuInitialise(divMmcRamArray[0]);
     } else {
-        // If ZXC2 cartridge is present, then page in immediately
+        // If ZXC2 cartridge or ZXPicoIF2Lite snapshot loader is present, then
+        // page in immediately. Disable DivMMC in these modes.
         if (zxC2Present)
         {
             zxC2Paged = true;
-        }
-
-        // If DivMMC is present, then disable Interface 1
-        if (divMmcPresent)
+        } else if (snaLoaderPresent)
+        {
+            snaLoaderPaged = true;
+        } else if (divMmcPresent)
         {
             if (beginDivMmcSd())
             {
@@ -1123,7 +1184,8 @@ void handleStateReset()
             } else {
                 divMmcPresent = false;
             }
-        } else if (interface1Present)
+        }
+        if (!divMmcEnabled && interface1Present)
         {
             interface1Enabled = true;
         }
@@ -1364,15 +1426,39 @@ FASTRUN void isrWrEvent()
                 updateRomIndex(true);
             }
 
-            // Perform Multiface 128 RAM write
-            if (romSelected == ROM_MF128)
+            switch (romSelected)
             {
-                romPtr[(0x2000 | address)] = readData();
-            } else if ((romSelected == ROM_DIVMMC) &&
-                (!divMmcMapRam || divMmcConMem || !divMmcRamBankThree))
-            {
-                // Perform DivMMC RAM write
-                divMmcRamPtr[address] = readData();
+                case ROM_MF128 :
+                    // Perform Multiface 128 RAM write
+                    romPtr[(0x2000 | address)] = readData();
+                    break;
+                case ROM_DIVMMC :
+                    // Perform DivMMC RAM write
+                    if (!divMmcMapRam || divMmcConMem || !divMmcRamBankThree)
+                    {
+                        divMmcRamPtr[address] = readData();
+                    }
+                    break;
+                case ROM_SNA :
+                    // Detect ZXPicoIF2Lite snapshot loader paging
+                    if (address == 0x1FFF)
+                    {
+                        if (snaLoaderBanks > 0)
+                        {
+                            zxC2BankPtr += 2;
+                            if (zxC2BankPtr >= snaLoaderBanks)
+                            {
+                                zxC2BankPtr = 0;
+                                snaLoaderBanks = 0;
+                            }
+                        } else {
+                            snaLoaderPaged = false;
+                        }
+                        updateRomIndex(true);
+                    }
+                    break;
+                default :
+                    break;
             }
         } else if ((gpioSix & IOREQ_PIN_BITMASK) == 0x00000000)
         {
@@ -1714,7 +1800,25 @@ FASTRUN void isrRdEvent()
                     }
                 }
 
+                // Detect ZXPicoIF2Lite snapshot loader paging
+                if (snaLoaderPaged && (address == 0x3FFF))
+                {
+                    if (snaLoaderBanks > 0)
+                    {
+                        zxC2BankPtr += 2;
+                        if (zxC2BankPtr >= snaLoaderBanks)
+                        {
+                            zxC2BankPtr = 0;
+                            snaLoaderBanks = 0;
+                        }
+                    } else {
+                        snaLoaderPaged = false;
+                    }
+                    updateRomIndex(true);
+                }
+
 #ifdef DEBUG_OUTPUT
+                // Debug tracing
                 traceDebug(address);
 #endif
             }
