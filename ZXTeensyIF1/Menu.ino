@@ -4,9 +4,19 @@
 #define ROM_NAME_LEN 32
 #define MAX_PATH 256
 
+static const uint8_t CHAR_BORDER = 24;
+static const uint8_t CHAR_DIR = 25;
+static const uint8_t CHAR_TICK = 26;
+static const uint8_t CHAR_DSK = 27;
+static const uint8_t CHAR_ZXC_L = 28;
+static const uint8_t CHAR_ZXC_R = 29;
+static const uint8_t CHAR_IF2_L = 30;
+static const uint8_t CHAR_IF2_R = 31;
+
 typedef enum {
     MENU_TYPE_SETTINGS,
-    MENU_TYPE_BROWSER
+    MENU_TYPE_BROWSER,
+    MENU_TYPE_BROWSER_OPEN
 } menu_type_t;
 
 typedef struct {
@@ -61,7 +71,7 @@ char* menuInsertSetting(menu_action_t action, uint8_t index, char* ptr, const ch
     bool checked)
 {
     menuInsertEntry(action, index, 0);
-    *ptr++ = (checked ? 27 : 24);
+    *ptr++ = (checked ? CHAR_TICK : CHAR_BORDER);
     unsigned int len = strlen(label);
     ptr = strncpy(ptr, label, len) + len;
 
@@ -120,14 +130,17 @@ char* menuInsertFile(menu_action_t action, icon_type_t icon, uint8_t index, char
     {
         case ICON_TYPE_ZXC2 :
             *ptr++ = 9;
-            *ptr++ = 28;
-            *ptr++ = 29;
+            *ptr++ = CHAR_ZXC_L;
+            *ptr++ = CHAR_ZXC_R;
             break;
         case ICON_TYPE_CART :
             *ptr++ = 9;
-            *ptr++ = 30;
-            *ptr++ = 31;
+            *ptr++ = CHAR_IF2_L;
+            *ptr++ = CHAR_IF2_R;
             break;
+        case ICON_TYPE_DSK :
+            *ptr++ = 9;
+            *ptr++ = CHAR_DSK;
         default :
             break;
     }
@@ -148,7 +161,7 @@ char* menuInsertFile(menu_action_t action, icon_type_t icon, uint8_t index, char
 char* menuAddRomFile(uint8_t index, char* ptr, const char* filename)
 {
     // Add check mark against active ROM
-    *ptr++ = ((stricmp(filename, cfgData.romName) == 0) ? 27 : 24);
+    *ptr++ = ((stricmp(filename, cfgData.romName) == 0) ? CHAR_TICK : CHAR_BORDER);
 
     // Find the file extension
     icon_type_t icon = ICON_TYPE_CART;
@@ -173,30 +186,53 @@ char* menuAddRomFile(uint8_t index, char* ptr, const char* filename)
 char* menuAddBrowserFile(uint8_t index, char* ptr, File entry)
 {
     // Add directory icons, and find the file extension
+    icon_type_t icon;
+    menu_action_t action;
     const char* filename = entry.name();
-    icon_type_t icon = ICON_TYPE_NONE;
     if (entry.isDirectory())
     {
-        *ptr++ = 25;
+        *ptr++ = CHAR_DIR;
+        icon = ICON_TYPE_NONE;
+        action = MENU_ACTION_BROWSER_CD;
     } else {
-        *ptr++ = 24;
+        *ptr++ = CHAR_BORDER;
         char *fileext = strrchr(filename, '.');
         if (fileext != 0)
         {
             if (stricmp(fileext + 1, "rom") == 0)
             {
                 icon = ICON_TYPE_CART;
+                action = MENU_ACTION_BROWSER_LOAD_CART;
             } else if (stricmp(fileext + 1, "bin") == 0)
             {
                 icon = ICON_TYPE_ZXC2;
+                action = MENU_ACTION_BROWSER_LOAD_ZXC2;
+            } else if ((stricmp(fileext + 1, "dsk") == 0) ||
+                (stricmp(fileext + 1, "hdf") == 0))
+            {
+                icon = ICON_TYPE_DSK;
+                action = MENU_ACTION_BROWSER_LOAD_DSK;
+            } else {
+                icon = ICON_TYPE_NONE;
+                action = MENU_ACTION_BROWSER_OPEN;
             }
+        } else {
+            icon = ICON_TYPE_NONE;
+            action = MENU_ACTION_BROWSER_OPEN;
         }
     }
 
     // Insert the menu entry
-    return menuInsertFile(
-        (entry.isDirectory() ? MENU_ACTION_BROWSER_CD : MENU_ACTION_BROWSER_OPEN),
-        icon, index, ptr, filename);
+    return menuInsertFile(action, icon, index, ptr, filename);
+}
+
+char* menuGenerateBrowserOpen(char* ptr)
+{
+    ptr = menuInsertSetting(MENU_ACTION_BROWSER_CD, 0xFF, ptr, "Cancel", 0);
+    ptr = menuInsertSetting(MENU_ACTION_BROWSER_LOAD_CART, 0, ptr, "Load as ROM cartridge", 0);
+    ptr = menuInsertSetting(MENU_ACTION_BROWSER_LOAD_ZXC2, 0, ptr, "Load as ZXC2 cartridge", 0);
+    ptr = menuInsertSetting(MENU_ACTION_BROWSER_LOAD_DSK, 0, ptr, "Load as disk image", 0);
+    return ptr;
 }
 
 char* menuGenerateBrowser(char* ptr)
@@ -323,6 +359,9 @@ void menuGenerate()
         case MENU_TYPE_BROWSER :
             textPtr = menuGenerateBrowser(textPtr);
             break;
+        case MENU_TYPE_BROWSER_OPEN :
+            textPtr = menuGenerateBrowserOpen(textPtr);
+            break;
     }
 
     // End of menu
@@ -447,15 +486,31 @@ bool menuPerformSelection(uint8_t index)
             updateRomName(entryIndex, entryPtr);
             return true;
         case MENU_ACTION_BROWSER_CD :
-            if (!updateBrowserPath(entryIndex, entryPtr))
+            if (updateBrowserPath(entryIndex, entryPtr))
             {
+                menuCurrent = MENU_TYPE_BROWSER;
+            } else {
                 menuCurrent = MENU_TYPE_SETTINGS;
             }
+            break;
+        case MENU_ACTION_BROWSER_LOAD_CART :
+        case MENU_ACTION_BROWSER_LOAD_ZXC2 :
+            if ((menuCurrent == MENU_TYPE_BROWSER_OPEN) ||
+                updateBrowserPath(entryIndex, entryPtr))
+            {
+                return true;
+            } else {
+                menuCurrent = MENU_TYPE_SETTINGS;
+            }
+            break;
+        case MENU_ACTION_BROWSER_LOAD_DSK :
+            // TODO: Disk emulation?
+            menuCurrent = MENU_TYPE_SETTINGS;
             break;
         case MENU_ACTION_BROWSER_OPEN :
             if (updateBrowserPath(entryIndex, entryPtr))
             {
-                return true;
+                menuCurrent = MENU_TYPE_BROWSER_OPEN;
             } else {
                 menuCurrent = MENU_TYPE_SETTINGS;
             }
@@ -476,7 +531,8 @@ void menuPerformAction()
             flashUpdate(FLASH_FILENAME);
             break;
         case MENU_ACTION_LOAD_CART :
-        case MENU_ACTION_BROWSER_OPEN :
+        case MENU_ACTION_BROWSER_LOAD_CART :
+        case MENU_ACTION_BROWSER_LOAD_ZXC2 :
             // Load new ROM, without changing the configuration
             menuConfigReload = false;
             break;
@@ -593,57 +649,57 @@ bool updateBrowserPath(uint8_t fileIndex, char* filename)
     File directory = SD.open(browserPath, FILE_READ);
     if (directory)
     {
-        if (directory.isDirectory())
+        if (directory.isDirectory() && (fileIndex != 0xFF))
         {
-            if (fileIndex != 0xFF)
+            uint8_t index = 0;
+            while (true)
             {
-                uint8_t index = 0;
-                while (true)
+                File entry = directory.openNextFile();
+                if (entry)
                 {
-                    File entry = directory.openNextFile();
-                    if (entry)
+                    // Find ROM at matching directory index
+                    if (index == fileIndex)
                     {
-                        // Find ROM at matching directory index
-                        if (index == fileIndex)
+                        // Create new path
+                        size_t pathLen = strlen(browserPath);
+                        if ((pathLen + strlen(entry.name())) < (MAX_PATH - 2))
                         {
-                            // Create new path
-                            size_t pathLen = strlen(browserPath);
-                            if ((pathLen + strlen(entry.name())) < (MAX_PATH - 2))
+                            if (pathLen > 1)
                             {
-                                if (pathLen > 1)
-                                {
-                                    strcat(browserPath, "/");
-                                }
-                                strcat(browserPath, entry.name());
+                                strcat(browserPath, "/");
                             }
-                            entry.close();
-                            break;
+                            strcat(browserPath, entry.name());
                         }
                         entry.close();
-                        ++index;
+                        break;
                     }
+                    entry.close();
+                    ++index;
                 }
-            } else {
-                char *fileext = strrchr(browserPath, '/');
-                if (fileext != 0)
+            }
+        } else {
+            char *fileext = strrchr(browserPath, '/');
+            if (fileext != 0)
+            {
+                if (fileext != browserPath)
                 {
-                    if (fileext != browserPath)
-                    {
-                        // Remove last directory
-                        *fileext = 0;
-                    } else if (strlen(browserPath) > 1)
-                    {
-                        // Return to root directory
-                        *(fileext+1) = 0;
-                    } else {
-                        // Exit the browser
-                        directory.close();
-                        return false;
-                    }
+                    // Remove last directory
+                    *fileext = 0;
+                } else if (strlen(browserPath) > 1)
+                {
+                    // Return to root directory
+                    *(fileext+1) = 0;
+                } else {
+                    // Exit the browser
+                    directory.close();
+                    return false;
                 }
             }
         }
         directory.close();
+    } else {
+        // Fall back to root if the existing path is no longer found
+        strcpy(browserPath, "/");
     }
     return true;
 }
@@ -705,25 +761,19 @@ File menuGetForegroundRomFile(rom_type_t* romType)
     return File();
 }
 
-File menuGetBrowserRomFile(rom_type_t* romType)
+File menuGetBrowserRomFile()
 {
     File entry = SD.open(browserPath, FILE_READ);
     if (entry)
     {
         if (!entry.isDirectory())
         {
-            *romType = getRomType(entry.name());
-            if (*romType == TYPE_ROM)
-            {
-                *romType = TYPE_CART;
-            }
             return entry;
         }
         entry.close();
     }
 
     // Return closed File
-    *romType = TYPE_ROM;
     return File();
 }
 
@@ -731,8 +781,12 @@ File menuGetRomFile(rom_type_t* romType)
 {
     switch (menuAction)
     {
-        case MENU_ACTION_BROWSER_OPEN :
-            return menuGetBrowserRomFile(romType);
+        case MENU_ACTION_BROWSER_LOAD_ZXC2 :
+            *romType = TYPE_ZXC2;
+            return menuGetBrowserRomFile();
+        case MENU_ACTION_BROWSER_LOAD_CART :
+            *romType = TYPE_CART;
+            return menuGetBrowserRomFile();
         default :
             return menuGetForegroundRomFile(romType);
     }

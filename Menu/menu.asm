@@ -343,13 +343,14 @@ _pauseSelected:
     ld b,a
     ld a,(_maxroms+1)
     cp b
-    jp nc, _menu2
+    jr nc, _doneSelected
     ; out of bounds, reset to first page
     xor a
     ld (MEM_ROM),a
     ld (MEM_POS),a
     ld a,1
     ld (MEM_PAGE),a
+_doneSelected:
     call _txtMem
     jp _menu2
 ; ------------------------------------------+----------------------------------
@@ -550,10 +551,10 @@ _verText:
 ; Left Aligned Sinclair ZX Spectrum Font - used for variable width font routine
 ;   first 6 are icons, then space (32) to copyright (127) (128+4 *8=1056b)
 ; ------------------------------------------+----------------------------------
-    DEFB    128,128,128,128,128,128,128,128 ; 24 - left hand side
-    DEFB    128,176,174,177,161,161,191,128 ; 25 - directory
-    DEFB    128,176,174,177,161,161,191,128 ; 26 - directory
-    DEFB    128,130,132,132,136,168,144,128 ; 27 - checkmark
+    DEFB    128,128,128,128,128,128,128,128 ; 24 - left border
+    DEFB    128,176,174,177,161,161,191,128 ; 25 - left dir
+    DEFB    128,130,132,132,136,168,144,128 ; 26 - left tick
+    DEFB    127, 73, 65, 73, 65,127,127,  0 ; 27 - dsk
     DEFB    127,197,245,238,221,197,127,  0 ; 28 - zxc_l
     DEFB    252,102, 94,222, 94,102,252,  0 ; 29 - zxc_r
     DEFB     31, 16, 23, 16, 16, 31,  7,  0 ; 30 - if2_l
