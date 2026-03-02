@@ -75,7 +75,24 @@ char* menuInsertSetting(menu_action_t action, uint8_t index, char* ptr, const ch
     menuInsertEntry(action, index, 0);
     *ptr++ = (checked ? CHAR_TICK : CHAR_BORDER);
     unsigned int len = strlen(label);
-    ptr = strncpy(ptr, label, len) + len;
+    if (len > 35)
+    {
+        for (size_t i = 0; i < 34; ++i)
+        {
+            *ptr++ = (label[i] >= 128) ? '?' : label[i];
+        }
+        *ptr++ = '>';
+    } else {
+        for (size_t i = 0; i < len; ++i)
+        {
+            if (label[i] >= 128)
+            {
+                *ptr++ = '?';
+            } else {
+                *ptr++ = label[i];
+            }
+        }
+    }
 
     // Add new line, and update menu dimensions
     if (menuPageLine < 20)
@@ -490,6 +507,7 @@ bool menuPerformSelection(uint8_t index)
                 default :
                     break;
             }
+            break;
         case MENU_ACTION_UPDATE_FW :
             // Perform firmware update, if available
             if (menuHasUpdateFw)

@@ -1,5 +1,5 @@
 
-#define ZXTEENSY_VERSION "20260228"
+#define ZXTEENSY_VERSION "20260302"
 #define ENABLE_BUILTIN_ROM_IF1
 //define DEBUG_OUTPUT
 
@@ -985,20 +985,14 @@ void handleStateResetEntry()
         }
     }
 
-    // Prepare to reset into the menu ROM
+    // Reset the soft ROM detection state
     if (menuEnterOnReset)
     {
         afterFirstReset = false;
-        isDeviceDisabled = false;
-        divMmcPreserveRam = false;
-
-        // Clear the menu
-        menuResetAction();
     }
-
-    // Reset the soft ROM detection state
     if (!afterFirstReset)
     {
+        isDeviceDisabled = false;
         romArrayPresent = 0;
         rom1Present = false;
         rom23Present = false;
@@ -1008,8 +1002,12 @@ void handleStateResetEntry()
         zxC2Present = false;
         snaLoaderPresent = false;
 
-        // Load the ROMs
+        // Re-initialise RAM, and load the ROMs
         loadRomSets = true;
+        divMmcPreserveRam = false;
+
+        // Clear the menu action
+        menuResetAction();
     }
 
     // Initialise the RAM banks
