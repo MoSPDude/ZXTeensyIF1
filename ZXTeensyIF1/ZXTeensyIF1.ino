@@ -657,14 +657,20 @@ inline __attribute__((always_inline)) void updateRomIndex(bool pageNow)
 FLASHMEM void startup_early_hook()
 {
     // Force initial reset
+    IOMUXC_GPR_GPR28 = 0xFFFFFFFF;
     pinMode(RESET_PIN, OUTPUT);
     digitalWriteFast(RESET_PIN, 1);
+
+    // Set the data bus to high impedance
+    IOMUXC_GPR_GPR29 = 0xFFFFFFFF;
+    pinMode(DATA_DIS_PIN, OUTPUT);
+    digitalWriteFast(DATA_DIS_PIN, 1);
 }
 
 FLASHMEM void startup_middle_hook()
 {
-  // force millis() to be 300 to skip startup delays
-  systick_millis_count = 300;
+    // force millis() to be 300 to skip startup delays
+    systick_millis_count = 300;
 }
 
 void setup()
