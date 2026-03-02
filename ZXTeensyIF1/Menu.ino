@@ -28,7 +28,8 @@ typedef enum {
     MENU_TYPE_LOAD_ROM,
     MENU_TYPE_NTP_TZ,
     MENU_TYPE_BROWSER,
-    MENU_TYPE_BROWSER_OPEN
+    MENU_TYPE_BROWSER_OPEN,
+    MENU_TYPE_BROWSER_MOUNT_HDF
 } menu_type_t;
 
 typedef struct {
@@ -47,6 +48,8 @@ typedef struct {
     char wifiNtpTz;
     char bootIntoMenu;
     char romName[(ROM_NAME_LEN + 1)];
+    char divMmcSdaPath[MAX_PATH];
+    char divMmcSdbPath[MAX_PATH];
 } cfg_data_t;
 
 typedef enum {
@@ -60,6 +63,8 @@ typedef enum {
     SETTING_ACTION_TOGGLE_USB,
     SETTING_ACTION_TOGGLE_UART,
     SETTING_ACTION_TOGGLE_NTP,
+    SETTING_ACTION_UNMOUNT_SDA,
+    SETTING_ACTION_UNMOUNT_SDB,
     SETTING_ACTION_OPEN_ROMS = 0xFC,
     SETTING_ACTION_OPEN_NTP_TZ = 0xFD,
     SETTING_ACTION_OPEN_BROWSER = 0xFE,
@@ -274,8 +279,12 @@ char* menuAddBrowserFile(uint8_t index, char* ptr, File entry)
             {
                 icon = ICON_TYPE_Z80;
                 action = MENU_ACTION_BROWSER_LOAD_Z80;
-            } else if ((stricmp(fileext + 1, "dsk") == 0) ||
+            } else if ((stricmp(fileext + 1, "img") == 0) ||
                 (stricmp(fileext + 1, "hdf") == 0))
+            {
+                icon = ICON_TYPE_DSK;
+                action = MENU_ACTION_BROWSER_OPEN_HDF;
+            } else if (stricmp(fileext + 1, "dsk") == 0)
             {
                 icon = ICON_TYPE_DSK;
                 action = MENU_ACTION_BROWSER_LOAD_DSK;
@@ -337,6 +346,14 @@ char* menuGenerateNtpTz(char* ptr)
     return ptr;
 }
 
+char* menuGenerateBrowserMountHdf(char* ptr)
+{
+    ptr = menuInsertSetting(MENU_ACTION_BROWSER_CD, 0xFF, ptr, MENU_STRINGS[STRING_CANCEL], 0);
+    ptr = menuInsertSetting(MENU_ACTION_BROWSER_MOUNT_SDA, 0, ptr, MENU_STRINGS[STRING_MOUNT_SDA], 0);
+    ptr = menuInsertSetting(MENU_ACTION_BROWSER_MOUNT_SDB, 0, ptr, MENU_STRINGS[STRING_MOUNT_SDB], 0);
+    return ptr;
+}
+
 char* menuGenerateBrowserOpen(char* ptr)
 {
     ptr = menuInsertSetting(MENU_ACTION_BROWSER_CD, 0xFF, ptr, MENU_STRINGS[STRING_CANCEL], 0);
@@ -345,6 +362,8 @@ char* menuGenerateBrowserOpen(char* ptr)
     ptr = menuInsertSetting(MENU_ACTION_BROWSER_LOAD_Z80, 0, ptr, MENU_STRINGS[STRING_LOAD_Z80], 0);
     ptr = menuInsertSetting(MENU_ACTION_BROWSER_LOAD_TZX, 0, ptr, MENU_STRINGS[STRING_LOAD_TZX], 0);
     ptr = menuInsertSetting(MENU_ACTION_BROWSER_LOAD_DSK, 0, ptr, MENU_STRINGS[STRING_LOAD_DSK], 0);
+    ptr = menuInsertSetting(MENU_ACTION_BROWSER_MOUNT_SDA, 0, ptr, MENU_STRINGS[STRING_MOUNT_SDA], 0);
+    ptr = menuInsertSetting(MENU_ACTION_BROWSER_MOUNT_SDB, 0, ptr, MENU_STRINGS[STRING_MOUNT_SDB], 0);
     return ptr;
 }
 
@@ -450,8 +469,37 @@ char* menuGenerateSettings(char* ptr)
         ptr, MENU_STRINGS[STRING_BOOT_MENU], bootIntoMenu);
     if ((romArrayPresent & BANK_DIVMMC) != 0)
     {
+        char label[38];
         ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_DIVMMC,
             ptr, MENU_STRINGS[STRING_ENABLE_DIVMMC], divMmcPresent);
+        char* tmpPath = menuGetDivMmcSdaPath();
+        if (tmpPath != 0)
+        {
+            tmpFile = SD.open(tmpPath, FILE_READ);
+            if (tmpFile)
+            {
+                snprintf(label, 38, " > sda: %s", tmpFile.name());
+                ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_UNMOUNT_SDA,
+                    ptr, label, 0);
+                tmpFile.close();
+            } else {
+                cfgData.divMmcSdaPath[0] = 0;
+            }
+        }
+        tmpPath = menuGetDivMmcSdbPath();
+        if (tmpPath != 0)
+        {
+            tmpFile = SD.open(tmpPath, FILE_READ);
+            if (tmpFile)
+            {
+                snprintf(label, 38, " > sdb: %s", tmpFile.name());
+                ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_UNMOUNT_SDB,
+                    ptr, label, 0);
+                tmpFile.close();
+            } else {
+                cfgData.divMmcSdbPath[0] = 0;
+            }
+        }
     }
     if ((romArrayPresent & BANK_IF1) != 0)
     {
@@ -544,6 +592,9 @@ void menuGenerate()
             break;
         case MENU_TYPE_BROWSER_OPEN :
             textPtr = menuGenerateBrowserOpen(textPtr);
+            break;
+        case MENU_TYPE_BROWSER_MOUNT_HDF :
+            textPtr = menuGenerateBrowserMountHdf(textPtr);
             break;
     }
 
@@ -651,6 +702,14 @@ bool menuPerformSelection(uint8_t index)
                     wifiNtpPresent = !wifiNtpPresent;
                     menuConfigChanged = true;
                     break;
+                case SETTING_ACTION_UNMOUNT_SDA :
+                    cfgData.divMmcSdaPath[0] = 0;
+                    menuConfigChanged = true;
+                    break;
+                case SETTING_ACTION_UNMOUNT_SDB :
+                    cfgData.divMmcSdbPath[0] = 0;
+                    menuConfigChanged = true;
+                    break;
                 case SETTING_ACTION_OPEN_ROMS :
                     // Start ROM browser
                     menuCurrent = MENU_TYPE_LOAD_ROM;
@@ -732,6 +791,14 @@ bool menuPerformSelection(uint8_t index)
                 menuCurrent = MENU_TYPE_SETTINGS;
             }
             break;
+        case MENU_ACTION_BROWSER_OPEN_HDF :
+            if (updateBrowserPath(entryIndex, entryPtr))
+            {
+                menuCurrent = MENU_TYPE_BROWSER_MOUNT_HDF;
+            } else {
+                menuCurrent = MENU_TYPE_SETTINGS;
+            }
+            break;
         case MENU_ACTION_BROWSER_LOAD_CART :
         case MENU_ACTION_BROWSER_LOAD_ZXC2 :
         case MENU_ACTION_BROWSER_LOAD_Z80 :
@@ -743,6 +810,19 @@ bool menuPerformSelection(uint8_t index)
             } else {
                 menuCurrent = MENU_TYPE_SETTINGS;
             }
+            break;
+        case MENU_ACTION_BROWSER_MOUNT_SDA :
+        case MENU_ACTION_BROWSER_MOUNT_SDB :
+            if ((menuCurrent == MENU_TYPE_BROWSER_OPEN) ||
+                (menuCurrent == MENU_TYPE_BROWSER_MOUNT_HDF) ||
+                updateBrowserPath(entryIndex, entryPtr))
+            {
+                strncpy(((menuAction == MENU_ACTION_BROWSER_MOUNT_SDB) ? 
+                    cfgData.divMmcSdbPath : cfgData.divMmcSdaPath), 
+                    browserPath, MAX_PATH);
+                menuConfigChanged = true;
+            }
+            menuCurrent = MENU_TYPE_SETTINGS;
             break;
         case MENU_ACTION_BROWSER_LOAD_DSK :
             // TODO: Disk emulation?
@@ -1021,6 +1101,16 @@ char* menuGetBrowserPath()
     return browserPath;
 }
 
+char* menuGetDivMmcSdaPath()
+{
+    return ((strlen(cfgData.divMmcSdaPath) > 0) ? cfgData.divMmcSdaPath : 0);
+}
+
+char* menuGetDivMmcSdbPath()
+{
+    return ((strlen(cfgData.divMmcSdbPath) > 0) ? cfgData.divMmcSdbPath : 0);
+}
+
 File menuGetBrowserRomFile()
 {
     File entry = SD.open(browserPath, FILE_READ);
@@ -1080,6 +1170,8 @@ void menuClearConfiguration()
     wifiNtpTz = 48;
     strncpy(cfgData.romName, INTERNAL_ROM_NAME, ROM_NAME_LEN);
     cfgData.romName[ROM_NAME_LEN] = 0;
+    cfgData.divMmcSdaPath[0] = 0;
+    cfgData.divMmcSdbPath[0] = 0;
     menuConfigChanged = true;
 }
 
@@ -1112,6 +1204,8 @@ void menuLoadConfiguration()
                 wifiNtpTz = cfgData.wifiNtpTz;
                 bootIntoMenu = cfgData.bootIntoMenu;
                 cfgData.romName[ROM_NAME_LEN] = 0;
+                cfgData.divMmcSdaPath[(MAX_PATH - 1)] = 0;
+                cfgData.divMmcSdbPath[(MAX_PATH - 1)] = 0;
             }
             cfgFile.close();
         }
@@ -1139,6 +1233,8 @@ void menuSaveConfiguration()
             cfgData.wifiNtpTz = wifiNtpTz;
             cfgData.bootIntoMenu = bootIntoMenu;
             cfgData.romName[ROM_NAME_LEN] = 0;
+            cfgData.divMmcSdaPath[(MAX_PATH - 1)] = 0;
+            cfgData.divMmcSdbPath[(MAX_PATH - 1)] = 0;
             cfgFile.write((char*)&cfgData, sizeof(cfgData));
             cfgFile.close();
         }

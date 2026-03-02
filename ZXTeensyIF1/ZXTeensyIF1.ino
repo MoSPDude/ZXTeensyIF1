@@ -8,6 +8,7 @@
 #include "USBHost_t36.h"
 #include "if1-2_rom.h"
 #include "RingBuffer.h"
+#include "SdHdfZXTeensy.h"
 #include "SdSdhcZXTeensy.h"
 #include "UartZXTeensy.h"
 #include "RtcZXTeensy.h"
@@ -44,11 +45,14 @@ typedef enum {
     MENU_ACTION_LOAD_RTC_SETUP,
     MENU_ACTION_BROWSER_CD,
     MENU_ACTION_BROWSER_OPEN,
+    MENU_ACTION_BROWSER_OPEN_HDF,
     MENU_ACTION_BROWSER_LOAD_CART,
     MENU_ACTION_BROWSER_LOAD_ZXC2,
     MENU_ACTION_BROWSER_LOAD_Z80,
     MENU_ACTION_BROWSER_LOAD_TZX,
-    MENU_ACTION_BROWSER_LOAD_DSK
+    MENU_ACTION_BROWSER_LOAD_DSK,
+    MENU_ACTION_BROWSER_MOUNT_SDA,
+    MENU_ACTION_BROWSER_MOUNT_SDB
 } menu_action_t;
 
 typedef enum {
@@ -119,6 +123,19 @@ typedef enum {
     TYPE_Z80,
     TYPE_SNA
 } rom_type_t;
+
+typedef enum {
+    SD_SPI_WRITE,
+    SD_SPI_READ,
+    SD_SPI_SELECT
+} sd_spi_action_t;
+
+typedef enum {
+    DIVMMC_NONE,
+    DIVMMC_SDHC,
+    DIVMMC_HDF_A,
+    DIVMMC_HDF_B
+} divmmc_spi_t;
 
 // I/O pin assignments
 const uint8_t LED_PIN = 13;
@@ -270,6 +287,16 @@ volatile uint8_t menuSelectedIndex = 0;
 
 // DivMMC SPI/SD
 SdSdhcZXTeensy divMmcSpi;
+SdHdfZXTeensy divMmcHdf;
+SdHdfZXTeensy divMmcSecondHdf;
+volatile divmmc_spi_t divMmcDrive = DIVMMC_NONE;
+divmmc_spi_t divMmcDriveSlot[2];
+
+static const size_t READ_BUFFER_SIZE = 4096;
+static const size_t WRITE_BUFFER_SIZE = 8;
+RingBuffer<READ_BUFFER_SIZE> sdSpiReadBuffer;
+RingBuffer<WRITE_BUFFER_SIZE> sdSpiWriteBuffer;
+RingBuffer<WRITE_BUFFER_SIZE> sdSpiFlagsBuffer;
 
 // MB03+ UART
 volatile bool uartPresent = false;
@@ -425,6 +452,88 @@ inline __attribute__((always_inline)) uint8_t decodeHighAddress(uint32_t gpioSix
     return ((gpioSix & 0xff000000) >> 24);
 }
 
+inline __attribute__((always_inline)) void writeSdSpiWriteBuffer(sd_spi_action_t spiAction, uint8_t data)
+{
+    sdSpiFlagsBuffer.write((uint8_t)spiAction);
+    sdSpiWriteBuffer.write(data);
+}
+
+inline __attribute__((always_inline)) sd_spi_action_t readSdSpiWriteBuffer(uint8_t* data)
+{
+    sd_spi_action_t spiAction = (sd_spi_action_t)sdSpiFlagsBuffer.readRaw();
+    *data = sdSpiWriteBuffer.readRaw();
+    return spiAction;
+}
+
+inline __attribute__((always_inline)) void flushSdSpiBuffers()
+{
+    sdSpiReadBuffer.clear();
+    sdSpiFlagsBuffer.clear();
+    sdSpiWriteBuffer.clear();
+}
+
+inline __attribute__((always_inline)) void divMmcDriveTick()
+{
+    if (sdSpiWriteBuffer.canRead())
+    {
+        uint8_t data;
+        switch (readSdSpiWriteBuffer(&data))
+        {
+            case SD_SPI_SELECT :
+                switch (data & 0x03)
+                {
+                    case 0x01 :
+                        divMmcDrive = divMmcDriveSlot[1];
+                        break;
+                    case 0x02 :
+                        divMmcDrive = divMmcDriveSlot[0];
+                        break;
+                    default :
+                        divMmcDrive = DIVMMC_NONE;
+                        break;
+                }
+                switch (divMmcDrive)
+                {
+                    case DIVMMC_SDHC :
+                        if (!beginDivMmcSd())
+                        {
+                            divMmcDrive = DIVMMC_NONE;
+                        }
+                        break;
+                    case DIVMMC_HDF_A :
+                    case DIVMMC_HDF_B :
+                        if (!beginSdfsSd())
+                        {
+                            divMmcDrive = DIVMMC_NONE;
+                        }
+                        break;
+                    default :
+                        break;
+                }
+                break;
+            default :
+                switch (divMmcDrive)
+                {
+                    case DIVMMC_SDHC :
+                        divMmcSpi.performTick(true, data);
+                        break;
+                    case DIVMMC_HDF_A :
+                        divMmcHdf.performTick(true, data);
+                        break;
+                    case DIVMMC_HDF_B :
+                        divMmcSecondHdf.performTick(true, data);
+                        break;
+                    default :
+                        break;
+                }
+                break;
+        }
+    } else if (divMmcDrive == DIVMMC_SDHC)
+    {
+        divMmcSpi.performTick(false, 0);
+    }
+}
+
 inline __attribute__((always_inline)) void performOnClock()
 {
     uint32_t cycle_ = ARM_DWT_CYCCNT;
@@ -433,8 +542,8 @@ inline __attribute__((always_inline)) void performOnClock()
         globalCycleCount = cycle_;
 
         // Perform tick updates at TICK_FREQ
+        divMmcDriveTick();
         espUart.onTick();
-        divMmcSpi.onTick();
         tzxPlayer.onTick();
         if (wifiNtpEnabled)
         {
@@ -790,6 +899,7 @@ bool beginSdfsSd()
     if (divMmcCardPresent)
     {
         divMmcSpi.end();
+        flushSdSpiBuffers();
         divMmcCardPresent = false;
     }
     if (!sdCardPresent)
@@ -816,14 +926,17 @@ bool beginDivMmcSd()
 {
     if (sdCardPresent)
     {
+        divMmcHdf.end();
+        divMmcSecondHdf.end();
         SD.sdfs.end();
+        flushSdSpiBuffers();
         sdCardPresent = false;
     }
     if (!divMmcCardPresent)
     {
         if (detectSdCard() && SD.sdfs.cardBegin(SdioConfig(FIFO_SDIO)))
         {
-            divMmcSpi.begin(SD.sdfs.card());
+            divMmcSpi.begin(&sdSpiReadBuffer, SD.sdfs.card());
         } else {
             return false;
         }
@@ -1086,6 +1199,13 @@ void handleStateResetEntry()
         loadRomSets = true;
         divMmcPreserveRam = false;
 
+        // Ensure the DivMMC images are closed
+        if (sdCardPresent)
+        {
+            divMmcHdf.end();
+            divMmcSecondHdf.end();
+        }
+
         // Clear the menu action
         menuResetAction();
     }
@@ -1321,13 +1441,31 @@ void handleStateReset()
             }
         } else if (divMmcPresent)
         {
-            if (beginDivMmcSd())
+            // The Interface 1 can be enabled by switching back
+            // into 128k mode (".128")
+            divMmcEnabled = true;
+            char* sdaPath = menuGetDivMmcSdaPath();
+            char* sdbPath = menuGetDivMmcSdbPath();
+            if ((sdaPath == 0) && (sdbPath != 0))
             {
-                // The Interface 1 can be enabled by switching back
-                // into 128k mode (".128")
-                divMmcEnabled = true;
+                divMmcDriveSlot[0] = DIVMMC_SDHC;
+                divMmcDriveSlot[1] = DIVMMC_HDF_B;
+                divMmcSecondHdf.begin(&sdSpiReadBuffer, sdbPath);
             } else {
-                divMmcPresent = false;
+                if (sdbPath != 0)
+                {
+                    divMmcDriveSlot[1] = DIVMMC_HDF_B;
+                    divMmcSecondHdf.begin(&sdSpiReadBuffer, sdbPath);
+                } else {
+                    divMmcDriveSlot[1] = DIVMMC_NONE;
+                }
+                if (sdaPath != 0)
+                {
+                    divMmcDriveSlot[0] = DIVMMC_HDF_A;
+                    divMmcHdf.begin(&sdSpiReadBuffer, sdaPath);
+                } else {
+                    divMmcDriveSlot[0] = DIVMMC_SDHC;
+                }
             }
         }
 
@@ -1773,12 +1911,12 @@ FASTRUN void isrWrEvent()
                         if (isDivMmcSelected())
                         {
                             // DivMMC card select
-                            if ((readData() & 0x01) != 0)
+                            uint8_t data = readData();
+                            writeSdSpiWriteBuffer(SD_SPI_SELECT, data);
+                            if ((data & 0x01) != 0)
                             {
-                                divMmcSpi.writeData(SdSdhcZXTeensy::SD_SPI_DISABLE, 0xff);
                                 digitalWriteFast(LED_PIN, 1);
                             } else {
-                                divMmcSpi.writeData(SdSdhcZXTeensy::SD_SPI_ENABLE, 0xff);
                                 digitalWriteFast(LED_PIN, 0);
                             }
                         }
@@ -1794,7 +1932,7 @@ FASTRUN void isrWrEvent()
                         } else if (isDivMmcSelected())
                         {
                             // DivMMC write
-                            divMmcSpi.writeData(SdSdhcZXTeensy::SD_SPI_WRITE, readData());
+                            writeSdSpiWriteBuffer(SD_SPI_WRITE, readData());
                         }
                         break;
                 }
@@ -2101,16 +2239,16 @@ FASTRUN void isrRdEvent()
                     if (isDivMmcSelected())
                     {
                         // Transfer SD SPI read data to bus
-                        if (divMmcSpi.hasReadData())
+                        if (sdSpiReadBuffer.canRead())
                         {
-                            writeData(divMmcSpi.readData());
-                            if (!divMmcSpi.hasReadData())
+                            writeData(sdSpiReadBuffer.readRaw());
+                            if (!sdSpiReadBuffer.canRead())
                             {
-                                divMmcSpi.writeData(SdSdhcZXTeensy::SD_SPI_READ, 0xff);
+                                writeSdSpiWriteBuffer(SD_SPI_READ, 0xff);
                             }
                         } else {
                             writeData(0xff);
-                            divMmcSpi.writeData(SdSdhcZXTeensy::SD_SPI_READ, 0xff);
+                            writeSdSpiWriteBuffer(SD_SPI_READ, 0xff);
                         }
                     }
                     break;

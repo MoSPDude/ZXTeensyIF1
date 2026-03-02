@@ -58,12 +58,12 @@
 
 #include "SdSdhcZXTeensy.h"
 
-void SdSdhcZXTeensy::begin(SdCard* card)
+void SdSdhcZXTeensy::begin(RingBuffer<READ_BUFFER_SIZE>* readBuffer, SdCard* card)
 {
     // NOTE: Do NOT clear isSdIdle as the DivMMC can warm reset
+    sdSpiReadBuffer = readBuffer;
     sdCard = card;
     cardSelected = false;
-    isActive = false;
     currentState = SdSdhcZXTeensy::STATE_IDLE;
     currentCommand = SdSdhcZXTeensy::CMD_IDLE;
     commandAppCmd = false;
@@ -84,7 +84,6 @@ void SdSdhcZXTeensy::begin(SdCard* card)
 
 void SdSdhcZXTeensy::end(void)
 {
-    flush();
     if (sdCard)
     {
         sdCard->end();

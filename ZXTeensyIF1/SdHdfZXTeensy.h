@@ -56,8 +56,8 @@
  * DEALINGS IN THE SOFTWARE.
  */
 
-#ifndef SD_SDHC_ZX_TEENSY_H
-#define SD_SDHC_ZX_TEENSY_H
+#ifndef SD_HDF_ZX_TEENSY_H
+#define SD_HDF_ZX_TEENSY_H
 
 #include "imxrt.h"
 #include "core_pins.h"
@@ -66,36 +66,12 @@
 #include <SD.h>
 #include <SdFat.h>
 
-#define FIFO_WML 16
+//define DEBUG_HDF_OUTPUT
 
-//define USE_READ_DMA
-
-#define MAKE_REG_MASK(m,s) (((uint32_t)(((uint32_t)(m) << s))))
-#define MAKE_REG_SET(x,m,s) (((uint32_t)(((uint32_t)(x) & m) << s)))
-#define SDHC_XFERTYP_CMDINX(n)  MAKE_REG_SET(n,0x3F,24) //(uint32_t)(((n) & 0x3F)<<24)// Command Index
-#define SDHC_XFERTYP_RSPTYP(n)  MAKE_REG_SET(n,0x3,16) //(uint32_t)(((n) & 0x3)<<16)  // Response Type Select
-#define SDHC_XFERTYP_DPSEL          0x00200000
-#define SDHC_XFERTYP_CICEN          0x00100000
-#define SDHC_XFERTYP_CCCEN          0x00080000
-
-#define SDHC_SYSCTL_INITA           0x08000000
-
-#define SDHC_IRQSTAT_CMD_ERROR      0x11300000
-#define SDHC_IRQSTAT_DATA_ERROR     0x000f0000
-#define SDHC_IRQSTAT_DINT           0x00000004
-#define SDHC_IRQSTAT_CC             0x00000001
-#define SDHC_IRQSTAT_TC             0x00000002
-
-#define SDHC_PRSSTAT_SDSTB          0x00000008
-#define SDHC_PRSSTAT_BREN           0x00000800
-#define SDHC_PRSSTAT_BWEN           0x00000400
-
-#define SDHC_PROCTL_CREQ            0x00020000
-#define SDHC_PROCTL_SABGREQ         0x00010000
-
-class SdSdhcZXTeensy
+class SdHdfZXTeensy
 {
     public :
+
         typedef enum {
             STATE_IDLE      = 0x00,
             STATE_CMD_ARG4  = 0x01,
@@ -123,23 +99,7 @@ class SdSdhcZXTeensy
         static const size_t READ_BUFFER_SIZE = 4096;
         RingBuffer<READ_BUFFER_SIZE>* sdSpiReadBuffer;
 
-        const uint32_t CMD_RESP_NONE = SDHC_XFERTYP_RSPTYP(0);
-
-        const uint32_t CMD_RESP_R1 = SDHC_XFERTYP_CICEN | SDHC_XFERTYP_CCCEN |
-                                     SDHC_XFERTYP_RSPTYP(2);
-
-        const uint32_t CMD_RESP_R1b = SDHC_XFERTYP_CICEN | SDHC_XFERTYP_CCCEN |
-                                      SDHC_XFERTYP_RSPTYP(3);
-
-        const uint32_t CMD_RESP_R2 = SDHC_XFERTYP_CCCEN | SDHC_XFERTYP_RSPTYP(1);
-
-        const uint32_t CMD_RESP_R3 = SDHC_XFERTYP_RSPTYP(2);
-
-        const uint32_t CMD_RESP_R6 = CMD_RESP_R1;
-
-        const uint32_t CMD_RESP_R7 = CMD_RESP_R1;
-
-        SdCard* sdCard;
+        File sdCard;
         bool cardSelected;
         bool isSdIdle;
         uint8_t currentState;
@@ -149,10 +109,13 @@ class SdSdhcZXTeensy
         bool dataActive;
         uint32_t dataRegister;
         uint32_t dataIndex;
+        uint8_t dataBuffer[514];
 
-#ifdef USE_READ_DMA
-        uint8_t dmaBuffer[512];
-#endif
+        uint32_t sectorOffset;
+        uint32_t currentSector;
+        uint32_t numSectors;
+        bool hasValidPath;
+        char sdCardPath[256];
 
         inline __attribute__((always_inline)) void writeReadData(uint8_t data)
         {
@@ -164,103 +127,46 @@ class SdSdhcZXTeensy
             writeReadData(isSdIdle ? 0x01 : 0x00);
         }
 
-        bool processData(bool hasData, uint8_t data)
+        inline __attribute__((always_inline)) void openSdCard()
         {
-            if (currentCommand != CMD_WRITE_BLOCK)
+            if (!sdCard)
             {
-#ifdef USE_READ_DMA
-                dataRegister = USDHC1_INT_STATUS;
-                USDHC1_INT_STATUS = dataRegister;
-                if (dataRegister & SDHC_IRQSTAT_TC)
+                sdCard = SD.open(sdCardPath, FILE_WRITE_BEGIN);
+#ifdef DEBUG_HDF_OUTPUT
+                if (!sdCard)
                 {
-                    writeReadData(0xFE);
-                    sdSpiReadBuffer->writeBlock(dmaBuffer, 512);
-
-                    // Generate the two CRC bytes
-                    writeReadData(0x00);
-                    writeReadData(0x00);
-                    currentState = STATE_IDLE;
-                    dataActive = false;
-                    return true;
-                }
-#else
-                if (dataActive || (USDHC1_PRES_STATE & SDHC_PRSSTAT_BREN))
-                {
-                    if (!dataActive)
-                    {
-                        writeReadData(0xFE);
-                        dataActive = true;
-                    }
-                    if (!sdSpiReadBuffer->canRead())
-                    {
-                        dataRegister = USDHC1_DATA_BUFF_ACC_PORT;
-                        writeReadData(dataRegister);
-                        writeReadData(dataRegister >> 8);
-                        writeReadData(dataRegister >> 16);
-                        writeReadData(dataRegister >> 24);
-                        if (!(USDHC1_PRES_STATE & SDHC_PRSSTAT_BREN))
-                        {
-                            dataRegister = USDHC1_INT_STATUS;
-                            USDHC1_INT_STATUS = dataRegister;
-                            if (dataRegister & SDHC_IRQSTAT_TC)
-                            {
-                                // Generate the two CRC bytes
-                                writeReadData(0x00);
-                                writeReadData(0x00);
-                                currentState = STATE_IDLE;
-                                dataActive = false;
-                                return true;
-                            }
-                        }
-                    }
+                    Serial.printf("fail\n");
+                } else {
+                    Serial.printf("open\n");
                 }
 #endif
-            } else if (hasData)
+            }
+#ifdef DEBUG_HDF_OUTPUT
+            else {
+                Serial.printf("ready\n");
+            }
+#endif
+        }
+
+        bool processData(bool hasData, uint8_t data)
+        {
+            if ((currentCommand == CMD_WRITE_BLOCK) && hasData)
             {
                 if (dataActive)
                 {
+                    dataBuffer[dataIndex] = data;
+                    ++dataIndex;
                     if (dataIndex >= 0x202)
                     {
-                        dataRegister = USDHC1_INT_STATUS;
-                        USDHC1_INT_STATUS = dataRegister;
-                        if (dataRegister & SDHC_IRQSTAT_TC)
-                        {
-                            currentState = STATE_IDLE;
-                            dataActive = false;
-                            return true;
-                        } else if (!sdSpiReadBuffer->canRead())
-                        {
-                            // Send busy response
-                            writeReadData(0x00);
-                        }
-                    } else {
-                        switch (dataIndex & 0x00000003)
-                        {
-                            case 0 :
-                                dataRegister = data;
-                                break;
-                            case 1 :
-                                dataRegister |= (data << 8);
-                                break;
-                            case 2 :
-                                dataRegister |= (data << 16);
-                                break;
-                            case 3 :
-                                dataRegister |= (data << 24);
-                                break;
-                        }
-                        ++dataIndex;
-                        if (dataIndex <= 0x200)
-                        {
-                            if ((dataIndex & 0x00000003) == 0)
-                            {
-                                USDHC1_DATA_BUFF_ACC_PORT = dataRegister;
-                            }
-                        } else if (dataIndex >= 0x202)
-                        {
-                            // Consume the CRC bytes, then send data response
-                            writeReadData(0x05);
-                        }
+                        // Consume the CRC bytes, then send data response
+                        writeReadData(0x05);
+                        writeReadData(0x00);
+
+                        // Write the data
+                        sdCard.write(dataBuffer, 512);
+                        ++currentSector;
+                        currentState = STATE_IDLE;
+                        dataActive = false;
                     }
                 } else if (data == 0xFE)
                 {
@@ -273,34 +179,7 @@ class SdSdhcZXTeensy
 
         void collectResponse()
         {
-            uint32_t status = USDHC1_INT_STATUS;
-            if (status & (SDHC_IRQSTAT_CC | SDHC_IRQSTAT_CMD_ERROR))
-            {
-                USDHC1_INT_STATUS = status;
-                if (status & SDHC_IRQSTAT_CMD_ERROR)
-                {
-                    // TODO: Command error
-                    writeReadData(isSdIdle ? 0x7F : 0x7E);
-                    currentState = STATE_IDLE;
-                } else {
-                    switch (currentCommand)
-                    {
-                        case CMD_READ_SINGLE_BLOCK :
-                        case CMD_WRITE_BLOCK :
-                            USDHC1_PROT_CTRL &= ~SDHC_PROCTL_SABGREQ;
-                            USDHC1_PROT_CTRL |= SDHC_PROCTL_CREQ;
-                            USDHC1_PROT_CTRL |= SDHC_PROCTL_SABGREQ;
-                            writeStatusData();
-                            writeReadData(0xFF);
-                            currentState = STATE_DATA;
-                            break;
-                        default :
-                            writeStatusData();
-                            currentState = STATE_IDLE;
-                            break;
-                    }
-                }
-            }
+            //
         }
 
         void executeCommand()
@@ -322,36 +201,50 @@ class SdSdhcZXTeensy
                 {
                     case CMD_READ_SINGLE_BLOCK :
                         {
-                            // Send real command to the SDHC controller
-                            uint32_t xfertype = SDHC_XFERTYP_CMDINX(CMD_READ_SINGLE_BLOCK) |
-                                SDHC_XFERTYP_DPSEL | CMD_RESP_R1;
-                            USDHC1_BLK_ATT = 0x00010200;
-                            USDHC1_MIX_CTRL &= 0xFFFFFF00;
-#ifdef USE_READ_DMA
-                            USDHC1_DS_ADDR  = (uint32_t)dmaBuffer;
-                            USDHC1_MIX_CTRL |= 0x00000011;
-#else
-                            USDHC1_MIX_CTRL |= 0x00000010;
-#endif
-                            USDHC1_PROT_CTRL |= SDHC_PROCTL_SABGREQ;
-                            USDHC1_CMD_ARG = commandArgument;
-                            USDHC1_CMD_XFR_TYP = xfertype;
-                            currentState = STATE_EXECUTE;
+                            openSdCard();
+                            if (sdCard)
+                            {
+                                writeStatusData();
+                                writeReadData(0xFF);
+                                if (commandArgument != currentSector)
+                                {
+                                    uint32_t offset = (commandArgument * 512) + sectorOffset;
+                                    sdCard.seek(offset, SeekSet);
+                                    currentSector = commandArgument;
+                                }
+                                sdCard.read(dataBuffer, 512);
+                                ++currentSector;
+                                writeReadData(0xFE);
+                                sdSpiReadBuffer->writeBlock(dataBuffer, 512);
+
+                                // Generate the two CRC bytes
+                                writeReadData(0x00);
+                                writeReadData(0x00);
+                            } else {
+                                // TODO: Error
+                            }
                         }
-                        return;
+                        break;
                     case CMD_WRITE_BLOCK :
                         {
-                            // Send real command to the SDHC controller
-                            uint32_t xfertype = SDHC_XFERTYP_CMDINX(CMD_WRITE_BLOCK) |
-                                SDHC_XFERTYP_DPSEL | CMD_RESP_R1;
-                            USDHC1_BLK_ATT = 0x00010200;
-                            USDHC1_MIX_CTRL &= 0xFFFFFF00;
-                            USDHC1_PROT_CTRL &= ~SDHC_PROCTL_SABGREQ;
-                            USDHC1_CMD_ARG = commandArgument;
-                            USDHC1_CMD_XFR_TYP = xfertype;
-                            currentState = STATE_EXECUTE;
+                            openSdCard();
+                            if (sdCard)
+                            {
+                                writeStatusData();
+                                writeReadData(0xFF);
+                                if (commandArgument != currentSector)
+                                {
+                                    uint32_t offset = (commandArgument * 512) + sectorOffset;
+                                    sdCard.seek(offset, SeekSet);
+                                    currentSector = commandArgument;
+                                }
+                                currentState = STATE_DATA;
+                                return;
+                            } else {
+                                // TODO: Error
+                            }
                         }
-                        return;
+                        break;
                     case CMD_IDLE :
                         isSdIdle = true;
                         writeStatusData();
@@ -365,16 +258,34 @@ class SdSdhcZXTeensy
                         writeReadData(commandArgument);
                         break;
                     case CMD_SEND_CSD :
+                        {
+                            // Return 16 bytes of CID/CSD as data packet
+                            uint8_t cid[16] = { 0x40, 0x0E, 0x00, 0x32,
+                                0x5B, 0x59, 0x00, 0x00,
+                                0x1D, 0xA7, 0x7F, 0x80,
+                                0x0A, 0x40, 0x00, 0x00 };
+                            uint32_t cardSize = (numSectors >> 10) - 1;
+                            cid[8] = ((cardSize & 0xFF) >> 8);
+                            cid[9] = (cardSize & 0xFF);
+                            writeStatusData();
+                            writeReadData(0xFE);
+                            for (int i = 0; i < 16; ++i)
+                            {
+                                writeReadData(cid[i]);
+                            }
+
+                            // Generate the two CRC bytes
+                            writeReadData(0x00);
+                            writeReadData(0x00);
+                        }
+                        break;
                     case CMD_SEND_CID :
                         {
                             // Return 16 bytes of CID/CSD as data packet
-                            uint8_t cid[16];
-                            if (currentCommand == CMD_SEND_CSD)
-                            {
-                                sdCard->readCSD((csd_t*)cid);
-                            } else {
-                                sdCard->readCID((cid_t*)cid);
-                            }
+                            uint8_t cid[16] = { 0x27, 'Z', 'X', 'T',
+                                'N', 'S', 'Y', ' ',
+                                0x60, 0xDA, 0x6C, 0x7F,
+                                0xB3, 0x01, 0x92, 0x00 };
                             writeStatusData();
                             writeReadData(0xFE);
                             for (int i = 0; i < 16; ++i)
@@ -394,8 +305,7 @@ class SdSdhcZXTeensy
                     case CMD_READ_OCR :
                         {
                             // Return the OCR register
-                            uint32_t ocr;
-                            sdCard->readOCR(&ocr);
+                            uint32_t ocr = 0xC0FF8000;
                             writeStatusData();
                             writeReadData(ocr >> 24);
                             writeReadData(ocr >> 16);
@@ -413,17 +323,17 @@ class SdSdhcZXTeensy
         }
 
     public :
-        constexpr SdSdhcZXTeensy() : sdSpiReadBuffer(), sdCard(0), cardSelected(false),
-            isSdIdle(true), currentState(STATE_IDLE), currentCommand(CMD_IDLE), 
-            commandAppCmd(false), commandArgument(0), dataActive(false), 
-            dataRegister(0), dataIndex(0)
-#ifdef USE_READ_DMA
-            , dmaBuffer()
-#endif
+        constexpr SdHdfZXTeensy() : sdSpiReadBuffer(0), sdCard(), cardSelected(false),
+            isSdIdle(true), currentState(STATE_IDLE),
+            currentCommand(CMD_IDLE), commandAppCmd(false), commandArgument(0),
+            dataActive(false), dataRegister(0), dataIndex(0), dataBuffer(),
+            sectorOffset(0), currentSector(0), numSectors(0), hasValidPath(false),
+            sdCardPath()
         {
+            memset(sdCardPath, 0, 256);
         }
 
-        void begin(RingBuffer<READ_BUFFER_SIZE>* readBuffer, SdCard* card);
+        void begin(RingBuffer<READ_BUFFER_SIZE>* readBuffer, const char* filename);
         void end(void);
 
         inline __attribute__((always_inline)) void performTick(bool hasData, uint8_t data)
