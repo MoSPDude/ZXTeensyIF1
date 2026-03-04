@@ -11,6 +11,7 @@
 #include "SdSdhcZXTeensy.h"
 #include "UartZXTeensy.h"
 #include "RtcZXTeensy.h"
+#include "EspNtpZXTeensy.h"
 
 // Run the Teensy 4.1 with slight overclock at 816MHz
 // Tick the SD and Serial at 14MHz
@@ -264,7 +265,13 @@ SdSdhcZXTeensy divMmcSpi;
 
 // MB03+ UART
 volatile bool uartPresent = false;
+volatile bool uartEnabled = false;
 UartZXTeensy espUart;
+
+// RTC module
+volatile bool wifiNtpEnabled = true;
+RtcZXTeensy rtcTeensy;
+EspNtpZXTeensy wifiNtp;
 
 // USB Kempston mouse and gamepad
 USBHost usbHost;
@@ -283,9 +290,6 @@ volatile uint32_t mouseY = 0;
 volatile uint8_t mouseBtn = 0;
 volatile bool joystickPresent = false;
 volatile uint8_t joystickData = 0;
-
-// RTC module
-RtcZXTeensy rtcTeensy;
 
 // SPI and UART tick cycle counter
 volatile uint32_t globalCycleCount;
@@ -410,6 +414,19 @@ inline __attribute__((always_inline)) void performOnClock()
         // Perform SPI and UART on clock ticks
         espUart.onTick();
         divMmcSpi.onTick();
+        if (wifiNtpEnabled)
+        {
+            if (wifiNtp.onTick())
+            {
+                wifiNtpEnabled = false;
+                rtcTeensy.setAscTime(wifiNtp.getAscTime());
+                if (uartPresent)
+                {
+                    espUart.flush();
+                    uartEnabled = true;
+                }
+            }
+        }
 
         // Debounce the reset detection
         switch (resetTrigState)
@@ -1017,7 +1034,10 @@ void handleStateResetEntry()
     }
 
     // Reset the UART state, and clear buffers of any idle data
-    espUart.end();
+    if (uartEnabled)
+    {
+        espUart.end();
+    }
 
     // Update the RTC registers, if necessary
     rtcTeensy.updateRtc();
@@ -1174,6 +1194,16 @@ void handleStateReset()
             break;
     }
 
+    // If UART is required, then initialise
+    if (uartPresent || wifiNtpEnabled)
+    {
+        espUart.begin(0);
+        if (wifiNtpEnabled)
+        {
+            wifiNtp.begin(&espUart);
+        }
+    }
+
     // Flag that reset has occurred
     afterFirstReset = true;
     menuEnterOnReset = false;
@@ -1208,9 +1238,10 @@ void handleStateReset()
         }
 
         // If UART is present, then enable
-        if (uartPresent)
+        if (uartPresent && !wifiNtpEnabled)
         {
-            espUart.begin(0);
+            espUart.flush();
+            uartEnabled = true;
         }
 
         // If USB mouse/gamepad is present, then enable
@@ -1535,10 +1566,10 @@ FASTRUN void isrWrEvent()
                     case 0x3b :
                         {
                             uint8_t highPort = decodeHighAddress(gpioSix);
-                            if (divMmcPresent && ((highPort & 0xf0) == 0x70))
+                            if (divMmcEnabled && ((highPort & 0xf0) == 0x70))
                             {
                                 rtcTeensy.write((highPort & 0x0f), readData());
-                            } else if (uartPresent)
+                            } else if (uartEnabled)
                             {
                                 switch (highPort)
                                 {
@@ -1888,10 +1919,10 @@ FASTRUN void isrRdEvent()
                 case 0x3b :
                     {
                         uint8_t highPort = decodeHighAddress(gpioSix);
-                        if (divMmcPresent && ((highPort & 0xf0) == 0x70))
+                        if (divMmcEnabled && ((highPort & 0xf0) == 0x70))
                         {
                             writeData(rtcTeensy.read(highPort & 0x0f));
-                        } else if (uartPresent)
+                        } else if (uartEnabled)
                         {
                             switch (highPort)
                             {

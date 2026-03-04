@@ -136,9 +136,61 @@ class RtcZXTeensy
         {
             if (needsRtcSet)
             {
+                time_t timeNow = now();
+                rtc_set(timeNow);
                 setSyncProvider(getTeensy3Time);
-                rtc_set(now());
                 needsRtcSet = false;
+            }
+        }
+
+        inline __attribute__((always_inline)) void setAscTime(const char* ascTime)
+        {
+            if (ascTime != 0)
+            {
+                int secs, mins, hrs, days, mnts, yrs;
+                switch (ascTime[4])
+                {
+                    case 'J' : // Jan, Jun, Jul
+                        if (ascTime[5] == 'u')
+                        {
+                            mnts = (ascTime[6] == 'n') ? 6 : 7;
+                        } else {
+                            mnts = 1;
+                        }
+                        break;
+                    case 'F' : // Feb
+                        mnts = 2;
+                        break;
+                    case 'M' : // Mar, May
+                        mnts = (ascTime[6] == 'r') ? 3 : 5;
+                        break;
+                    case 'A' : // Apr, Aug
+                        mnts = (ascTime[5] == 'p') ? 4 : 8;
+                        break;
+                    case 'S' : // Sep
+                        mnts = 9;
+                        break;
+                    case 'O' : // Oct
+                        mnts = 10;
+                        break;
+                    case 'N' : // Nov
+                        mnts = 11;
+                        break;
+                    case 'D' : // Dec
+                        mnts = 12;
+                        break;
+                    default : 
+                        mnts = 0;
+                        break;
+                }
+                if ((mnts > 0) &&
+                    (sscanf(&(ascTime[8]), "%d%d:%d:%d%d", &days, &hrs, &mins, &secs, &yrs) >= 5))
+                {
+                    setSyncProvider(0);
+                    setTime(hrs, mins, secs, days, mnts, yrs);
+                    updateRegisters();
+                    needsRtcSet = true;
+                }
             }
         }
 };

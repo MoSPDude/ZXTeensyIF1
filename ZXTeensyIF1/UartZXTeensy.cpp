@@ -109,10 +109,7 @@ void UartZXTeensy::end(void)
         }
 
         // Clear the ring buffers
-        uartReadBuffer.clear();
-        uartWriteBuffer.clear();
-        uartFlagsBuffer.clear();
-        uartTxDataBuffer.clear();
+        flush();
         enabled = false;
     }
 }

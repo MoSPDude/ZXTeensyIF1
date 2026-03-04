@@ -51,7 +51,7 @@ class UartZXTeensy
 
     protected :
         static const size_t UART_RX_BUFFER_SIZE = 2048;
-        static const size_t UART_TX_BUFFER_SIZE = 8;
+        static const size_t UART_TX_BUFFER_SIZE = 64;
         RingBuffer<UART_RX_BUFFER_SIZE> uartReadBuffer;
         RingBuffer<UART_TX_BUFFER_SIZE> uartWriteBuffer;
         RingBuffer<UART_TX_BUFFER_SIZE> uartFlagsBuffer;
@@ -215,6 +215,14 @@ class UartZXTeensy
                         break;
                 }
             }
+        }
+
+        inline __attribute__((always_inline)) void flush()
+        {
+            uartReadBuffer.clear();
+            uartWriteBuffer.clear();
+            uartFlagsBuffer.clear();
+            uartTxDataBuffer.clear();
         }
 };
 
