@@ -4,6 +4,9 @@
 #define ROM_NAME_LEN 32
 #define MAX_PATH 256
 
+#define NETMAN_PATH "/netman.z80"
+#define RTC_SETUP_PATH "/rtc_setup.z80"
+
 static const uint8_t CHAR_BORDER = 20;
 static const uint8_t CHAR_DIR = 21;
 static const uint8_t CHAR_TICK = 22;
@@ -17,6 +20,7 @@ static const uint8_t CHAR_Z80_R = 29;
 
 typedef enum {
     MENU_TYPE_SETTINGS,
+    MENU_TYPE_LOAD_ROM,
     MENU_TYPE_NTP_TZ,
     MENU_TYPE_BROWSER,
     MENU_TYPE_BROWSER_OPEN
@@ -51,9 +55,10 @@ typedef enum {
     SETTING_ACTION_TOGGLE_USB,
     SETTING_ACTION_TOGGLE_UART,
     SETTING_ACTION_TOGGLE_NTP,
+    SETTING_ACTION_OPEN_ROMS = 0xFC,
     SETTING_ACTION_OPEN_NTP_TZ = 0xFD,
     SETTING_ACTION_OPEN_BROWSER = 0xFE,
-    SETTING_ACTION_USE_INTERNAL_ROM = 0xFF
+    SETTING_ACTION_INTERNAL_ROM = 0xFF
 } settings_menu_action_t;
 
 // Configuration data
@@ -279,7 +284,7 @@ char* menuAddBrowserFile(uint8_t index, char* ptr, File entry)
 
 char* menuGenerateNtpTz(char* ptr)
 {
-    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 0xFF, ptr, "Cancel", 0);
+    ptr = menuInsertSetting(MENU_ACTION_TOP_MENU, 0, ptr, "Cancel", 0);
     ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 0, ptr, "-12:00 hours", (wifiNtpTz == 0));
     ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 4, ptr, "-11:00 hours", (wifiNtpTz == 4));
     ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 8, ptr, "-10:00 hours", (wifiNtpTz == 8));
@@ -360,81 +365,10 @@ char* menuGenerateBrowser(char* ptr)
     return ptr;
 }
 
-char* menuGenerateSettings(char* ptr)
+char* menuGenerateLoadRom(char* ptr)
 {
-    ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_RESTART,
-        ptr, "Save and Restart", 0);
-    ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_DISABLE,
-        ptr, "Disable and Restart", 0);
-    ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_OPEN_BROWSER,
-        ptr, "Browse SD card", 0);
-    ptr = menuInsertSpacer(ptr);
-
-    // Add firmware update option, if available
-    File fwUpdateFile = SD.open(FLASH_FILENAME, FILE_READ);
-    if (fwUpdateFile)
-    {
-        menuHasUpdateFw = true;
-        fwUpdateFile.close();
-        ptr = menuInsertSetting(MENU_ACTION_UPDATE_FW, 0, ptr,
-            "Update firmware and Restart", 0);
-    } else {
-        menuHasUpdateFw = false;
-    }
-
-    // Add settings menu
-    ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_MENU,
-        ptr, "Boot into Menu", bootIntoMenu);
-    if ((romArrayPresent & BANK_DIVMMC) != 0)
-    {
-        ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_DIVMMC,
-            ptr, "Enable DivMMC", divMmcPresent);
-    }
-    if ((romArrayPresent & BANK_IF1) != 0)
-    {
-        ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_IF1,
-            ptr, "Enable Interface 1", interface1Present);
-    }
-    if ((romArrayPresent & BANK_MF128) != 0)
-    {
-        ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_MF128,
-            ptr, "Enable Multiface 128", mf128Present);
-    }
-    ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_USB, ptr,
-        "Enable Kempston USB mouse/gamepad", usbPresent);
-    ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_UART, ptr,
-        "Enable ESP-01S UART", uartPresent);
-    if (uartPresent)
-    {
-        ptr = menuInsertSpacer(ptr);
-        ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_NTP,
-            ptr, "Update RTC from WiFi NTP", wifiNtpPresent);
-        if (wifiNtpHasTime)
-        {
-            struct tm buf;
-            time_t timeNow = now();
-            char timeStr[36];
-            timeStr[0] = ' ';
-            timeStr[1] = '>';
-            timeStr[2] = ' ';
-            strftime(&(timeStr[3]), 32, "%a %b %e %H:%M:%S %Y",
-                gmtime_r(&timeNow, &buf));
-            ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_NO_OP,
-                ptr, timeStr, 0);
-        } else {
-            ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_NO_OP,
-                ptr, " > WiFi NTP not ready", 0);
-        }
-        if (wifiNtpPresent)
-        {
-            ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_OPEN_NTP_TZ,
-                ptr, "Set WiFi NTP timezone", 0);
-        }
-    }
-    ptr = menuInsertSpacer(ptr);
-
-    // List ROM files
-    ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_USE_INTERNAL_ROM,
+    ptr = menuInsertSetting(MENU_ACTION_TOP_MENU, 0, ptr, "Cancel", 0);
+    ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_INTERNAL_ROM,
         ptr, "Internal ROM", (stricmp(cfgData.romName, INTERNAL_ROM_NAME) == 0));
     File romDirectory = SD.open("ROMS", FILE_READ);
     if (romDirectory)
@@ -470,6 +404,104 @@ char* menuGenerateSettings(char* ptr)
     return ptr;
 }
 
+char* menuGenerateSettings(char* ptr)
+{
+    ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_RESTART,
+        ptr, "Save and Restart", 0);
+    ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_DISABLE,
+        ptr, "Disable and Restart", 0);
+    ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_OPEN_BROWSER,
+        ptr, "Browse SD card", 0);
+    ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_OPEN_ROMS,
+        ptr, "Load ROM", 0);
+    ptr = menuInsertSpacer(ptr);
+
+    // Add firmware update option, if available
+    File tmpFile = SD.open(FLASH_FILENAME, FILE_READ);
+    if (tmpFile)
+    {
+        menuHasUpdateFw = true;
+        tmpFile.close();
+        ptr = menuInsertSetting(MENU_ACTION_UPDATE_FW, 0, ptr,
+            "Update firmware and Restart", 0);
+    } else {
+        menuHasUpdateFw = false;
+    }
+
+    // Add settings menu
+    ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_MENU,
+        ptr, "Boot into Menu", bootIntoMenu);
+    if ((romArrayPresent & BANK_DIVMMC) != 0)
+    {
+        ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_DIVMMC,
+            ptr, "Enable DivMMC", divMmcPresent);
+    }
+    if ((romArrayPresent & BANK_IF1) != 0)
+    {
+        ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_IF1,
+            ptr, "Enable Interface 1", interface1Present);
+    }
+    if ((romArrayPresent & BANK_MF128) != 0)
+    {
+        ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_MF128,
+            ptr, "Enable Multiface 128", mf128Present);
+    }
+    ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_USB, ptr,
+        "Enable Kempston USB mouse/gamepad", usbPresent);
+    ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_UART, ptr,
+        "Enable ESP-01S UART", uartPresent);
+    if (uartPresent)
+    {
+        ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_NTP,
+            ptr, "Update RTC from WiFi NTP", wifiNtpPresent);
+        if (wifiNtpHasTime)
+        {
+            struct tm buf;
+            time_t timeNow = now();
+            char timeStr[36];
+            timeStr[0] = ' ';
+            timeStr[1] = '>';
+            timeStr[2] = ' ';
+            strftime(&(timeStr[3]), 32, "%a %b %e %H:%M:%S %Y",
+                gmtime_r(&timeNow, &buf));
+            ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_NO_OP,
+                ptr, timeStr, 0);
+        } else {
+            ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_NO_OP,
+                ptr, " > WiFi NTP not ready", 0);
+        }
+        if (wifiNtpPresent)
+        {
+            ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_OPEN_NTP_TZ,
+                ptr, "Set WiFi NTP timezone", 0);
+        }
+    }
+
+    // Add tools
+    bool hasToolSpacer = false;
+    tmpFile = SD.open(NETMAN_PATH, FILE_READ);
+    if (tmpFile)
+    {
+        hasToolSpacer = true;
+        ptr = menuInsertSpacer(ptr);
+        ptr = menuInsertSetting(MENU_ACTION_LOAD_RTC_SETUP, 0, ptr, 
+            "Load RTC Setup", 0);
+        tmpFile.close();
+    }
+    tmpFile = SD.open(RTC_SETUP_PATH, FILE_READ);
+    if (tmpFile)
+    {
+        if (!hasToolSpacer)
+        {
+            ptr = menuInsertSpacer(ptr);
+        }
+        ptr = menuInsertSetting(MENU_ACTION_LOAD_NETMAN, 0, ptr, 
+            "Load WiFi Network Manager", 0);
+        tmpFile.close();
+    }
+    return ptr;
+}
+
 void menuGenerate()
 {
     // Reset the menu dimensions
@@ -483,6 +515,9 @@ void menuGenerate()
     {
         case MENU_TYPE_SETTINGS :
             textPtr = menuGenerateSettings(textPtr);
+            break;
+        case MENU_TYPE_LOAD_ROM :
+            textPtr = menuGenerateLoadRom(textPtr);
             break;
         case MENU_TYPE_NTP_TZ :
             textPtr = menuGenerateNtpTz(textPtr);
@@ -543,6 +578,9 @@ bool menuPerformSelection(uint8_t index)
     char* entryPtr = (char*)menu[index].ptr;
     switch (menuAction)
     {
+        case MENU_ACTION_TOP_MENU :
+            menuCurrent = MENU_TYPE_SETTINGS;
+            break;
         case MENU_ACTION_SETTING :
             switch (entryIndex)
             {
@@ -596,6 +634,10 @@ bool menuPerformSelection(uint8_t index)
                     wifiNtpPresent = !wifiNtpPresent;
                     menuConfigChanged = true;
                     break;
+                case SETTING_ACTION_OPEN_ROMS :
+                    // Start ROM browser
+                    menuCurrent = MENU_TYPE_LOAD_ROM;
+                    break;
                 case SETTING_ACTION_OPEN_NTP_TZ :
                     // Start WiFi NTP timezone selector
                     menuCurrent = MENU_TYPE_NTP_TZ;
@@ -605,7 +647,7 @@ bool menuPerformSelection(uint8_t index)
                     strncpy(browserPath, "/", MAX_PATH);
                     menuCurrent = MENU_TYPE_BROWSER;
                     break;
-                case SETTING_ACTION_USE_INTERNAL_ROM :
+                case SETTING_ACTION_INTERNAL_ROM :
                     // Load internal ROM name
                     strncpy(cfgData.romName, INTERNAL_ROM_NAME, ROM_NAME_LEN);
                     cfgData.romName[ROM_NAME_LEN] = 0;
@@ -616,6 +658,13 @@ bool menuPerformSelection(uint8_t index)
                     break;
             }
             break;
+        case MENU_ACTION_LOAD_ROM :
+            menuConfigChanged = true;
+            updateRomName(entryIndex, entryPtr);
+            return true;
+        case MENU_ACTION_LOAD_CART :
+            updateRomName(entryIndex, entryPtr);
+            return true;
         case MENU_ACTION_UPDATE_FW :
             // Perform firmware update, if available
             if (menuHasUpdateFw)
@@ -624,17 +673,29 @@ bool menuPerformSelection(uint8_t index)
                 return true;
             }
             break;
-        case MENU_ACTION_LOAD_ROM :
+        case MENU_ACTION_NTP_TZ :
+            wifiNtpTz = entryIndex;
             menuConfigChanged = true;
-            updateRomName(entryIndex, entryPtr);
+            menuCurrent = MENU_TYPE_SETTINGS;
+            break;
+        case MENU_ACTION_LOAD_NETMAN :
+            strncpy(browserPath, NETMAN_PATH, MAX_PATH);
             return true;
-        case MENU_ACTION_LOAD_CART :
-            updateRomName(entryIndex, entryPtr);
+        case MENU_ACTION_LOAD_RTC_SETUP :
+            strncpy(browserPath, RTC_SETUP_PATH, MAX_PATH);
             return true;
         case MENU_ACTION_BROWSER_CD :
             if (updateBrowserPath(entryIndex, entryPtr))
             {
                 menuCurrent = MENU_TYPE_BROWSER;
+            } else {
+                menuCurrent = MENU_TYPE_SETTINGS;
+            }
+            break;
+        case MENU_ACTION_BROWSER_OPEN :
+            if (updateBrowserPath(entryIndex, entryPtr))
+            {
+                menuCurrent = MENU_TYPE_BROWSER_OPEN;
             } else {
                 menuCurrent = MENU_TYPE_SETTINGS;
             }
@@ -652,22 +713,6 @@ bool menuPerformSelection(uint8_t index)
             break;
         case MENU_ACTION_BROWSER_LOAD_DSK :
             // TODO: Disk emulation?
-            menuCurrent = MENU_TYPE_SETTINGS;
-            break;
-        case MENU_ACTION_BROWSER_OPEN :
-            if (updateBrowserPath(entryIndex, entryPtr))
-            {
-                menuCurrent = MENU_TYPE_BROWSER_OPEN;
-            } else {
-                menuCurrent = MENU_TYPE_SETTINGS;
-            }
-            break;
-        case MENU_ACTION_NTP_TZ :
-            if (entryIndex < 0xFF)
-            {
-                wifiNtpTz = entryIndex;
-                menuConfigChanged = true;
-            }
             menuCurrent = MENU_TYPE_SETTINGS;
             break;
     }
@@ -689,7 +734,16 @@ void menuPerformAction()
         case MENU_ACTION_BROWSER_LOAD_CART :
         case MENU_ACTION_BROWSER_LOAD_ZXC2 :
         case MENU_ACTION_BROWSER_LOAD_Z80 :
-            // Load new ROM, without changing the configuration
+            // Load new cartridge, with DivMMC disabled
+            divMmcPresent = false;
+            menuConfigReload = false;
+            break;
+        case MENU_ACTION_LOAD_NETMAN :
+        case MENU_ACTION_LOAD_RTC_SETUP :
+            // Load tools, with DivMMC and UART enabled
+            divMmcPresent = true;
+            uartPresent = true;
+            wifiNtpPresent = false;
             menuConfigReload = false;
             break;
         default :
@@ -959,6 +1013,8 @@ File menuGetRomFile(rom_type_t* romType)
         case MENU_ACTION_BROWSER_LOAD_CART :
             *romType = TYPE_CART;
             return menuGetBrowserRomFile();
+        case MENU_ACTION_LOAD_NETMAN :
+        case MENU_ACTION_LOAD_RTC_SETUP :
         case MENU_ACTION_BROWSER_LOAD_Z80 :
             return menuGetBrowserZ80File(romType);
         default :

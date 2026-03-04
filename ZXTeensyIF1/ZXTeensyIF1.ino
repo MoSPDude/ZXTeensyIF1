@@ -33,11 +33,14 @@ extern "C" uint32_t set_arm_clock(uint32_t frequency);
 const char PROGMEM VERSION_STR[9] = ZXTEENSY_VERSION;
 
 typedef enum {
+    MENU_ACTION_TOP_MENU,
     MENU_ACTION_SETTING,
     MENU_ACTION_LOAD_ROM,
     MENU_ACTION_LOAD_CART,
     MENU_ACTION_UPDATE_FW,
     MENU_ACTION_NTP_TZ,
+    MENU_ACTION_LOAD_NETMAN,
+    MENU_ACTION_LOAD_RTC_SETUP,
     MENU_ACTION_BROWSER_CD,
     MENU_ACTION_BROWSER_OPEN,
     MENU_ACTION_BROWSER_LOAD_CART,
@@ -1263,7 +1266,8 @@ void handleStateReset()
         } else if (snaLoaderPresent)
         {
             snaLoaderPaged = true;
-        } else if (divMmcPresent)
+        }
+        if (divMmcPresent)
         {
             if (beginDivMmcSd())
             {
