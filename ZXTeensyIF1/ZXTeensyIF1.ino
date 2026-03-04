@@ -37,6 +37,7 @@ typedef enum {
     MENU_ACTION_LOAD_ROM,
     MENU_ACTION_LOAD_CART,
     MENU_ACTION_UPDATE_FW,
+    MENU_ACTION_NTP_TZ,
     MENU_ACTION_BROWSER_CD,
     MENU_ACTION_BROWSER_OPEN,
     MENU_ACTION_BROWSER_LOAD_CART,
@@ -269,7 +270,10 @@ volatile bool uartEnabled = false;
 UartZXTeensy espUart;
 
 // RTC module
-volatile bool wifiNtpEnabled = true;
+volatile bool wifiNtpPresent = false;
+volatile bool wifiNtpEnabled = false;
+volatile bool wifiNtpHasTime = false;
+volatile uint8_t wifiNtpTz = 48;
 RtcZXTeensy rtcTeensy;
 EspNtpZXTeensy wifiNtp;
 
@@ -411,7 +415,7 @@ inline __attribute__((always_inline)) void performOnClock()
     {
         globalCycleCount = cycle_;
 
-        // Perform SPI and UART on clock ticks
+        // Perform tick updates at TICK_FREQ
         espUart.onTick();
         divMmcSpi.onTick();
         if (wifiNtpEnabled)
@@ -419,11 +423,19 @@ inline __attribute__((always_inline)) void performOnClock()
             if (wifiNtp.onTick())
             {
                 wifiNtpEnabled = false;
-                rtcTeensy.setAscTime(wifiNtp.getAscTime());
-                if (uartPresent)
+                rtcTeensy.setAscTime(wifiNtp.getAscTime(), wifiNtpTz);
+                wifiNtpHasTime = true;
+
+                // Enable the UART, now time is updated
+                espUart.flush();
+                uartEnabled = true;
+
+                // Trigger NMI in menu to redraw
+                if (menuPaged && !nmiPending)
                 {
-                    espUart.flush();
-                    uartEnabled = true;
+                    menuGenerate();
+                    nmiPending = true;
+                    digitalWriteFast(NMI_PIN, 1);
                 }
             }
         }
@@ -440,8 +452,8 @@ inline __attribute__((always_inline)) void performOnClock()
                     --resetHardTrigCount;
                     if (resetHardTrigCount == 0)
                     {
-                        afterFirstReset = false;
-                        setState(STATE_RESET);
+                        performHardReset();
+                        return;
                     }
                 }
                 break;
@@ -953,6 +965,20 @@ void initialiseRamBanks()
     memset((void*)&(romArray[ROM_PAGE_MF128][RAM_PAGE_SIZE]), 0xFF, RAM_PAGE_SIZE);
 }
 
+void performHardReset()
+{
+    // Disable the ESP-01S
+    pinMode(ESP_ENABLE, OUTPUT);
+    digitalWriteFast(ESP_ENABLE, 0);
+
+    // Clear the UART
+    espUart.end();
+
+    // Perform reset
+    afterFirstReset = false;
+    setState(STATE_RESET);
+}
+
 void handleStateResetEntry()
 {
 #ifdef DEBUG_OUTPUT
@@ -1141,6 +1167,9 @@ void handleStateReset()
     // Delay to allow reset to take effect
     delay(250);
 
+    // Enable the ESP-01S
+    pinMode(ESP_ENABLE, INPUT_PULLUP);
+
     // Blink the LED
     digitalWriteFast(LED_PIN, 1);
 
@@ -1176,6 +1205,7 @@ void handleStateReset()
     zxC2Lock = false;
     zxC2BankPtr = 0x00;
     snaLoaderPaged = false;
+    uartEnabled = false;
     romSelected = ROM_ROM0;
     romArraySelected = BANK_ROM0;
 
@@ -1195,12 +1225,19 @@ void handleStateReset()
     }
 
     // If UART is required, then initialise
-    if (uartPresent || wifiNtpEnabled)
+    if (uartPresent)
     {
         espUart.begin(0);
-        if (wifiNtpEnabled)
+
+        // Disable time over WiFi, in case already started
+        if (!wifiNtpPresent)
         {
+            wifiNtp.end();
+        } else if (!wifiNtpHasTime)
+        {
+            // Start to get time over WiFi, when not already sync'd
             wifiNtp.begin(&espUart);
+            wifiNtpEnabled = true;
         }
     }
 
@@ -1237,7 +1274,7 @@ void handleStateReset()
             interface1Enabled = true;
         }
 
-        // If UART is present, then enable
+        // If UART is present and ready, then enable
         if (uartPresent && !wifiNtpEnabled)
         {
             espUart.flush();

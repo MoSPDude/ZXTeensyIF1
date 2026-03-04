@@ -22,7 +22,8 @@ MEM_PAGE    EQU 0x7FFF  ; which page
 ; ------------------------------------------+----------------------------------
 ;MEM_ORG     EQU     0x8000  ; start of code **this is for testing**
 MEM_ORG     EQU      0x0000  ; start of code
-MEM_NMI     EQU     MEM_ORG + 0x0038
+MEM_INT     EQU     MEM_ORG + 0x0038
+MEM_NMI     EQU     MEM_ORG + 0x0066
 MEM_LTBL    EQU     MEM_ORG + 0x1000 ; lookup table MEM_LTBLP-512
 MEM_LTBLP   EQU     MEM_LTBL + 0x200 ; lookup table start
 MEM_OFFSET  EQU     MEM_LTBLP - 9;
@@ -49,6 +50,7 @@ MEM_OFFSET  EQU     MEM_LTBLP - 9;
     ld a,1
     ld (MEM_PAGE),a
     ;
+nmi_restart:
     call _txtMem                            ; set start txt mem for page
     ld a,%00000111                            ; white border
     out (0xfe),a
@@ -58,9 +60,12 @@ MEM_OFFSET  EQU     MEM_LTBLP - 9;
 ; ------------------------------------------+----------------------------------
 ; IM1 maskable interrupt routine @ 0x0038
 ; ------------------------------------------+----------------------------------
-    org MEM_NMI
+    org MEM_INT
     ei
     ret
+    org MEM_NMI
+    pop bc
+    jp nmi_restart
 ; ------------------------------------------+----------------------------------
 ; Menu Routine
 ; ------------------------------------------+----------------------------------

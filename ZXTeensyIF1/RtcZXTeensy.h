@@ -143,7 +143,7 @@ class RtcZXTeensy
             }
         }
 
-        inline __attribute__((always_inline)) void setAscTime(const char* ascTime)
+        inline __attribute__((always_inline)) void setAscTime(const char* ascTime, uint8_t ntpTz)
         {
             if (ascTime != 0)
             {
@@ -188,6 +188,18 @@ class RtcZXTeensy
                 {
                     setSyncProvider(0);
                     setTime(hrs, mins, secs, days, mnts, yrs);
+                    time_t timeNow = now();
+                    if (ntpTz >= 48)
+                    {
+                        time_t adjust = (ntpTz - 48) * 15 * 60;
+                        timeNow += adjust;
+                        setTime(timeNow);
+                    } else if (ntpTz < 48)
+                    {
+                        time_t adjust = (48 - ntpTz) * 15 * 60;
+                        timeNow -= adjust;
+                        setTime(timeNow);
+                    }
                     updateRegisters();
                     needsRtcSet = true;
                 }

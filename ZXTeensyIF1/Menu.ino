@@ -17,6 +17,7 @@ static const uint8_t CHAR_Z80_R = 29;
 
 typedef enum {
     MENU_TYPE_SETTINGS,
+    MENU_TYPE_NTP_TZ,
     MENU_TYPE_BROWSER,
     MENU_TYPE_BROWSER_OPEN
 } menu_type_t;
@@ -33,9 +34,27 @@ typedef struct {
     char mf128Present;
     char uartPresent;
     char usbPresent;
+    char wifiNtpPresent;
+    char wifiNtpTz;
     char bootIntoMenu;
     char romName[(ROM_NAME_LEN + 1)];
 } cfg_data_t;
+
+typedef enum {
+    SETTING_ACTION_RESTART,
+    SETTING_ACTION_DISABLE,
+    SETTING_ACTION_NO_OP,
+    SETTING_ACTION_TOGGLE_MENU,
+    SETTING_ACTION_TOGGLE_DIVMMC,
+    SETTING_ACTION_TOGGLE_IF1,
+    SETTING_ACTION_TOGGLE_MF128,
+    SETTING_ACTION_TOGGLE_USB,
+    SETTING_ACTION_TOGGLE_UART,
+    SETTING_ACTION_TOGGLE_NTP,
+    SETTING_ACTION_OPEN_NTP_TZ = 0xFD,
+    SETTING_ACTION_OPEN_BROWSER = 0xFE,
+    SETTING_ACTION_USE_INTERNAL_ROM = 0xFF
+} settings_menu_action_t;
 
 // Configuration data
 DMAMEM cfg_data_t cfgData;
@@ -100,6 +119,7 @@ char* menuInsertSetting(menu_action_t action, uint8_t index, char* ptr, const ch
         *ptr = 10;
         ++menuPageLine;
     } else {
+        *ptr = 0;
         menuPageLine = 0;
         ++menuPage;
     }
@@ -108,7 +128,8 @@ char* menuInsertSetting(menu_action_t action, uint8_t index, char* ptr, const ch
 
 inline __attribute__((always_inline)) char* menuInsertSpacer(char* ptr)
 {
-    return menuInsertSetting(MENU_ACTION_SETTING, 2, ptr, "", 0);
+    return menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_NO_OP,
+        ptr, "", 0);
 }
 
 char* menuInsertFile(menu_action_t action, icon_type_t icon, uint8_t index, char* ptr,
@@ -256,6 +277,45 @@ char* menuAddBrowserFile(uint8_t index, char* ptr, File entry)
     return menuInsertFile(action, icon, index, ptr, filename);
 }
 
+char* menuGenerateNtpTz(char* ptr)
+{
+    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 0xFF, ptr, "Cancel", 0);
+    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 0, ptr, "-12:00 hours", (wifiNtpTz == 0));
+    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 4, ptr, "-11:00 hours", (wifiNtpTz == 4));
+    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 8, ptr, "-10:00 hours", (wifiNtpTz == 8));
+    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 10, ptr, "-9:30 hours", (wifiNtpTz == 10));
+    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 12, ptr, "-9:00 hours", (wifiNtpTz == 12));
+    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 16, ptr, "-8:00 hours", (wifiNtpTz == 16));
+    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 20, ptr, "-7:00 hours", (wifiNtpTz == 20));
+    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 24, ptr, "-6:00 hours", (wifiNtpTz == 24));
+    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 28, ptr, "-5:00 hours", (wifiNtpTz == 28));
+    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 32, ptr, "-4:00 hours", (wifiNtpTz == 32));
+    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 36, ptr, "-3:00 hours", (wifiNtpTz == 36));
+    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 40, ptr, "-2:00 hours", (wifiNtpTz == 40));
+    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 44, ptr, "-1:00 hours", (wifiNtpTz == 44));
+    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 48, ptr, "+0:00 hours", (wifiNtpTz == 48));
+    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 52, ptr, "+1:00 hours", (wifiNtpTz == 52));
+    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 56, ptr, "+2:00 hours", (wifiNtpTz == 56));
+    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 60, ptr, "+3:00 hours", (wifiNtpTz == 60));
+    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 64, ptr, "+4:00 hours", (wifiNtpTz == 64));
+    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 68, ptr, "+5:00 hours", (wifiNtpTz == 68));
+    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 72, ptr, "+6:00 hours", (wifiNtpTz == 72));
+    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 74, ptr, "+6:30 hours", (wifiNtpTz == 74));
+    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 76, ptr, "+7:00 hours", (wifiNtpTz == 76));
+    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 80, ptr, "+8:00 hours", (wifiNtpTz == 80));
+    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 82, ptr, "+8:30 hours", (wifiNtpTz == 82));
+    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 84, ptr, "+9:00 hours", (wifiNtpTz == 84));
+    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 88, ptr, "+9:30 hours", (wifiNtpTz == 88));
+    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 90, ptr, "+10:00 hours", (wifiNtpTz == 90));
+    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 92, ptr, "+10:30 hours", (wifiNtpTz == 92));
+    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 94, ptr, "+11:00 hours", (wifiNtpTz == 94));
+    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 96, ptr, "+12:00 hours", (wifiNtpTz == 96));
+    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 99, ptr, "+12:45 hours", (wifiNtpTz == 99));
+    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 100, ptr, "+13:00 hours", (wifiNtpTz == 100));
+    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 104, ptr, "+14:00 hours", (wifiNtpTz == 104));
+    return ptr;
+}
+
 char* menuGenerateBrowserOpen(char* ptr)
 {
     ptr = menuInsertSetting(MENU_ACTION_BROWSER_CD, 0xFF, ptr, "Cancel", 0);
@@ -302,9 +362,12 @@ char* menuGenerateBrowser(char* ptr)
 
 char* menuGenerateSettings(char* ptr)
 {
-    ptr = menuInsertSetting(MENU_ACTION_SETTING, 0, ptr, "Save and Restart", 0);
-    ptr = menuInsertSetting(MENU_ACTION_SETTING, 1, ptr, "Disable and Restart", 0);
-    ptr = menuInsertSetting(MENU_ACTION_SETTING, 0xFE, ptr, "Browse SD card", 0);
+    ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_RESTART,
+        ptr, "Save and Restart", 0);
+    ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_DISABLE,
+        ptr, "Disable and Restart", 0);
+    ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_OPEN_BROWSER,
+        ptr, "Browse SD card", 0);
     ptr = menuInsertSpacer(ptr);
 
     // Add firmware update option, if available
@@ -313,32 +376,66 @@ char* menuGenerateSettings(char* ptr)
     {
         menuHasUpdateFw = true;
         fwUpdateFile.close();
-        ptr = menuInsertSetting(MENU_ACTION_UPDATE_FW, 0, ptr, "Update firmware and Restart", 0);
+        ptr = menuInsertSetting(MENU_ACTION_UPDATE_FW, 0, ptr,
+            "Update firmware and Restart", 0);
     } else {
         menuHasUpdateFw = false;
     }
 
     // Add settings menu
-    ptr = menuInsertSetting(MENU_ACTION_SETTING, 3, ptr, "Boot into Menu", bootIntoMenu);
+    ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_MENU,
+        ptr, "Boot into Menu", bootIntoMenu);
     if ((romArrayPresent & BANK_DIVMMC) != 0)
     {
-        ptr = menuInsertSetting(MENU_ACTION_SETTING, 4, ptr, "Enable DivMMC", divMmcPresent);
+        ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_DIVMMC,
+            ptr, "Enable DivMMC", divMmcPresent);
     }
     if ((romArrayPresent & BANK_IF1) != 0)
     {
-        ptr = menuInsertSetting(MENU_ACTION_SETTING, 5, ptr, "Enable Interface 1", interface1Present);
+        ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_IF1,
+            ptr, "Enable Interface 1", interface1Present);
     }
     if ((romArrayPresent & BANK_MF128) != 0)
     {
-        ptr = menuInsertSetting(MENU_ACTION_SETTING, 6, ptr, "Enable Multiface 128", mf128Present);
+        ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_MF128,
+            ptr, "Enable Multiface 128", mf128Present);
     }
-    ptr = menuInsertSetting(MENU_ACTION_SETTING, 7, ptr, "Enable ESP-01S UART", uartPresent);
-    ptr = menuInsertSetting(MENU_ACTION_SETTING, 8, ptr, "Enable Kempston USB mouse/gamepad", usbPresent);
+    ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_USB, ptr,
+        "Enable Kempston USB mouse/gamepad", usbPresent);
+    ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_UART, ptr,
+        "Enable ESP-01S UART", uartPresent);
+    if (uartPresent)
+    {
+        ptr = menuInsertSpacer(ptr);
+        ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_NTP,
+            ptr, "Update RTC from WiFi NTP", wifiNtpPresent);
+        if (wifiNtpHasTime)
+        {
+            struct tm buf;
+            time_t timeNow = now();
+            char timeStr[36];
+            timeStr[0] = ' ';
+            timeStr[1] = '>';
+            timeStr[2] = ' ';
+            strftime(&(timeStr[3]), 32, "%a %b %e %H:%M:%S %Y",
+                gmtime_r(&timeNow, &buf));
+            ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_NO_OP,
+                ptr, timeStr, 0);
+        } else {
+            ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_NO_OP,
+                ptr, " > WiFi NTP not ready", 0);
+        }
+        if (wifiNtpPresent)
+        {
+            ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_OPEN_NTP_TZ,
+                ptr, "Set WiFi NTP timezone", 0);
+        }
+    }
     ptr = menuInsertSpacer(ptr);
 
     // List ROM files
-    ptr = menuInsertSetting(MENU_ACTION_SETTING, 0xFF, ptr, "Internal ROM",
-        (stricmp(cfgData.romName, INTERNAL_ROM_NAME) == 0));
+    ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_USE_INTERNAL_ROM,
+        ptr, "Internal ROM", (stricmp(cfgData.romName, INTERNAL_ROM_NAME) == 0));
     File romDirectory = SD.open("ROMS", FILE_READ);
     if (romDirectory)
     {
@@ -386,6 +483,9 @@ void menuGenerate()
     {
         case MENU_TYPE_SETTINGS :
             textPtr = menuGenerateSettings(textPtr);
+            break;
+        case MENU_TYPE_NTP_TZ :
+            textPtr = menuGenerateNtpTz(textPtr);
             break;
         case MENU_TYPE_BROWSER :
             textPtr = menuGenerateBrowser(textPtr);
@@ -446,58 +546,66 @@ bool menuPerformSelection(uint8_t index)
         case MENU_ACTION_SETTING :
             switch (entryIndex)
             {
-                case 0 :
+                case SETTING_ACTION_RESTART :
                     // Reload the existing ROM name, and reset
                     menuAction = MENU_ACTION_LOAD_ROM;
                     return true;
-                case 1 :
+                case SETTING_ACTION_DISABLE :
                     // Temporarily disable device, and fully reset
                     isDeviceDisabled = true;
                     afterFirstReset = false;
                     menuAction = MENU_ACTION_LOAD_ROM;
                     return true;
-                case 2 :
+                case SETTING_ACTION_NO_OP :
                     // Spacer line
                     break;
-                case 3 :
+                case SETTING_ACTION_TOGGLE_MENU :
                     bootIntoMenu = !bootIntoMenu;
                     menuConfigChanged = true;
                     break;
-                case 4 :
+                case SETTING_ACTION_TOGGLE_DIVMMC :
                     if ((romArrayPresent & BANK_DIVMMC) != 0)
                     {
                         divMmcPresent = !divMmcPresent;
                         menuConfigChanged = true;
                     }
                     break;
-                case 5 :
+                case SETTING_ACTION_TOGGLE_IF1 :
                     if ((romArrayPresent & BANK_IF1) != 0)
                     {
                         interface1Present = !interface1Present;
                         menuConfigChanged = true;
                     }
                     break;
-                case 6 :
+                case SETTING_ACTION_TOGGLE_MF128 :
                     if ((romArrayPresent & BANK_MF128) != 0)
                     {
                         mf128Present = !mf128Present;
                         menuConfigChanged = true;
                     }
                     break;
-                case 7 :
-                    uartPresent = !uartPresent;
-                    menuConfigChanged = true;
-                    break;
-                case 8 :
+                case SETTING_ACTION_TOGGLE_USB :
                     usbPresent = !usbPresent;
                     menuConfigChanged = true;
                     break;
-                case 0xFE :
+                case SETTING_ACTION_TOGGLE_UART :
+                    uartPresent = !uartPresent;
+                    menuConfigChanged = true;
+                    break;
+                case SETTING_ACTION_TOGGLE_NTP :
+                    wifiNtpPresent = !wifiNtpPresent;
+                    menuConfigChanged = true;
+                    break;
+                case SETTING_ACTION_OPEN_NTP_TZ :
+                    // Start WiFi NTP timezone selector
+                    menuCurrent = MENU_TYPE_NTP_TZ;
+                    break;
+                case SETTING_ACTION_OPEN_BROWSER :
                     // Start file browser
                     strncpy(browserPath, "/", MAX_PATH);
                     menuCurrent = MENU_TYPE_BROWSER;
                     break;
-                case 0xFF :
+                case SETTING_ACTION_USE_INTERNAL_ROM :
                     // Load internal ROM name
                     strncpy(cfgData.romName, INTERNAL_ROM_NAME, ROM_NAME_LEN);
                     cfgData.romName[ROM_NAME_LEN] = 0;
@@ -553,6 +661,14 @@ bool menuPerformSelection(uint8_t index)
             } else {
                 menuCurrent = MENU_TYPE_SETTINGS;
             }
+            break;
+        case MENU_ACTION_NTP_TZ :
+            if (entryIndex < 0xFF)
+            {
+                wifiNtpTz = entryIndex;
+                menuConfigChanged = true;
+            }
+            menuCurrent = MENU_TYPE_SETTINGS;
             break;
     }
 
@@ -860,6 +976,8 @@ void menuClearConfiguration()
     usbPresent = false;
     bootIntoMenu = true;
     cfgData.bootIntoMenu = bootIntoMenu;
+    wifiNtpPresent = false;
+    wifiNtpTz = 48;
     strncpy(cfgData.romName, INTERNAL_ROM_NAME, ROM_NAME_LEN);
     cfgData.romName[ROM_NAME_LEN] = 0;
     menuConfigChanged = true;
@@ -874,7 +992,7 @@ void menuLoadConfiguration()
         if (cfgFile)
         {
             menuClearConfiguration();
-            if (cfgFile.readBytes((char*)&cfgData, sizeof(cfgData)) > 0)
+            if (cfgFile.readBytes((char*)&cfgData, sizeof(cfgData)) >= sizeof(cfgData))
             {
                 if ((romArrayPresent & BANK_DIVMMC) != 0)
                 {
@@ -890,6 +1008,8 @@ void menuLoadConfiguration()
                 }
                 uartPresent = cfgData.uartPresent;
                 usbPresent = cfgData.usbPresent;
+                wifiNtpPresent = cfgData.wifiNtpPresent;
+                wifiNtpTz = cfgData.wifiNtpTz;
                 bootIntoMenu = cfgData.bootIntoMenu;
                 cfgData.romName[ROM_NAME_LEN] = 0;
             }
@@ -915,6 +1035,8 @@ void menuSaveConfiguration()
             cfgData.mf128Present = mf128Present;
             cfgData.uartPresent = uartPresent;
             cfgData.usbPresent = usbPresent;
+            cfgData.wifiNtpPresent = wifiNtpPresent;
+            cfgData.wifiNtpTz = wifiNtpTz;
             cfgData.bootIntoMenu = bootIntoMenu;
             cfgData.romName[ROM_NAME_LEN] = 0;
             cfgFile.write((char*)&cfgData, sizeof(cfgData));

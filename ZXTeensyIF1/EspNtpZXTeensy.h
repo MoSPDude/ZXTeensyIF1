@@ -146,13 +146,20 @@ class EspNtpZXTeensy
         inline __attribute__((always_inline)) void begin(UartZXTeensy* uart)
         {
             espUart = uart;
-            if (!hasSyncTime && (currentState == STATE_IDLE))
+            if (currentState == STATE_IDLE)
             {
+                hasSyncTime = false;
+                ascTimePtr = 0;
                 setState(STATE_WAITING);
             }
 #ifdef DEBUG_NTP_OUTPUT
             Serial.begin(115200);
 #endif
+        }
+
+        inline __attribute__((always_inline)) void end()
+        {
+            setState(STATE_IDLE);
         }
 
         inline __attribute__((always_inline)) bool onTick()
