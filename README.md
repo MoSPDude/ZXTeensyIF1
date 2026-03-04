@@ -37,6 +37,10 @@ A Teensy 4.1 powered DivMMC and ZX Interface 1 clone for the ZX Spectrum 48K/128
 * Menu ROM derived from TomDDGs ZXPicoIF2Lite ROMExplorer
 * Z80 snapshot loading from TomDDGs ZXPicoIF2Lite
     * Integrated "z80torom" for loading 'z80' and 'sna' files
+* Nihirash's Network Manager for WiFi configuration
+    * Small bugfix to clear the BASIC keypress on load
+* Velesoft's RTC_SETUP for RTC configuration
+    * Minor tweaks to preset the RTC port
 * External ROM support
     * ZX Interface 1 edge connector supports other ROM based hardware
     * eg. Retroleum SMART card, real ZX Interface 2 hardware etc.
@@ -64,6 +68,11 @@ It borrows content, ideas and inspiration from,
     * Initial code and parts for the Teensy 4.1 firmware
 * https://github.com/TomDDG/ZXPicoIF2Lite
     * ROM menu source code, Z80 snapshot loader, and the idea of a soft ROM
+* https://github.com/nihirash/netman-zx
+    * WiFi Network Manager for the ESP-01S
+* https://velesoft.speccy.cz/zx/rtcmodule/index.htm
+    * RTC_SETUP for the RTC module
+    * RTC.SYS for EsxDOS
 * https://github.com/joepasquariello/FlasherX
     * Teensy 4.x OTA upgrade library
 * https://github.com/liveboxandy/ZX-Interface-1-Recreated
@@ -81,7 +90,7 @@ Without the above projects, this would not have been possible!
 
 ## Current Status
 
-Updated v0.7 PCBs have been sent to PCBWay...
+Updated v0.7 PCBs have come back from PCBWay, and now being tested.
 
 The first v0.2 PCBs had come back from PCBWay, and been tested with my 48K Spectrum, and my
 ZX Max 128 Issue 3. Some parts have come from a donor ZX Interface 1 that needed a new old-stock
@@ -113,6 +122,8 @@ the DivMMC and enable the Interface 1.
     * SYS/
         * RTC.SYS (Optional, for RTC access)
         * (Other ESXDOS files)
+    * netman.z80 (WiFi Network Manager snapshot)
+    * rtc_setup.z80 (RTC Setup snapshot)
     * ZXTEENSY.CFG (Saved configuration from Menu ROM)
     * ZXTEENSY.HEX (Optional, firmware update)
 
