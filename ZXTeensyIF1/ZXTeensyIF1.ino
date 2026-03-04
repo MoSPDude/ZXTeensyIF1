@@ -1236,8 +1236,13 @@ void handleStateReset()
         } else if (!wifiNtpHasTime)
         {
             // Start to get time over WiFi, when not already sync'd
-            wifiNtp.begin(&espUart);
-            wifiNtpEnabled = true;
+            if (year() >= 2026)
+            {
+                wifiNtpHasTime = true;
+            } else {
+                wifiNtp.begin(&espUart);
+                wifiNtpEnabled = true;
+            }
         }
     }
 

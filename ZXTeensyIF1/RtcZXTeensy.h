@@ -4,8 +4,6 @@
 
 #include <TimeLib.h>
 
-#define DEFAULT_TIME 1767225600 // 1st January 2026 at 00:00
-
 extern unsigned long rtc_get(void);
 extern void rtc_set(unsigned long t);
 
@@ -82,11 +80,6 @@ class RtcZXTeensy
                 regBank[i] = 0;
             }
             setSyncProvider(getTeensy3Time);
-            if (year() < 2026)
-            {
-                setTime(DEFAULT_TIME);
-                rtc_set(DEFAULT_TIME);
-            }
             updateRegisters();
         }
 
