@@ -180,7 +180,7 @@ class UartZXTeensy
 
         inline __attribute__((always_inline)) uint8_t getStatusByte()
         {
-            uint16_t count = uartReadBuffer.getSize();
+            size_t count = uartReadBuffer.getSize();
             uint8_t status = (count != 0) ? 0x01 : 0x00;
             if (hasWriteData())
             {

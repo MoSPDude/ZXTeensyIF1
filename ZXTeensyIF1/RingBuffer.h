@@ -22,15 +22,20 @@ template <size_t BUFFER_SIZE> class RingBuffer
             bufferTail = bufferHead;
         }
 
-        inline __attribute__((always_inline)) uint16_t getSize()
+        inline __attribute__((always_inline)) size_t getSize()
         {
-            uint16_t head = bufferHead;
-            uint16_t tail = bufferTail;
+            size_t head = bufferHead;
+            size_t tail = bufferTail;
             if (head >= tail)
             {
                 return (head - tail);
             }
-            return (BUFFER_SIZE - tail - head);
+            return (BUFFER_SIZE + head - tail);
+        }
+
+        inline __attribute__((always_inline)) size_t getFree()
+        {
+            return (BUFFER_SIZE - 1 - getSize());
         }
 
         inline __attribute__((always_inline)) void write(uint8_t data)
@@ -41,20 +46,16 @@ template <size_t BUFFER_SIZE> class RingBuffer
 
         inline __attribute__((always_inline)) void writeBlock(uint8_t* data, size_t size)
         {
-            if (size >= BUFFER_SIZE)
-            {
-                size = BUFFER_SIZE - 1;
-            }
-            uint16_t nextHead = (bufferHead + size) % BUFFER_SIZE;
-            if (nextHead < bufferHead)
+            uint16_t head = (bufferHead + size) % BUFFER_SIZE;
+            if (head < bufferHead)
             {
                 size_t partSize = (BUFFER_SIZE - bufferHead);
                 memcpy((void*)&(buffer[bufferHead]), data, partSize);
                 memcpy((void*)buffer, &(data[partSize]), (size - partSize));
             } else {
-                memcpy((void*)&buffer[bufferHead], data, size);
+                memcpy((void*)&(buffer[bufferHead]), data, size);
             }
-            bufferHead = nextHead;
+            bufferHead = head;
         }
 
         inline __attribute__((always_inline)) uint8_t readRaw()
