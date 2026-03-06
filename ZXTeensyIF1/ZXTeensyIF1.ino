@@ -1,5 +1,5 @@
 
-#define ZXTEENSY_VERSION "20260304"
+#define ZXTEENSY_VERSION "20260306"
 #define ENABLE_BUILTIN_ROM_IF1
 //define DEBUG_OUTPUT
 
@@ -46,6 +46,7 @@ typedef enum {
     MENU_ACTION_BROWSER_LOAD_CART,
     MENU_ACTION_BROWSER_LOAD_ZXC2,
     MENU_ACTION_BROWSER_LOAD_Z80,
+    MENU_ACTION_BROWSER_LOAD_TZX,
     MENU_ACTION_BROWSER_LOAD_DSK
 } menu_action_t;
 
@@ -54,7 +55,8 @@ typedef enum {
     ICON_TYPE_DSK,
     ICON_TYPE_ZXC2,
     ICON_TYPE_CART,
-    ICON_TYPE_Z80
+    ICON_TYPE_Z80,
+    ICON_TYPE_TZX
 } icon_type_t;
 
 typedef enum {

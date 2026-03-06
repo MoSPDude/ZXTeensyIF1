@@ -1,11 +1,14 @@
 
 #define FLASH_FILENAME "ZXTEENSY.HEX"
-#define INTERNAL_ROM_NAME ":INTERNAL"
+#define CFG_FILENAME ((const char*)F("ZXTEENSY.CFG"))
+#define INTERNAL_ROM_NAME ((const char*)F(":INTERNAL"))
 #define ROM_NAME_LEN 32
 #define MAX_PATH 256
 
 #define NETMAN_PATH "/netman.z80"
 #define RTC_SETUP_PATH "/rtc_setup.z80"
+
+#include "StringsZXTeensy.h"
 
 static const uint8_t CHAR_BORDER = 20;
 static const uint8_t CHAR_DIR = 21;
@@ -17,6 +20,8 @@ static const uint8_t CHAR_IF2_L = 26;
 static const uint8_t CHAR_IF2_R = 27;
 static const uint8_t CHAR_Z80_L = 28;
 static const uint8_t CHAR_Z80_R = 29;
+static const uint8_t CHAR_TZX_L = 30;
+static const uint8_t CHAR_TZX_R = 31;
 
 typedef enum {
     MENU_TYPE_SETTINGS,
@@ -175,6 +180,7 @@ char* menuInsertFile(menu_action_t action, icon_type_t icon, uint8_t index, char
     {
         case ICON_TYPE_DSK :
             *ptr++ = 9;
+            *ptr++ = ' ';
             *ptr++ = CHAR_DSK;
             break;
         case ICON_TYPE_ZXC2 :
@@ -191,6 +197,11 @@ char* menuInsertFile(menu_action_t action, icon_type_t icon, uint8_t index, char
             *ptr++ = 9;
             *ptr++ = CHAR_Z80_L;
             *ptr++ = CHAR_Z80_R;
+            break;
+        case ICON_TYPE_TZX :
+            *ptr++ = 9;
+            *ptr++ = CHAR_TZX_L;
+            *ptr++ = CHAR_TZX_R;
             break;
         default :
             break;
@@ -268,6 +279,11 @@ char* menuAddBrowserFile(uint8_t index, char* ptr, File entry)
             {
                 icon = ICON_TYPE_DSK;
                 action = MENU_ACTION_BROWSER_LOAD_DSK;
+            } else if ((stricmp(fileext + 1, "tap") == 0) ||
+                (stricmp(fileext + 1, "tzx") == 0))
+            {
+                icon = ICON_TYPE_TZX;
+                action = MENU_ACTION_BROWSER_LOAD_TZX;
             } else {
                 icon = ICON_TYPE_NONE;
                 action = MENU_ACTION_BROWSER_OPEN;
@@ -284,50 +300,51 @@ char* menuAddBrowserFile(uint8_t index, char* ptr, File entry)
 
 char* menuGenerateNtpTz(char* ptr)
 {
-    ptr = menuInsertSetting(MENU_ACTION_TOP_MENU, 0, ptr, "Cancel", 0);
-    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 0, ptr, "-12:00 hours", (wifiNtpTz == 0));
-    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 4, ptr, "-11:00 hours", (wifiNtpTz == 4));
-    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 8, ptr, "-10:00 hours", (wifiNtpTz == 8));
-    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 10, ptr, "-9:30 hours", (wifiNtpTz == 10));
-    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 12, ptr, "-9:00 hours", (wifiNtpTz == 12));
-    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 16, ptr, "-8:00 hours", (wifiNtpTz == 16));
-    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 20, ptr, "-7:00 hours", (wifiNtpTz == 20));
-    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 24, ptr, "-6:00 hours", (wifiNtpTz == 24));
-    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 28, ptr, "-5:00 hours", (wifiNtpTz == 28));
-    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 32, ptr, "-4:00 hours", (wifiNtpTz == 32));
-    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 36, ptr, "-3:00 hours", (wifiNtpTz == 36));
-    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 40, ptr, "-2:00 hours", (wifiNtpTz == 40));
-    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 44, ptr, "-1:00 hours", (wifiNtpTz == 44));
-    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 48, ptr, "+0:00 hours", (wifiNtpTz == 48));
-    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 52, ptr, "+1:00 hours", (wifiNtpTz == 52));
-    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 56, ptr, "+2:00 hours", (wifiNtpTz == 56));
-    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 60, ptr, "+3:00 hours", (wifiNtpTz == 60));
-    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 64, ptr, "+4:00 hours", (wifiNtpTz == 64));
-    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 68, ptr, "+5:00 hours", (wifiNtpTz == 68));
-    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 72, ptr, "+6:00 hours", (wifiNtpTz == 72));
-    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 74, ptr, "+6:30 hours", (wifiNtpTz == 74));
-    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 76, ptr, "+7:00 hours", (wifiNtpTz == 76));
-    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 80, ptr, "+8:00 hours", (wifiNtpTz == 80));
-    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 82, ptr, "+8:30 hours", (wifiNtpTz == 82));
-    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 84, ptr, "+9:00 hours", (wifiNtpTz == 84));
-    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 88, ptr, "+9:30 hours", (wifiNtpTz == 88));
-    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 90, ptr, "+10:00 hours", (wifiNtpTz == 90));
-    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 92, ptr, "+10:30 hours", (wifiNtpTz == 92));
-    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 94, ptr, "+11:00 hours", (wifiNtpTz == 94));
-    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 96, ptr, "+12:00 hours", (wifiNtpTz == 96));
-    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 99, ptr, "+12:45 hours", (wifiNtpTz == 99));
-    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 100, ptr, "+13:00 hours", (wifiNtpTz == 100));
-    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 104, ptr, "+14:00 hours", (wifiNtpTz == 104));
+    ptr = menuInsertSetting(MENU_ACTION_TOP_MENU, 0, ptr, MENU_STRINGS[STRING_CANCEL], 0);
+    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 0, ptr, MENU_STRINGS[STRING_MINUS_12_00_HOURS], (wifiNtpTz == 0));
+    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 4, ptr, MENU_STRINGS[STRING_MINUS_11_00_HOURS], (wifiNtpTz == 4));
+    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 8, ptr, MENU_STRINGS[STRING_MINUS_10_00_HOURS], (wifiNtpTz == 8));
+    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 10, ptr, MENU_STRINGS[STRING_MINUS_9_30_HOURS], (wifiNtpTz == 10));
+    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 12, ptr, MENU_STRINGS[STRING_MINUS_9_00_HOURS], (wifiNtpTz == 12));
+    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 16, ptr, MENU_STRINGS[STRING_MINUS_8_00_HOURS], (wifiNtpTz == 16));
+    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 20, ptr, MENU_STRINGS[STRING_MINUS_7_00_HOURS], (wifiNtpTz == 20));
+    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 24, ptr, MENU_STRINGS[STRING_MINUS_6_00_HOURS], (wifiNtpTz == 24));
+    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 28, ptr, MENU_STRINGS[STRING_MINUS_5_00_HOURS], (wifiNtpTz == 28));
+    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 32, ptr, MENU_STRINGS[STRING_MINUS_4_00_HOURS], (wifiNtpTz == 32));
+    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 36, ptr, MENU_STRINGS[STRING_MINUS_3_00_HOURS], (wifiNtpTz == 36));
+    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 40, ptr, MENU_STRINGS[STRING_MINUS_2_00_HOURS], (wifiNtpTz == 40));
+    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 44, ptr, MENU_STRINGS[STRING_MINUS_1_00_HOURS], (wifiNtpTz == 44));
+    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 48, ptr, MENU_STRINGS[STRING_PLUS_0_00_HOURS], (wifiNtpTz == 48));
+    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 52, ptr, MENU_STRINGS[STRING_PLUS_1_00_HOURS], (wifiNtpTz == 52));
+    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 56, ptr, MENU_STRINGS[STRING_PLUS_2_00_HOURS], (wifiNtpTz == 56));
+    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 60, ptr, MENU_STRINGS[STRING_PLUS_3_00_HOURS], (wifiNtpTz == 60));
+    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 64, ptr, MENU_STRINGS[STRING_PLUS_4_00_HOURS], (wifiNtpTz == 64));
+    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 68, ptr, MENU_STRINGS[STRING_PLUS_5_00_HOURS], (wifiNtpTz == 68));
+    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 72, ptr, MENU_STRINGS[STRING_PLUS_6_00_HOURS], (wifiNtpTz == 72));
+    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 74, ptr, MENU_STRINGS[STRING_PLUS_6_30_HOURS], (wifiNtpTz == 74));
+    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 76, ptr, MENU_STRINGS[STRING_PLUS_7_00_HOURS], (wifiNtpTz == 76));
+    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 80, ptr, MENU_STRINGS[STRING_PLUS_8_00_HOURS], (wifiNtpTz == 80));
+    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 82, ptr, MENU_STRINGS[STRING_PLUS_8_30_HOURS], (wifiNtpTz == 82));
+    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 84, ptr, MENU_STRINGS[STRING_PLUS_9_00_HOURS], (wifiNtpTz == 84));
+    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 88, ptr, MENU_STRINGS[STRING_PLUS_9_00_HOURS], (wifiNtpTz == 88));
+    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 90, ptr, MENU_STRINGS[STRING_PLUS_10_00_HOURS], (wifiNtpTz == 90));
+    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 92, ptr, MENU_STRINGS[STRING_PLUS_10_30_HOURS], (wifiNtpTz == 92));
+    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 94, ptr, MENU_STRINGS[STRING_PLUS_11_00_HOURS], (wifiNtpTz == 94));
+    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 96, ptr, MENU_STRINGS[STRING_PLUS_12_00_HOURS], (wifiNtpTz == 96));
+    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 99, ptr, MENU_STRINGS[STRING_PLUS_12_45_HOURS], (wifiNtpTz == 99));
+    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 100, ptr, MENU_STRINGS[STRING_PLUS_13_00_HOURS], (wifiNtpTz == 100));
+    ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 104, ptr, MENU_STRINGS[STRING_PLUS_14_00_HOURS], (wifiNtpTz == 104));
     return ptr;
 }
 
 char* menuGenerateBrowserOpen(char* ptr)
 {
-    ptr = menuInsertSetting(MENU_ACTION_BROWSER_CD, 0xFF, ptr, "Cancel", 0);
-    ptr = menuInsertSetting(MENU_ACTION_BROWSER_LOAD_CART, 0, ptr, "Load as ROM cartridge", 0);
-    ptr = menuInsertSetting(MENU_ACTION_BROWSER_LOAD_ZXC2, 0, ptr, "Load as ZXC2 cartridge", 0);
-    ptr = menuInsertSetting(MENU_ACTION_BROWSER_LOAD_Z80, 0, ptr, "Load as Z80 snapshot", 0);
-    ptr = menuInsertSetting(MENU_ACTION_BROWSER_LOAD_DSK, 0, ptr, "Load as disk image", 0);
+    ptr = menuInsertSetting(MENU_ACTION_BROWSER_CD, 0xFF, ptr, MENU_STRINGS[STRING_CANCEL], 0);
+    ptr = menuInsertSetting(MENU_ACTION_BROWSER_LOAD_CART, 0, ptr, MENU_STRINGS[STRING_LOAD_ROM], 0);
+    ptr = menuInsertSetting(MENU_ACTION_BROWSER_LOAD_ZXC2, 0, ptr, MENU_STRINGS[STRING_LOAD_ZXC2], 0);
+    ptr = menuInsertSetting(MENU_ACTION_BROWSER_LOAD_Z80, 0, ptr, MENU_STRINGS[STRING_LOAD_Z80], 0);
+    ptr = menuInsertSetting(MENU_ACTION_BROWSER_LOAD_TZX, 0, ptr, MENU_STRINGS[STRING_LOAD_TZX], 0);
+    ptr = menuInsertSetting(MENU_ACTION_BROWSER_LOAD_DSK, 0, ptr, MENU_STRINGS[STRING_LOAD_DSK], 0);
     return ptr;
 }
 
@@ -367,9 +384,9 @@ char* menuGenerateBrowser(char* ptr)
 
 char* menuGenerateLoadRom(char* ptr)
 {
-    ptr = menuInsertSetting(MENU_ACTION_TOP_MENU, 0, ptr, "Cancel", 0);
+    ptr = menuInsertSetting(MENU_ACTION_TOP_MENU, 0, ptr, MENU_STRINGS[STRING_CANCEL], 0);
     ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_INTERNAL_ROM,
-        ptr, "Internal ROM", (stricmp(cfgData.romName, INTERNAL_ROM_NAME) == 0));
+        ptr, MENU_STRINGS[STRING_INTERNAL_ROM], (stricmp(cfgData.romName, INTERNAL_ROM_NAME) == 0));
     File romDirectory = SD.open("ROMS", FILE_READ);
     if (romDirectory)
     {
@@ -407,13 +424,13 @@ char* menuGenerateLoadRom(char* ptr)
 char* menuGenerateSettings(char* ptr)
 {
     ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_RESTART,
-        ptr, "Save and Restart", 0);
+        ptr, MENU_STRINGS[STRING_RESTART], 0);
     ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_DISABLE,
-        ptr, "Disable and Restart", 0);
+        ptr, MENU_STRINGS[STRING_DISABLE], 0);
     ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_OPEN_BROWSER,
-        ptr, "Browse SD card", 0);
+        ptr, MENU_STRINGS[STRING_OPEN_BROWSER], 0);
     ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_OPEN_ROMS,
-        ptr, "Load ROM", 0);
+        ptr, MENU_STRINGS[STRING_OPEN_ROMS], 0);
     ptr = menuInsertSpacer(ptr);
 
     // Add firmware update option, if available
@@ -423,37 +440,37 @@ char* menuGenerateSettings(char* ptr)
         menuHasUpdateFw = true;
         tmpFile.close();
         ptr = menuInsertSetting(MENU_ACTION_UPDATE_FW, 0, ptr,
-            "Update firmware and Restart", 0);
+            MENU_STRINGS[STRING_UPDATE_FW], 0);
     } else {
         menuHasUpdateFw = false;
     }
 
     // Add settings menu
     ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_MENU,
-        ptr, "Boot into Menu", bootIntoMenu);
+        ptr, MENU_STRINGS[STRING_BOOT_MENU], bootIntoMenu);
     if ((romArrayPresent & BANK_DIVMMC) != 0)
     {
         ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_DIVMMC,
-            ptr, "Enable DivMMC", divMmcPresent);
+            ptr, MENU_STRINGS[STRING_ENABLE_DIVMMC], divMmcPresent);
     }
     if ((romArrayPresent & BANK_IF1) != 0)
     {
         ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_IF1,
-            ptr, "Enable Interface 1", interface1Present);
+            ptr, MENU_STRINGS[STRING_ENABLE_IF1], interface1Present);
     }
     if ((romArrayPresent & BANK_MF128) != 0)
     {
         ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_MF128,
-            ptr, "Enable Multiface 128", mf128Present);
+            ptr, MENU_STRINGS[STRING_ENABLE_MF128], mf128Present);
     }
     ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_USB, ptr,
-        "Enable Kempston USB mouse/gamepad", usbPresent);
+        MENU_STRINGS[STRING_ENABLE_USB], usbPresent);
     ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_UART, ptr,
-        "Enable ESP-01S UART", uartPresent);
+        MENU_STRINGS[STRING_ENABLE_UART], uartPresent);
     if (uartPresent)
     {
         ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_NTP,
-            ptr, "Update RTC from WiFi NTP", wifiNtpPresent);
+            ptr, MENU_STRINGS[STRING_UPDATE_RTC_WIFI_NTP], wifiNtpPresent);
         if (wifiNtpHasTime)
         {
             struct tm buf;
@@ -468,27 +485,27 @@ char* menuGenerateSettings(char* ptr)
                 ptr, timeStr, 0);
         } else {
             ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_NO_OP,
-                ptr, " > WiFi NTP not ready", 0);
+                ptr, MENU_STRINGS[STRING_WIFI_NTP_NOT_READY], 0);
         }
         if (wifiNtpPresent)
         {
             ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_OPEN_NTP_TZ,
-                ptr, "Set WiFi NTP timezone", 0);
+                ptr, MENU_STRINGS[STRING_SET_NTP_TZ], 0);
         }
     }
 
     // Add tools
     bool hasToolSpacer = false;
-    tmpFile = SD.open(NETMAN_PATH, FILE_READ);
+    tmpFile = SD.open(RTC_SETUP_PATH, FILE_READ);
     if (tmpFile)
     {
         hasToolSpacer = true;
         ptr = menuInsertSpacer(ptr);
         ptr = menuInsertSetting(MENU_ACTION_LOAD_RTC_SETUP, 0, ptr, 
-            "Load RTC Setup", 0);
+            MENU_STRINGS[STRING_LOAD_RTC_CONFIG], 0);
         tmpFile.close();
     }
-    tmpFile = SD.open(RTC_SETUP_PATH, FILE_READ);
+    tmpFile = SD.open(NETMAN_PATH, FILE_READ);
     if (tmpFile)
     {
         if (!hasToolSpacer)
@@ -496,7 +513,7 @@ char* menuGenerateSettings(char* ptr)
             ptr = menuInsertSpacer(ptr);
         }
         ptr = menuInsertSetting(MENU_ACTION_LOAD_NETMAN, 0, ptr, 
-            "Load WiFi Network Manager", 0);
+            MENU_STRINGS[STRING_LOAD_NETMAN], 0);
         tmpFile.close();
     }
     return ptr;
@@ -703,6 +720,7 @@ bool menuPerformSelection(uint8_t index)
         case MENU_ACTION_BROWSER_LOAD_CART :
         case MENU_ACTION_BROWSER_LOAD_ZXC2 :
         case MENU_ACTION_BROWSER_LOAD_Z80 :
+        case MENU_ACTION_BROWSER_LOAD_TZX :
             if ((menuCurrent == MENU_TYPE_BROWSER_OPEN) ||
                 updateBrowserPath(entryIndex, entryPtr))
             {
@@ -735,6 +753,12 @@ void menuPerformAction()
         case MENU_ACTION_BROWSER_LOAD_ZXC2 :
         case MENU_ACTION_BROWSER_LOAD_Z80 :
             // Load new cartridge, with DivMMC disabled
+            divMmcPresent = false;
+            menuConfigReload = false;
+            break;
+        case MENU_ACTION_BROWSER_LOAD_TZX :
+            // Load new tape, with DivMMC disabled
+            // TODO: tzxPresent = true;
             divMmcPresent = false;
             menuConfigReload = false;
             break;
@@ -977,6 +1001,11 @@ File menuGetForegroundRomFile(rom_type_t* romType)
     return File();
 }
 
+char* menuGetBrowserPath()
+{
+    return browserPath;
+}
+
 File menuGetBrowserRomFile()
 {
     File entry = SD.open(browserPath, FILE_READ);
@@ -1044,7 +1073,7 @@ void menuLoadConfiguration()
     // Load the configuration from the SD card, as required
     if (menuConfigReload)
     {
-        File cfgFile = SD.open("ZXTEENSY.CFG", FILE_READ);
+        File cfgFile = SD.open(CFG_FILENAME, FILE_READ);
         if (cfgFile)
         {
             menuClearConfiguration();
@@ -1083,7 +1112,7 @@ void menuSaveConfiguration()
     if (menuConfigChanged)
     {
         menuConfigChanged = false;
-        File cfgFile = SD.open("ZXTEENSY.CFG", FILE_WRITE_BEGIN);
+        File cfgFile = SD.open(CFG_FILENAME, FILE_WRITE_BEGIN);
         if (cfgFile)
         {
             cfgData.divMmcPresent = divMmcPresent;
