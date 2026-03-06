@@ -201,7 +201,7 @@ hexadecimal format, as embedded in the compiled firmware.
     * "Teensy (for Arduino IDE 2.0.4 or later)" v1.60.0
 * Open ZXTeensyIF1\ZXTeensyIF1.ino
 * Set Board to Teensy 4.1
-* Set Optimize to "Fastest"
+* Set Optimize to "Smallest Code with LTO"
 * Set CPU Speed to "816 MHz (overclock)"
 * Verify and Upload
 

@@ -758,7 +758,7 @@ void menuPerformAction()
             break;
         case MENU_ACTION_BROWSER_LOAD_TZX :
             // Load new tape, with DivMMC disabled
-            // TODO: tzxPresent = true;
+            tzxPresent = true;
             divMmcPresent = false;
             menuConfigReload = false;
             break;
