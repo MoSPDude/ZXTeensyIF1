@@ -145,6 +145,7 @@ const uint8_t INPUT_PINS[] = {
 };
 
 const uint32_t RD_PIN_BITMASK = CORE_PIN1_BITMASK;
+const uint32_t WR_PIN_BITMASK = CORE_PIN0_BITMASK;
 const uint32_t M1_PIN_BITMASK = CORE_PIN4_BITMASK;
 const uint32_t IOREQ_PIN_BITMASK = CORE_PIN25_BITMASK;
 const uint32_t MREQ_PIN_BITMASK = CORE_PIN24_BITMASK;
@@ -302,6 +303,11 @@ volatile uint8_t joystickData = 0;
 
 // SPI and UART tick cycle counter
 volatile uint32_t globalCycleCount;
+
+// Optimised prototypes
+FASTRUN void isrFastGpios() __attribute__((hot, optimize("O3")));
+FASTRUN void isrRdEvent() __attribute__((hot, optimize("O3")));
+FASTRUN void isrWrEvent() __attribute__((hot, optimize("O3")));
 
 #ifdef DEBUG_OUTPUT
 
@@ -754,6 +760,7 @@ void setup()
     attachInterrupt(digitalPinToInterrupt(ROMCS_IN_PIN), isrRdEvent, CHANGE);
     attachInterrupt(digitalPinToInterrupt(RESET_IN_PIN), isrPinReset, FALLING);
     attachInterrupt(digitalPinToInterrupt(BUTTON_PIN), isrPinButton, FALLING);
+    attachInterruptVector(IRQ_GPIO6789, &isrFastGpios);
 
     // Setup UART ISRs
     attachInterruptVector(IRQ_LPUART5, isrUartEvent);
@@ -1700,6 +1707,39 @@ FASTRUN void isrWrEvent()
             }
         }
     }
+}
+
+FASTRUN void isrFastGpios()
+{
+    uint32_t status = GPIO6_ISR & GPIO6_IMR;
+    if (status)
+    {
+        GPIO6_ISR = status;
+        if (status & WR_PIN_BITMASK)
+        {
+            isrWrEvent();
+        } else {
+            isrRdEvent();
+        }
+    }
+    status = GPIO9_ISR & GPIO9_IMR;
+    if (status)
+    {
+        GPIO9_ISR = status;
+        if (status & ROMCS_IN_PIN_BITMASK)
+        {
+            isrRdEvent();
+        }
+        if (status & CORE_PIN33_BITMASK)
+        {
+            isrPinButton();
+        }
+        if (status & CORE_PIN2_BITMASK)
+        {
+            isrPinReset();
+        }
+    }
+    asm volatile ("dsb":::"memory");
 }
 
 FASTRUN void isrRdEvent()
