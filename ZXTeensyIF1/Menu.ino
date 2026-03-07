@@ -666,19 +666,34 @@ bool menuPerformSelection(uint8_t index)
                     break;
                 case SETTING_ACTION_INTERNAL_ROM :
                     // Load internal ROM name
-                    strncpy(cfgData.romName, INTERNAL_ROM_NAME, ROM_NAME_LEN);
-                    cfgData.romName[ROM_NAME_LEN] = 0;
-                    menuAction = MENU_ACTION_LOAD_ROM;
-                    menuConfigChanged = true;
-                    return true;
+                    if (stricmp(cfgData.romName, INTERNAL_ROM_NAME) == 0)
+                    {
+                        menuAction = MENU_ACTION_LOAD_ROM;
+                        return true;
+                    } else {
+                        strncpy(cfgData.romName, INTERNAL_ROM_NAME, ROM_NAME_LEN);
+                        cfgData.romName[ROM_NAME_LEN] = 0;
+                        menuConfigChanged = true;
+                    }
+                    break;
                 default :
                     break;
             }
             break;
         case MENU_ACTION_LOAD_ROM :
-            menuConfigChanged = true;
-            updateRomName(entryIndex, entryPtr);
-            return true;
+            {
+                char prevName[(ROM_NAME_LEN + 1)];
+                strncpy(prevName, cfgData.romName, ROM_NAME_LEN);
+                prevName[ROM_NAME_LEN] = 0;
+                updateRomName(entryIndex, entryPtr);
+                if (stricmp(prevName, cfgData.romName) == 0)
+                {
+                    return true;
+                } else {
+                    menuConfigChanged = true;
+                }
+            }
+            break;
         case MENU_ACTION_LOAD_CART :
             updateRomName(entryIndex, entryPtr);
             return true;
