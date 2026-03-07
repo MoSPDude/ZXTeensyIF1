@@ -18,6 +18,7 @@ class TzxPlayerZXTeensy
             BLOCK_PILOT,
             BLOCK_SYNC,
             BLOCK_DATA,
+            BLOCK_PULSES,
             BLOCK_PAUSE,
             BLOCK_STOP
         } block_type_t;
@@ -43,16 +44,19 @@ class TzxPlayerZXTeensy
         volatile uint32_t pulseDuration;
         volatile uint32_t edgeCycleCount;
 
+        volatile bool isTzxTapeFile;
         volatile uint8_t* tapeBuffer;
         volatile size_t tapePosition;
         volatile size_t tapeLength;
-        volatile uint16_t dataBlockSize;
+        volatile uint32_t dataBlockSize;
+        volatile uint16_t pauseAfterBlock;
         volatile bool tapeBufferStarted;
         volatile bool tapeBufferEnded;
         volatile bool tapeBufferAutoPlay;
 
         void sendStopCommand();
         void sendPulseCommand(uint16_t length);
+        void sendPulseSeqCommand(uint8_t numPulses, uint16_t firstLength);
         void sendPauseCommand(uint16_t durationMs);
         void sendPilotCommand(uint16_t numPulses, uint16_t pulseLength);
         void sendSyncCommand(uint16_t firstLength, uint16_t secondLength);
@@ -61,6 +65,12 @@ class TzxPlayerZXTeensy
 
         void insertStandardSpeedBlock(uint16_t numBytes, uint8_t flag);
         void insertPauseBlock(uint16_t durationMs);
+
+        bool loadStandardSpeedBlock();
+        bool loadTurboSpeedBlock();
+        bool loadPureDataBlock();
+        bool loadPulseSequenceBlock();
+        bool loadFromTape();
 
         inline __attribute__((always_inline)) bool runTapeNextByte()
         {
@@ -80,6 +90,16 @@ class TzxPlayerZXTeensy
                         return false;
                     }
                     break;
+                case BLOCK_PULSES :
+                    if (dataBuffer.canRead())
+                    {
+                        zeroDuration = dataBuffer.readRaw();
+                        zeroDuration |= (dataBuffer.readRaw() << 8);
+                        pulseData = 0x00;
+                    } else {
+                        return false;
+                    }
+                    break;
                 case BLOCK_PAUSE :
                     currentLevel = false;
                     pulseData = 0x00;
@@ -91,7 +111,10 @@ class TzxPlayerZXTeensy
                     break;
             }
             --numBytes;
-            if (numBytes > 0)
+            if (currentBlock == BLOCK_PULSES)
+            {
+                pulseShiftCount = 7;
+            } else if (numBytes > 0)
             {
                 pulseShiftCount = 0;
             } else {
@@ -158,13 +181,18 @@ class TzxPlayerZXTeensy
             return size;
         }
 
+        inline __attribute__((always_inline)) void ignoreTapeData(size_t size)
+        {
+            tapePosition += size;
+        }
+
     public :
         constexpr TzxPlayerZXTeensy() : enabled(false), isBuffering(false), isPlaying(false),
             currentLevel(false), currentBlock(BLOCK_IDLE),
             zeroDuration(0), oneDuration(0), numBytes(0), numFinalBits(0),
             doublePulse(false), pulseData(0xAA), pulseShiftCount(0),
-            pulseDuration(0), edgeCycleCount(0),
-            tapeBuffer(0), tapePosition(0), tapeLength(0), dataBlockSize(0),
+            pulseDuration(0), edgeCycleCount(0), isTzxTapeFile(false),
+            tapeBuffer(0), tapePosition(0), tapeLength(0), dataBlockSize(0), pauseAfterBlock(0),
             tapeBufferStarted(false), tapeBufferEnded(false), tapeBufferAutoPlay(false)
         {
         }
@@ -181,7 +209,8 @@ class TzxPlayerZXTeensy
                 {
                     edgeCycleCount = ARM_DWT_CYCCNT;
                     isPlaying = true;
-                } else {
+                } else if (!tapeBufferEnded)
+                {
                     isBuffering = true;
                     tapeBufferAutoPlay = true;
                 }

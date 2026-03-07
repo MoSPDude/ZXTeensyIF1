@@ -29,6 +29,22 @@ void TzxPlayerZXTeensy::sendPulseCommand(uint16_t length)
     dataBuffer.writeBlock(command, 8);
 }
 
+void TzxPlayerZXTeensy::sendPulseSeqCommand(uint8_t numPulses, uint16_t firstLength)
+{
+    uint8_t command[10];
+    command[0] = BLOCK_PULSES;
+    command[1] = 0;
+    command[2] = 0;
+    command[3] = 0;
+    command[4] = 0;
+    command[5] = numPulses;
+    command[6] = 0;
+    command[7] = 0;
+    command[8] = firstLength & 0xFF;
+    command[9] = (firstLength & 0xFF00) >> 8;
+    dataBuffer.writeBlock(command, 10);
+}
+
 void TzxPlayerZXTeensy::sendPauseCommand(uint16_t durationMs)
 {
     // Pulse width is 1ms
@@ -113,10 +129,15 @@ void TzxPlayerZXTeensy::insertStandardSpeedBlock(uint16_t numBytes, uint8_t flag
 
 void TzxPlayerZXTeensy::insertPauseBlock(uint16_t durationMs)
 {
-    sendPulseCommand(0xDAC);
-    if (durationMs > 1)
+    if (durationMs > 0)
     {
-        sendPauseCommand(durationMs - 1);
+        sendPulseCommand(0xDAC);
+        if (durationMs > 1)
+        {
+            sendPauseCommand(durationMs - 1);
+        }
+    } else {
+        sendStopCommand();
     }
 }
 
@@ -186,52 +207,236 @@ void TzxPlayerZXTeensy::bufferTape()
         }
         if (dataBlockSize == 0)
         {
-            insertPauseBlock(1000);
+            insertPauseBlock(pauseAfterBlock);
+            pauseAfterBlock = 0;
         }
     }
     if ((dataBlockSize == 0) &&
         (dataBuffer.getFree() > (TAPE_BUFFER_SIZE + COMMAND_SIZE)))
     {
-        uint16_t count = 0;
-        if (truncateTapeLength(2) >= 2)
+        if (!tapeBufferStarted)
         {
-            dataBlockSize = readTapeWord();
-            count = truncateTapeLength(
-                (dataBlockSize > TAPE_BUFFER_SIZE) ?
-                    TAPE_BUFFER_SIZE : dataBlockSize);
-            if (count > 0)
-            {
-                if (!tapeBufferStarted)
-                {
-                    insertPauseBlock(1000);
-                    tapeBufferStarted = true;
-                }
-                insertStandardSpeedBlock(dataBlockSize, readTapeByte());
-                insertTapeData(count - 1);
-                dataBlockSize -= count;
-                if (dataBlockSize == 0)
-                {
-                    insertPauseBlock(1000);
-                }
+            insertPauseBlock(1000);
+            tapeBufferStarted = true;
+        }
 
-                // Start the tape running, if not already
-                if (tapeBufferAutoPlay)
+        if (loadFromTape())
+        {
+            // Start the tape running, if not already
+            if (tapeBufferAutoPlay)
+            {
+                tapeBufferAutoPlay = false;
+                if (!isPlaying && startTape())
                 {
-                    tapeBufferAutoPlay = false;
-                    if (!isPlaying && startTape())
-                    {
-                        edgeCycleCount = ARM_DWT_CYCCNT;
-                        isPlaying = true;
-                    }
+                    edgeCycleCount = ARM_DWT_CYCCNT;
+                    isPlaying = true;
                 }
             }
-        }
-        if (count == 0)
-        {
+        } else {
             tapeBufferEnded = true;
             isBuffering = false;
         }
     }
+}
+
+bool TzxPlayerZXTeensy::loadStandardSpeedBlock()
+{
+    dataBlockSize = readTapeWord();
+    size_t count = truncateTapeLength(
+        (dataBlockSize > TAPE_BUFFER_SIZE) ?
+            TAPE_BUFFER_SIZE : dataBlockSize);
+    if (count > 0)
+    {
+        insertStandardSpeedBlock(dataBlockSize, readTapeByte());
+        insertTapeData(count - 1);
+        dataBlockSize -= count;
+        if (dataBlockSize == 0)
+        {
+            insertPauseBlock(pauseAfterBlock);
+            pauseAfterBlock = 0;
+        }
+        return true;
+    }
+    return false;
+}
+
+bool TzxPlayerZXTeensy::loadTurboSpeedBlock()
+{
+    uint16_t pilotLength = readTapeWord();
+    uint16_t firstLength = readTapeWord();
+    uint16_t secondLength = readTapeWord();
+    uint16_t zeroLength = readTapeWord();
+    uint16_t oneLength = readTapeWord();
+    uint16_t pilotNumPulses = readTapeWord();
+    uint8_t numFinalBits = readTapeByte();
+    pauseAfterBlock = readTapeWord();
+    dataBlockSize = readTapeWord();
+    dataBlockSize |= (readTapeByte() << 16);
+    size_t count = truncateTapeLength(
+        (dataBlockSize > TAPE_BUFFER_SIZE) ?
+            TAPE_BUFFER_SIZE : dataBlockSize);
+    if (count > 0)
+    {
+        sendPilotCommand(pilotNumPulses, pilotLength);
+        sendSyncCommand(firstLength, secondLength);
+        sendDataCommand(zeroLength, oneLength, dataBlockSize, numFinalBits, readTapeByte());
+        insertTapeData(count - 1);
+        dataBlockSize -= count;
+        if (dataBlockSize == 0)
+        {
+            insertPauseBlock(pauseAfterBlock);
+            pauseAfterBlock = 0;
+        }
+        return true;
+    }
+    return false;
+}
+
+bool TzxPlayerZXTeensy::loadPureDataBlock()
+{
+    uint16_t zeroLength = readTapeWord();
+    uint16_t oneLength = readTapeWord();
+    uint8_t numFinalBits = readTapeByte();
+    pauseAfterBlock = readTapeWord();
+    dataBlockSize = readTapeWord();
+    dataBlockSize |= (readTapeByte() << 16);
+    size_t count = truncateTapeLength(
+        (dataBlockSize > TAPE_BUFFER_SIZE) ?
+            TAPE_BUFFER_SIZE : dataBlockSize);
+    if (count > 0)
+    {
+        sendDataCommand(zeroLength, oneLength, dataBlockSize, numFinalBits, readTapeByte());
+        insertTapeData(count - 1);
+        dataBlockSize -= count;
+        if (dataBlockSize == 0)
+        {
+            insertPauseBlock(pauseAfterBlock);
+            pauseAfterBlock = 0;
+        }
+        return true;
+    }
+    return false;
+}
+
+bool TzxPlayerZXTeensy::loadPulseSequenceBlock()
+{
+    uint8_t length = readTapeByte();
+    dataBlockSize = (length * 2);
+    size_t count = truncateTapeLength(
+        (dataBlockSize > TAPE_BUFFER_SIZE) ?
+            TAPE_BUFFER_SIZE : dataBlockSize);
+    if (count > 1)
+    {
+        sendPulseSeqCommand(length, readTapeWord());
+        insertTapeData(count - 2);
+        dataBlockSize -= count;
+        return true;
+    }
+    return false;
+}
+
+bool TzxPlayerZXTeensy::loadFromTape()
+{
+    if (isTzxTapeFile)
+    {
+        if (truncateTapeLength(1) >= 1)
+        {
+            switch (readTapeByte())
+            {
+                case 0x10 :
+                    // Load Standard Speed Block
+                    if (truncateTapeLength(4) >= 4)
+                    {
+                        pauseAfterBlock = readTapeWord();
+                        return loadStandardSpeedBlock();
+                    }
+                    break;
+                case 0x11 :
+                    // Load Turbo Speed Block
+                    if (truncateTapeLength(0x12) >= 0x12)
+                    {
+                        return loadTurboSpeedBlock();
+                    }
+                    break;
+                case 0x12 :
+                    // Load Pure Tone Block
+                    if (truncateTapeLength(4) >= 4)
+                    {
+                        uint16_t pulseLength = readTapeWord();
+                        sendPilotCommand(readTapeWord(), pulseLength);
+                        return true;
+                    }
+                    break;
+                case 0x13 :
+                    // Load Pulse Sequence
+                    if (truncateTapeLength(1) >= 1)
+                    {
+                        return loadPulseSequenceBlock();
+                    }
+                case 0x14 :
+                    // Load Pure Data Block
+                    if (truncateTapeLength(0x10) >= 0x10)
+                    {
+                        return loadPureDataBlock();
+                    }
+                    break;
+                case 0x20 :
+                    // Load Insert Pause Block
+                    if (truncateTapeLength(2) >= 2)
+                    {
+                        insertPauseBlock(readTapeWord());
+                        return true;
+                    }
+                    break;
+                case 0x21 :
+                    // Group Start
+                    if (truncateTapeLength(1) >= 1)
+                    {
+                        uint8_t length = truncateTapeLength(readTapeByte());
+                        ignoreTapeData(length);
+                        return loadFromTape();
+                    }
+                    break;
+                case 0x22 :
+                    // Group End
+                    return loadFromTape();
+                case 0x2A :
+                    // Load Stop Tape if 48K Block
+                    if (truncateTapeLength(4) >= 4)
+                    {
+                        ignoreTapeData(4);
+                        return loadFromTape();
+                    }
+                    break;
+                case 0x30 :
+                    // Load Text Description
+                    if (truncateTapeLength(1) >= 1)
+                    {
+                        uint8_t length = truncateTapeLength(readTapeByte());
+                        ignoreTapeData(length);
+                        return loadFromTape();
+                    }
+                    break;
+                case 0x31 :
+                    // Load Message
+                    if (truncateTapeLength(1) >= 1)
+                    {
+                        ignoreTapeData(1);
+                        uint8_t length = truncateTapeLength(readTapeByte());
+                        ignoreTapeData(length);
+                        return loadFromTape();
+                    }
+                    break;
+                default :
+                    break;
+            }
+        }
+    } else if (truncateTapeLength(2) >= 2)
+    {
+        pauseAfterBlock = 1000;
+        return loadStandardSpeedBlock();
+    }
+    return false;
 }
 
 void TzxPlayerZXTeensy::onTick()
@@ -251,12 +456,17 @@ void TzxPlayerZXTeensy::begin(volatile uint8_t* buffer, size_t size)
     // Store the tape buffer
     tapeBuffer = buffer;
     tapeLength = size;
-    tapePosition = 0;
+    if (memcmp((void*)tapeBuffer, "ZXTape!", 7) == 0)
+    {
+        tapePosition = 0x0A;
+        isTzxTapeFile = true;
+    } else {
+        tapePosition = 0;
+        isTzxTapeFile = false;
+    }
 
-    // Reset the player state
+    // Reset the player state, and enable
     end();
-
-    // Enable the tape
     enabled = true;
 }
 
