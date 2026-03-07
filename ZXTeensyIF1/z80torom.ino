@@ -88,6 +88,7 @@ uint32_t simplelz(uint8_t* fload, uint8_t* store, uint32_t filesize) {
     store_p = store_c + 1;
     //
     i = 0;
+    offmax = 0;
     *store_p++ = fload[i++];
     do {
         // scan for sequence
