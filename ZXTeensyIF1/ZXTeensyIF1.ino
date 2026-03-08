@@ -1125,6 +1125,7 @@ void performHardReset()
 
     // Perform reset
     afterFirstReset = false;
+    isDeviceDisabled = false;
     setState(STATE_RESET);
 }
 
@@ -1181,10 +1182,10 @@ void handleStateResetEntry()
     if (menuEnterOnReset)
     {
         afterFirstReset = false;
+        isDeviceDisabled = false;
     }
     if (!afterFirstReset)
     {
-        isDeviceDisabled = false;
         romArrayPresent = 0;
         rom1Present = false;
         rom23Present = false;
