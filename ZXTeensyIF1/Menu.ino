@@ -1180,12 +1180,13 @@ void menuLoadConfiguration()
     // Load the configuration from the SD card, as required
     if (menuConfigReload)
     {
+        bool hasCfgFile = false;
         File cfgFile = SD.open(CFG_FILENAME, FILE_READ);
         if (cfgFile)
         {
-            menuClearConfiguration();
             if (cfgFile.readBytes((char*)&cfgData, sizeof(cfgData)) >= sizeof(cfgData))
             {
+                hasCfgFile = true;
                 if ((romArrayPresent & BANK_DIVMMC) != 0)
                 {
                     divMmcPresent = cfgData.divMmcPresent;
@@ -1208,6 +1209,12 @@ void menuLoadConfiguration()
                 cfgData.divMmcSdbPath[(MAX_PATH - 1)] = 0;
             }
             cfgFile.close();
+        }
+        if (!hasCfgFile)
+        {
+            menuClearConfiguration();
+            menuConfigChanged = true;
+            menuSaveConfiguration();
         }
     }
 
