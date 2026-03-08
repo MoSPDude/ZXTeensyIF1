@@ -1,6 +1,6 @@
 
-#ifndef SD_HDF_ZX_TEENSY_H
-#define SD_HDF_ZX_TEENSY_H
+#ifndef SD_SDIO_ZX_TEENSY_H
+#define SD_SDIO_ZX_TEENSY_H
 
 #include "imxrt.h"
 #include "core_pins.h"
@@ -11,7 +11,7 @@
 
 //define DEBUG_HDF_OUTPUT
 
-class SdHdfZXTeensy
+class SdSdioZXTeensy
 {
     public :
 
@@ -41,9 +41,8 @@ class SdHdfZXTeensy
     protected :
         static const size_t READ_BUFFER_SIZE = 4096;
         RingBuffer<READ_BUFFER_SIZE>* sdSpiReadBuffer;
-
-        File sdCard;
-        char sdCardPath[256];
+        
+        SdioCard* sdioCard;
         bool isSdIdle;
         uint8_t currentState;
         uint8_t currentCommand;
@@ -54,7 +53,6 @@ class SdHdfZXTeensy
         uint32_t dataIndex;
         uint8_t dataBuffer[514];
 
-        uint32_t sectorOffset;
         uint32_t currentSector;
         uint32_t numSectors;
 
@@ -66,15 +64,6 @@ class SdHdfZXTeensy
         inline __attribute__((always_inline)) void writeStatusData()
         {
             writeReadData(isSdIdle ? 0x01 : 0x00);
-        }
-
-        inline __attribute__((always_inline)) void openSdCard()
-        {
-            if (!sdCard)
-            {
-                sdCard = SD.open(sdCardPath, FILE_WRITE_BEGIN);
-                currentSector = numSectors;
-            }
         }
 
         bool processData(bool hasData, uint8_t data)
@@ -92,8 +81,7 @@ class SdHdfZXTeensy
                         writeReadData(0x00);
 
                         // Write the data
-                        sdCard.write(dataBuffer, 512);
-                        ++currentSector;
+                        sdioCard->writeSector(currentSector, dataBuffer);
                         currentState = STATE_IDLE;
                         dataActive = false;
                     }
@@ -130,19 +118,12 @@ class SdHdfZXTeensy
                 {
                     case CMD_READ_SINGLE_BLOCK :
                         {
-                            openSdCard();
-                            if (sdCard && (commandArgument < numSectors))
+                            if (commandArgument < numSectors)
                             {
                                 writeStatusData();
                                 writeReadData(0xFF);
-                                if (commandArgument != currentSector)
-                                {
-                                    uint32_t offset = (commandArgument * 512) + sectorOffset;
-                                    sdCard.seek(offset, SeekSet);
-                                    currentSector = commandArgument;
-                                }
-                                sdCard.read(dataBuffer, 512);
-                                ++currentSector;
+                                currentSector = commandArgument;
+                                sdioCard->readSector(currentSector, dataBuffer);
                                 writeReadData(0xFE);
                                 sdSpiReadBuffer->writeBlock(dataBuffer, 512);
 
@@ -156,17 +137,11 @@ class SdHdfZXTeensy
                         break;
                     case CMD_WRITE_BLOCK :
                         {
-                            openSdCard();
-                            if (sdCard && (commandArgument < numSectors))
+                            if (commandArgument < numSectors)
                             {
                                 writeStatusData();
                                 writeReadData(0xFF);
-                                if (commandArgument != currentSector)
-                                {
-                                    uint32_t offset = (commandArgument * 512) + sectorOffset;
-                                    sdCard.seek(offset, SeekSet);
-                                    currentSector = commandArgument;
-                                }
+                                currentSector = commandArgument;
                                 currentState = STATE_DATA;
                                 return;
                             } else {
@@ -187,34 +162,16 @@ class SdHdfZXTeensy
                         writeReadData(commandArgument);
                         break;
                     case CMD_SEND_CSD :
-                        {
-                            // Return 16 bytes of CID/CSD as data packet
-                            uint8_t cid[16] = { 0x40, 0x0E, 0x00, 0x32,
-                                0x5B, 0x59, 0x00, 0x00,
-                                0x1D, 0xA7, 0x7F, 0x80,
-                                0x0A, 0x40, 0x00, 0x00 };
-                            uint32_t cardSize = (numSectors >> 10) - 1;
-                            cid[8] = ((cardSize & 0xFF) >> 8);
-                            cid[9] = (cardSize & 0xFF);
-                            writeStatusData();
-                            writeReadData(0xFE);
-                            for (int i = 0; i < 16; ++i)
-                            {
-                                writeReadData(cid[i]);
-                            }
-
-                            // Generate the two CRC bytes
-                            writeReadData(0x00);
-                            writeReadData(0x00);
-                        }
-                        break;
                     case CMD_SEND_CID :
                         {
                             // Return 16 bytes of CID/CSD as data packet
-                            uint8_t cid[16] = { 0x27, 'Z', 'X', 'T',
-                                'N', 'S', 'Y', ' ',
-                                0x60, 0xDA, 0x6C, 0x7F,
-                                0xB3, 0x01, 0x92, 0x00 };
+                            uint8_t cid[16];
+                            if (currentCommand == CMD_SEND_CSD)
+                            {
+                                sdioCard->readCSD((csd_t*)cid);
+                            } else {
+                                sdioCard->readCID((cid_t*)cid);
+                            }
                             writeStatusData();
                             writeReadData(0xFE);
                             for (int i = 0; i < 16; ++i)
@@ -234,7 +191,8 @@ class SdHdfZXTeensy
                     case CMD_READ_OCR :
                         {
                             // Return the OCR register
-                            uint32_t ocr = 0xC0FF8000;
+                            uint32_t ocr;
+                            sdioCard->readOCR(&ocr);
                             writeStatusData();
                             writeReadData(ocr >> 24);
                             writeReadData(ocr >> 16);
@@ -252,16 +210,15 @@ class SdHdfZXTeensy
         }
 
     public :
-        constexpr SdHdfZXTeensy() : sdSpiReadBuffer(0), sdCard(), sdCardPath(),
-            isSdIdle(true), currentState(STATE_IDLE), 
+        constexpr SdSdioZXTeensy() : sdSpiReadBuffer(0), sdioCard(0),
+            isSdIdle(true), currentState(STATE_IDLE),
             currentCommand(CMD_IDLE), commandAppCmd(false), commandArgument(0),
             dataActive(false), dataRegister(0), dataIndex(0), dataBuffer(),
-            sectorOffset(0), currentSector(0), numSectors(0)
+            currentSector(0), numSectors(0)
         {
-            sdCardPath[0] = 0;
         }
 
-        bool begin(RingBuffer<READ_BUFFER_SIZE>* readBuffer, const char* filename);
+        void begin(RingBuffer<READ_BUFFER_SIZE>* readBuffer, SdCard* card);
         void end(void);
 
         inline __attribute__((always_inline)) void performTick(bool hasData, uint8_t data)

@@ -9,7 +9,7 @@
 #include "if1-2_rom.h"
 #include "RingBuffer.h"
 #include "SdHdfZXTeensy.h"
-#include "SdSdhcZXTeensy.h"
+#include "SdSdioZXTeensy.h"
 #include "UartZXTeensy.h"
 #include "RtcZXTeensy.h"
 #include "EspNtpZXTeensy.h"
@@ -286,7 +286,7 @@ volatile bool menuSelected = false;
 volatile uint8_t menuSelectedIndex = 0;
 
 // DivMMC SPI/SD
-SdSdhcZXTeensy divMmcSpi;
+SdSdioZXTeensy divMmcSpi;
 SdHdfZXTeensy divMmcHdf;
 SdHdfZXTeensy divMmcSecondHdf;
 volatile divmmc_spi_t divMmcDrive = DIVMMC_NONE;
@@ -472,7 +472,7 @@ inline __attribute__((always_inline)) void flushSdSpiBuffers()
     sdSpiWriteBuffer.clear();
 }
 
-inline __attribute__((always_inline)) void divMmcDriveTick()
+inline __attribute__((always_inline)) void sdSpiOnTick()
 {
     if (sdSpiWriteBuffer.canRead())
     {
@@ -528,9 +528,6 @@ inline __attribute__((always_inline)) void divMmcDriveTick()
                 }
                 break;
         }
-    } else if (divMmcDrive == DIVMMC_SDHC)
-    {
-        divMmcSpi.performTick(false, 0);
     }
 }
 
@@ -542,7 +539,7 @@ inline __attribute__((always_inline)) void performOnClock()
         globalCycleCount = cycle_;
 
         // Perform tick updates at TICK_FREQ
-        divMmcDriveTick();
+        sdSpiOnTick();
         espUart.onTick();
         tzxPlayer.onTick();
         if (wifiNtpEnabled)
@@ -899,7 +896,6 @@ bool beginSdfsSd()
     if (divMmcCardPresent)
     {
         divMmcSpi.end();
-        flushSdSpiBuffers();
         divMmcCardPresent = false;
     }
     if (!sdCardPresent)
@@ -929,7 +925,6 @@ bool beginDivMmcSd()
         divMmcHdf.end();
         divMmcSecondHdf.end();
         SD.sdfs.end();
-        flushSdSpiBuffers();
         sdCardPresent = false;
     }
     if (!divMmcCardPresent)
@@ -1450,20 +1445,32 @@ void handleStateReset()
             if ((sdaPath == 0) && (sdbPath != 0))
             {
                 divMmcDriveSlot[0] = DIVMMC_SDHC;
-                divMmcDriveSlot[1] = DIVMMC_HDF_B;
-                divMmcSecondHdf.begin(&sdSpiReadBuffer, sdbPath);
+                if (divMmcSecondHdf.begin(&sdSpiReadBuffer, sdbPath))
+                {
+                    divMmcDriveSlot[1] = DIVMMC_HDF_B;
+                } else {
+                    divMmcDriveSlot[1] = DIVMMC_NONE;
+                }
             } else {
                 if (sdbPath != 0)
                 {
-                    divMmcDriveSlot[1] = DIVMMC_HDF_B;
-                    divMmcSecondHdf.begin(&sdSpiReadBuffer, sdbPath);
+                    if (divMmcSecondHdf.begin(&sdSpiReadBuffer, sdbPath))
+                    {
+                        divMmcDriveSlot[1] = DIVMMC_HDF_B;
+                    } else {
+                        divMmcDriveSlot[1] = DIVMMC_NONE;
+                    }
                 } else {
                     divMmcDriveSlot[1] = DIVMMC_NONE;
                 }
                 if (sdaPath != 0)
                 {
-                    divMmcDriveSlot[0] = DIVMMC_HDF_A;
-                    divMmcHdf.begin(&sdSpiReadBuffer, sdaPath);
+                    if (divMmcHdf.begin(&sdSpiReadBuffer, sdaPath))
+                    {
+                        divMmcDriveSlot[0] = DIVMMC_HDF_A;
+                    } else {
+                        divMmcDriveSlot[0] = DIVMMC_SDHC;
+                    }
                 } else {
                     divMmcDriveSlot[0] = DIVMMC_SDHC;
                 }
