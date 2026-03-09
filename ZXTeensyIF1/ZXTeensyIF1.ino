@@ -1326,6 +1326,7 @@ void handleStateReset()
     }
 
     // Reset the UART state, and clear buffers of any idle data
+    httpStopServer();
     if (uartEnabled)
     {
         espUart.end();
@@ -1382,11 +1383,6 @@ void handleStateReset()
     // If UART is required, then initialise
     if (uartPresent)
     {
-        // Setup UART ISRs
-        attachInterruptVector(IRQ_LPUART5, isrUartEvent);
-        NVIC_ENABLE_IRQ(IRQ_LPUART5);
-        NVIC_SET_PRIORITY(IRQ_LPUART5, 64);
-
         // Start the UART
         espUart.begin(0);
 
@@ -1688,11 +1684,6 @@ inline __attribute__((always_inline)) void writeDivMmcRomData(uint16_t address)
         // Transfer soft ROM data to the bus
         writeData(romPtr[address]);
     }
-}
-
-FASTRUN void isrUartEvent()
-{
-    espUart.isrUartEvent();
 }
 
 FASTRUN void isrFastGpios()

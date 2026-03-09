@@ -8,7 +8,7 @@ uint8_t packetBuffer[BUFFER_SIZE];
 size_t packetBufferIndex = 0;
 size_t packetLength = 0;
 int packetCount = 0;
-String httpIpAddress;
+String httpServerStatus;
 
 bool httpWaitFor(const char *token, uint32_t timeout = 3000)
 {
@@ -98,11 +98,11 @@ void httpSend404()
 void urldecode2(char *dst, const char *src)
 {
     char a, b;
-    while (*src) 
+    while (*src)
     {
         if ((*src == '%') &&
             ((a = src[1]) && (b = src[2])) &&
-            (isxdigit(a) && isxdigit(b))) 
+            (isxdigit(a) && isxdigit(b)))
         {
             if (a >= 'a')
                 a -= 'a'-'A';
@@ -118,7 +118,7 @@ void urldecode2(char *dst, const char *src)
                 b -= '0';
             *dst++ = (16 * a) + b;
             src += 3;
-        } else if (*src == '+') 
+        } else if (*src == '+')
         {
             *dst++ = ' ';
             src++;
@@ -205,6 +205,17 @@ void httpProcessPacket()
                 {
                     size_t contentLength = 0;
                     *ptr++ = 0;
+                    ptr = strstr(ptr, "Content-Length: ");
+                    if (ptr != 0)
+                    {
+                        char* value = ptr + 16;
+                        ptr = strstr(ptr, "\r\n");
+                        if (ptr != 0)
+                        {
+                            *ptr = 0;
+                        }
+                        contentLength = atoi(value);
+                    }
                     httpPerformPacket(packetBuffer[0], (const char*)&(packetBuffer[4]), contentLength,
                         (uint8_t*)content, (packetLength - (content - (char*)packetBuffer)));
                 }
@@ -277,18 +288,46 @@ void httpStartServer()
 {
     if (!httpEnabled)
     {
+        if (uartPresent)
+        {
+            if (wifiNtpEnabled)
+            {
+                httpServerStatus = " > Waiting for WiFi NTP";
+                return;
+            }
+
+            // Close the UART, and open the port exclusively
+            espUart.end();
+        }
+
         Serial8.begin(115200);
-        httpEnabled = true;
         Serial8.println("ATE0");
         httpWaitFor("OK");
-        Serial8.println("AT+CIPMUX=1");
-        httpWaitFor("OK");
-        Serial8.println("AT+CIPSERVER=1,80");
-        httpWaitFor("OK");
         Serial8.println("AT+CIFSR");
-        httpWaitFor("+CIFSR:STAIP,\"");
-        httpIpAddress = " > Address: " + Serial8.readStringUntil('\"');
-        httpWaitFor("OK");
+        if (httpWaitFor("+CIFSR:STAIP,\""))
+        {
+            String ipAddress = Serial8.readStringUntil('\"');
+            if (ipAddress != "0.0.0.0")
+            {
+                httpServerStatus = " > Address: " + ipAddress;
+                httpWaitFor("OK");
+                Serial8.println("AT+CIPMUX=1");
+                httpWaitFor("OK");
+                Serial8.println("AT+CIPSERVER=1,80");
+                if (httpWaitFor("OK"))
+                {
+                    httpEnabled = true;
+                }
+            } else {
+                httpServerStatus = " > Waiting for IP address";
+            }
+        } else {
+            httpServerStatus = " > Waiting for WiFi";
+        }
+        if (!httpEnabled)
+        {
+            Serial8.end();
+        }
     }
 }
 
@@ -300,6 +339,6 @@ void httpStopServer()
         httpWaitFor("OK");
         Serial8.end();
     }
-    httpIpAddress = "";
+    httpServerStatus = "";
     httpEnabled = false;
 }

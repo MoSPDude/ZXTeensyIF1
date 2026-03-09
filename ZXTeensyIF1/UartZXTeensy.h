@@ -38,6 +38,7 @@
 #include "imxrt.h"
 #include "core_pins.h"
 #include "RingBuffer.h"
+#include <HardwareSerial.h>
 
 #define UART_CLOCK 24000000
 
@@ -57,29 +58,6 @@ class UartZXTeensy
         RingBuffer<UART_TX_BUFFER_SIZE> uartFlagsBuffer;
         RingBuffer<UART_TX_BUFFER_SIZE> uartTxDataBuffer;
         bool enabled;
-        bool isTransmitting;
-
-        constexpr int calculateBestDiv(const uint32_t baud, int& bestosr)
-        {
-            float base = (float)UART_CLOCK / (float)baud;
-            float besterr = 1e20;
-            int bestdiv = 1;
-            bestosr = 4;
-            for (int osr=4; osr <= 32; osr++) {
-                float div = base / (float)osr;
-                int divint = (int)(div + 0.5f);
-                if (divint < 1) divint = 1;
-                else if (divint > 8191) divint = 8191;
-                float err = ((float)divint - div) / div;
-                if (err < 0.0f) err = -err;
-                if (err <= besterr) {
-                    besterr = err;
-                    bestdiv = divint;
-                    bestosr = osr;
-                }
-            }
-            return bestdiv;
-        }
 
         inline __attribute__((always_inline)) uart_action_t readWriteData(uint8_t* data)
         {
@@ -88,79 +66,21 @@ class UartZXTeensy
             return action;
         }
 
-        inline __attribute__((always_inline)) void sendData(uint8_t data)
-        {
-            IMXRT_LPUART_t *port = (IMXRT_LPUART_t *)IMXRT_LPUART5_ADDRESS;
-            isTransmitting = true;
-            uartTxDataBuffer.write(data);
-            __disable_irq();
-            port->CTRL |= LPUART_CTRL_TIE;
-            __enable_irq();
-        }
-
         inline __attribute__((always_inline)) bool hasWriteData()
         {
             return uartWriteBuffer.canRead();
         }
 
     public :
-        constexpr UartZXTeensy() : enabled(false), isTransmitting(false)
+        constexpr UartZXTeensy() : enabled(false)
         {
         }
 
-        // Open UART5, and start the port
+        // Open Serial8, and start the port
         void begin(uint8_t baud);
 
         // Flush and close the port
         void end(void);
-
-        inline __attribute__((always_inline)) void isrUartEvent()
-        {
-            // See if we have stuff to read in.
-            // Todo - Check idle.
-            IMXRT_LPUART_t *port = (IMXRT_LPUART_t *)IMXRT_LPUART5_ADDRESS;
-            if (port->STAT & (LPUART_STAT_RDRF | LPUART_STAT_IDLE))
-            {
-                // See how many bytes or pending
-                uint8_t avail = (port->WATER >> 24) & 0x7;
-                while (avail > 0)
-                {
-                    uint8_t data = port->DATA;
-                    uartReadBuffer.write(data);
-                    --avail;
-                }
-
-                // If it was an idle status clear the idle
-                if (port->STAT & LPUART_STAT_IDLE)
-                {
-                    port->STAT |= LPUART_STAT_IDLE;    // writing a 1 to idle should clear it.
-                }
-            }
-
-            // See if we are transmitting and room in buffer.
-            uint32_t ctrl = port->CTRL;
-            if ((ctrl & LPUART_CTRL_TIE) && (port->STAT & LPUART_STAT_TDRE))
-            {
-                if (uartTxDataBuffer.canRead())
-                {
-                    isTransmitting = true;
-                    do {
-                        port->DATA = uartTxDataBuffer.readRaw();
-                    } while (uartTxDataBuffer.canRead() && (((port->WATER >> 8) & 0x7) < 4));
-                }
-                if (!uartTxDataBuffer.canRead())
-                {
-                    port->CTRL &= ~LPUART_CTRL_TIE;
-                    port->CTRL |= LPUART_CTRL_TCIE; // Actually wondering if we can just leave this one on...
-                }
-            }
-
-            if ((ctrl & LPUART_CTRL_TCIE) && (port->STAT & LPUART_STAT_TC))
-            {
-                isTransmitting = false;
-                port->CTRL &= ~LPUART_CTRL_TCIE;
-            }
-        }
 
         inline __attribute__((always_inline)) uint8_t readData()
         {
@@ -201,18 +121,25 @@ class UartZXTeensy
 
         inline __attribute__((always_inline)) void onTick()
         {
-            if (enabled && hasWriteData() && uartTxDataBuffer.canWrite())
+            if (enabled)
             {
-                uint8_t data;
-                switch (readWriteData(&data))
+                if (hasWriteData() && uartTxDataBuffer.canWrite())
                 {
-                    case UART_SET_BAUD :
-                        end();
-                        begin(data);
-                        break;
-                    case UART_WRITE :
-                        sendData(data);
-                        break;
+                    uint8_t data;
+                    switch (readWriteData(&data))
+                    {
+                        case UART_SET_BAUD :
+                            end();
+                            begin(data);
+                            break;
+                        case UART_WRITE :
+                            Serial8.write(data);
+                            break;
+                    }
+                }
+                while (Serial8.available() && uartReadBuffer.canWrite())
+                {
+                    uartReadBuffer.write(Serial8.read());
                 }
             }
         }
