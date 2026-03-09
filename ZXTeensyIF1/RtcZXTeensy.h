@@ -41,7 +41,7 @@ class RtcZXTeensy
             regBank[9] = mnts / 10;
             regBank[10] = yrs % 10;
             regBank[11] = yrs / 10;
-            regBank[12] = weekday();
+            regBank[12] = (weekday() - 1);
         }
 
         inline __attribute__((always_inline)) void updateTime()
