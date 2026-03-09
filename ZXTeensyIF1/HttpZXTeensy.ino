@@ -142,13 +142,36 @@ void httpContinueUpload(uint8_t* content, size_t size)
 void httpPerformPacket(char action, const char* path, size_t contentLength,
     uint8_t* content, size_t size)
 {
-    char decodedPath[256];
+    char decodedPath[MAX_PATH];
     urldecode2(decodedPath, path);
     if (action == 'P')
     {
+        // Perform upload via HTTP PUT
+        bool success = false;
         httpUploadActive = true;
         httpUploadBytesWritten = 0;
-        httpUploadFile = SD.open(decodedPath, FILE_WRITE_BEGIN);
+        char* ptr = strrchr(decodedPath, '/');
+        if ((ptr != 0) && (ptr != decodedPath))
+        {
+            // Create sub-directories as required
+            char parentDir[MAX_PATH];
+            size_t index = (ptr - decodedPath);
+            memcpy(parentDir, decodedPath, index);
+            parentDir[index] = 0;
+            if (SD.exists(parentDir) ||
+                SD.mkdir(parentDir))
+            {
+                // Create file in the sub-directory, if given
+                success = (strlen(ptr + 1) > 0);
+            }
+        } else {
+            // Only create files in the root directory
+            success = ((ptr != 0) && (strlen(ptr + 1) > 0));
+        }
+        if (success)
+        {
+            httpUploadFile = SD.open(decodedPath, FILE_WRITE_BEGIN);
+        }
         if (httpUploadFile && (size > 0))
         {
             httpUploadBytesWritten += httpUploadFile.write(content, size);
@@ -161,11 +184,13 @@ void httpPerformPacket(char action, const char* path, size_t contentLength,
             httpFinishUpload();
         }
     } else {
+        // Perform download or list via HTTP GET
         File file = SD.open(decodedPath, FILE_READ);
         if (file)
         {
             if (file.isDirectory())
             {
+                // List directories as a simple web page
                 bool isSubDirectory = (strlen(decodedPath) > 1);
                 String page = "<html><body>";
                 File tmpFile = file.openNextFile();
@@ -189,6 +214,7 @@ void httpPerformPacket(char action, const char* path, size_t contentLength,
                 httpSendHeader(200, "text/html", page.length());
                 httpSendString(page);
             } else {
+                // Download a specific file
                 httpSendHeader(200, "application/octet-stream", file.size());
                 while (file.available())
                 {
