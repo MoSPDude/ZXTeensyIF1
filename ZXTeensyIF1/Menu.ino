@@ -1104,7 +1104,8 @@ File menuGetForegroundRomFile(rom_type_t* romType)
                     {
                         if (!entry.isDirectory())
                         {
-                            if (stricmp(entry.name(), cfgData.romName) == 0)
+                            if (strncmp(cfgData.romName, entry.name(), 
+                                strlen(cfgData.romName)) == 0)
                             {
                                 *romType = getRomType(entry.name());
                                 romDirectory.close();

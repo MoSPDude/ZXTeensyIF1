@@ -74,13 +74,13 @@ class EspNtpZXTeensy
                 switch (currentState)
                 {
                     case STATE_CHECK_NTP :
-                        if (strstr(buffer, "+CIPSNTPCFG:") == buffer)
+                        if (strncmp("+CIPSNTPCFG:", buffer, 12) == 0)
                         {
                             commandResponse = buffer[12];
                         }
                         break;
                     case STATE_GET_TIME :
-                        if (strstr(buffer, "+CIPSNTPTIME:") == buffer)
+                        if (strncmp("+CIPSNTPTIME:", buffer, 13) == 0)
                         {
                             if (strstr(buffer, " 1970") != 0)
                             {
@@ -98,13 +98,13 @@ class EspNtpZXTeensy
                     default :
                         break;
                 }
-            } else if (strstr(buffer, "WIFI GOT IP") == buffer)
+            } else if (strncmp("WIFI GOT IP", buffer, 11) == 0)
             {
                 // Wifi is now connected, so start sending commands
                 setState(STATE_READY);
             } else if (currentState != STATE_WAITING)
             {
-                if (strstr(buffer, "OK") == buffer)
+                if (strncmp("OK", buffer, 2) == 0)
                 {
                     cmd_state_t nextState;
                     switch (currentState)
@@ -128,8 +128,8 @@ class EspNtpZXTeensy
                             break;
                     }
                     return setState(nextState);
-                } else if ((strstr(buffer, "FAIL") == buffer) ||
-                    (strstr(buffer, "ERROR") == buffer))
+                } else if ((strncmp("FAIL", buffer, 4) == 0) ||
+                    (strncmp("ERROR", buffer, 5) == 0))
                 {
                     return setState(STATE_IDLE);
                 }

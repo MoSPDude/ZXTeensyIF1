@@ -328,7 +328,7 @@ void httpRunServer()
                 {
                     // Parse for an incoming packet
                     packetBuffer[packetBufferIndex] = 0;
-                    if (strstr((const char*)packetBuffer, "+IPD,") == (char*)packetBuffer)
+                    if (strncmp("+IPD,", (const char*)packetBuffer, 5) == 0)
                     {
                         char* ptr = (char*)&(packetBuffer[5]);
                         char* lenPtr = strstr(ptr, ",");

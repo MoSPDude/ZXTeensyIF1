@@ -275,6 +275,7 @@ const uint16_t PAGE_BANK_MF128_IF1 = (BANK_ROM0 | BANK_ROM1 | BANK_ROM3 | BANK_M
 volatile bool zxC2Present = false;
 volatile bool zxC2Paged = false;
 volatile bool zxC2Lock = false;
+volatile bool zxC2ShadowRom = false;
 volatile uint8_t zxC2BankPtr = 0x00;
 
 // Z80 snapshot loader banking
@@ -849,6 +850,7 @@ void loadSpectrumRomFile(File RomFile)
     rom1Present = false;
     rom23Present = false;
     zxC2Present = false;
+    zxC2ShadowRom = false;
     snaLoaderPresent = false;
 
     // Attempt to load four 16KB ROM banks
@@ -887,6 +889,7 @@ bool loadZXC2RomFile(File RomFile)
     // Reset the ZXC2 state only, as can page into the Spectrum ROM
     romArrayPresent &= ~(BANK_RAM);
     zxC2Present = false;
+    zxC2ShadowRom = false;
     snaLoaderPresent = false;
 
     // The ZXC2 cartridge is loaded into the DivMMC RAM area
@@ -896,6 +899,7 @@ bool loadZXC2RomFile(File RomFile)
         if (count > 0)
         {
             zxC2Present = true;
+            zxC2ShadowRom = (strstr(RomFile.name(), "SPECTRA_") != 0);
             divMmcExtRamEnabled = false;
             romArrayPresent |= BANK_RAM;
             for (uint8_t i_ = 1; i_ < EXT_RAM_PAGE_COUNT; ++i_)
@@ -918,6 +922,7 @@ bool loadSnapshotFile(File RomFile, bool isSnaFile)
     // Reset the loader state only, as will page in the Spectrum ROM
     romArrayPresent &= ~(BANK_RAM);
     zxC2Present = false;
+    zxC2ShadowRom = false;
     snaLoaderPresent = false;
 
     // Convert the Z80 snapshot into a loader ROM, in the DivMMC RAM area
@@ -1078,6 +1083,7 @@ void handleStateResetEntry()
         divMmcPresent = false;
         mf128Present = false;
         zxC2Present = false;
+        zxC2ShadowRom = false;
         snaLoaderPresent = false;
         tzxPresent = false;
 
@@ -1309,7 +1315,7 @@ void handleStateReset()
         // Page in the ZXC2 cartridge, or snapshot loader ROM
         if (zxC2Present)
         {
-            zxC2Paged = true;
+            zxC2Paged = !zxC2ShadowRom;
         } else if (snaLoaderPresent)
         {
             snaLoaderPaged = true;
@@ -1759,6 +1765,7 @@ FASTRUN void isrWrEvent()
 
             // Perform ZXC2 address based paging
             if (zxC2Present && !zxC2Lock &&
+                (!zxC2ShadowRom || zxC2Paged) &&
                 ((address & 0xffc0) == 0x1fc0))
             {
                 zxC2BankPtr = ((address & 0x0f) << 1);
@@ -1990,6 +1997,7 @@ FASTRUN void isrRdEvent()
 
                 // Perform ZXC2 address based paging
                 if (zxC2Present && !zxC2Lock &&
+                    (!zxC2ShadowRom || zxC2Paged) &&
                     ((address & 0xffc0) == 0x3fc0))
                 {
                     zxC2BankPtr = ((address & 0x0f) << 1);
@@ -2072,11 +2080,16 @@ FASTRUN void isrRdEvent()
                                 writePagedRomData(address);
 
                                 // Detect M1 cycle for Interface 1 paging
-                                if (interface1Enabled &&
+                                if ((interface1Enabled || zxC2ShadowRom) &&
                                     ((address == 0x08) || (address == 0x1708)))
                                 {
                                     // M1 cycle for Interface 1 paging
-                                    interface1Paged = true;
+                                    if (zxC2ShadowRom)
+                                    {
+                                        zxC2Paged = true;
+                                    } else {
+                                        interface1Paged = true;
+                                    }
                                     updateRomIndex(false);
                                 }
 
@@ -2095,6 +2108,26 @@ FASTRUN void isrRdEvent()
                             if (address == 0x700)
                             {
                                 interface1Paged = false;
+                                updateRomIndex(false);
+                            }
+                            break;
+                        case ROM_MF128 :
+                            // Detect M1 cycle for Multiface 128 paging
+                            if (mf128ActiveNMI && (address == 0x67))
+                            {
+                                mf128Paged = true;
+                                updateRomIndex(true);
+                            }
+
+                            // Write ROM data to bus
+                            writePagedRomData(address);
+
+                            // Detect M1 cycle for Interface 1 paging
+                            if (interface1Enabled &&
+                                ((address == 0x08) || (address == 0x1708)))
+                            {
+                                // M1 cycle for Interface 1 paging
+                                interface1Paged = true;
                                 updateRomIndex(false);
                             }
                             break;
@@ -2120,23 +2153,14 @@ FASTRUN void isrRdEvent()
                                 }
                             }
                             break;
-                        case ROM_MF128 :
-                            // Detect M1 cycle for Multiface 128 paging
-                            if (mf128ActiveNMI && (address == 0x67))
-                            {
-                                mf128Paged = true;
-                                updateRomIndex(true);
-                            }
-
+                        case ROM_ZXC2 :
                             // Write ROM data to bus
                             writePagedRomData(address);
 
-                            // Detect M1 cycle for Interface 1 paging
-                            if (interface1Enabled &&
-                                ((address == 0x08) || (address == 0x1708)))
+                            // Detect post-M1 cycle for Interface 1 paging
+                            if (zxC2ShadowRom && (address == 0x700))
                             {
-                                // M1 cycle for Interface 1 paging
-                                interface1Paged = true;
+                                zxC2Paged = false;
                                 updateRomIndex(false);
                             }
                             break;
