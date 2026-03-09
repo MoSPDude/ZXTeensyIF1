@@ -18,7 +18,7 @@
 // Run the Teensy 4.1 with slight overclock at 816MHz
 // Tick the SD and Serial at 14MHz
 #define TEENSY_CLK_FREQ 816000000ULL
-#define TICK_FREQ 14000000ULL
+#define TICK_FREQ 7000000ULL
 #define TICK_CYCCNT (TEENSY_CLK_FREQ / TICK_FREQ)
 
 // Allow ~500ms for reset/button to debounce (at 816MHz, TRIGGER_DELAY_CNT = 0x6B5672)
@@ -32,7 +32,8 @@
 extern "C" volatile uint32_t systick_millis_count;
 extern "C" uint32_t set_arm_clock(uint32_t frequency);
 
-const char PROGMEM VERSION_STR[9] = ZXTEENSY_VERSION;
+static const char PROGMEM VERSION_STR[9] = ZXTEENSY_VERSION;
+static const size_t MAX_PATH = 256;
 
 typedef enum {
     MENU_ACTION_TOP_MENU,
@@ -346,6 +347,9 @@ FASTRUN void isrFastGpios() __attribute__((hot, optimize("O3")));
 FASTRUN void isrRdEvent() __attribute__((hot, optimize("O3")));
 FASTRUN void isrWrEvent() __attribute__((hot, optimize("O3")));
 
+// Optimised task loop functions
+FASTRUN void loop() __attribute__((hot, optimize("O3")));
+
 #ifdef DEBUG_OUTPUT
 
 // Debug data buffer
@@ -531,119 +535,6 @@ inline __attribute__((always_inline)) void sdSpiOnTick()
                         break;
                 }
                 break;
-        }
-    }
-}
-
-inline __attribute__((always_inline)) void performOnClock()
-{
-    uint32_t cycle_ = ARM_DWT_CYCCNT;
-    if ((cycle_ - globalCycleCount) >= TICK_CYCCNT)
-    {
-        globalCycleCount = cycle_;
-
-        // Perform tick updates at TICK_FREQ
-        sdSpiOnTick();
-        espUart.onTick();
-        tzxPlayer.onTick();
-        if (wifiNtpEnabled)
-        {
-            if (wifiNtp.onTick())
-            {
-                wifiNtpEnabled = false;
-                rtcTeensy.setAscTime(wifiNtp.getAscTime(), wifiNtpTz);
-                wifiNtpHasTime = true;
-
-                // Enable the UART, now time is updated
-                espUart.flush();
-                uartEnabled = true;
-
-                // Trigger NMI in menu to redraw
-                if (menuPaged && !nmiPending)
-                {
-                    menuGenerate();
-                    nmiPending = true;
-                    digitalWriteFast(NMI_PIN, 1);
-                }
-            }
-        }
-
-        // Debounce the reset detection
-        switch (resetTrigState)
-        {
-            case TRIGGER_HOLD :
-                if (digitalReadFast(RESET_IN_PIN))
-                {
-                    resetTrigState = TRIGGER_DELAY;
-                    resetTrigExitCount = TRIGGER_DELAY_CNT;
-                } else {
-                    --resetHardTrigCount;
-                    if (resetHardTrigCount == 0)
-                    {
-                        performHardReset();
-                        return;
-                    }
-                }
-                break;
-            case TRIGGER_DELAY :
-                if (digitalReadFast(RESET_IN_PIN))
-                {
-                    --resetTrigExitCount;
-                    if (resetTrigExitCount == 0)
-                    {
-                        resetTrigState = TRIGGER_READY;
-                    }
-                } else {
-                    resetTrigState = TRIGGER_HOLD;
-                    resetHardTrigCount = HARD_RESET_DELAY_CNT;
-                }
-                break;
-            default :
-                break;
-        }
-
-        // Debounce the button detection
-        switch (buttonTrigState)
-        {
-            case TRIGGER_ACTIVE :
-                if (!nmiPending && digitalReadFast(BUTTON_PIN))
-                {
-                    buttonTrigState = TRIGGER_HOLD;
-                }
-                break;
-            case TRIGGER_HOLD :
-                if (digitalReadFast(BUTTON_PIN))
-                {
-                    buttonTrigState = TRIGGER_DELAY;
-                    buttonTrigExitCount = TRIGGER_DELAY_CNT;
-                }
-                break;
-            case TRIGGER_DELAY :
-                if (digitalReadFast(BUTTON_PIN))
-                {
-                    --buttonTrigExitCount;
-                    if (buttonTrigExitCount == 0)
-                    {
-                        buttonTrigState = TRIGGER_READY;
-                    }
-                } else {
-                    buttonTrigExitCount = TRIGGER_DELAY_CNT;
-                }
-                break;
-            default :
-                break;
-        }
-
-        // Perform menu actions
-        if (menuSelected)
-        {
-            menuSelected = false;
-            if (menuPerformSelection(menuSelectedIndex))
-            {
-                // The menu needs the Spectrum in reset to access the SD card,
-                // reload ROMs, update FW etc.
-                setState(STATE_RESET_MENU);
-            }
         }
     }
 }
@@ -1520,7 +1411,7 @@ void handleStateReset()
     }
 }
 
-void loop()
+FASTRUN void loop()
 {
     // Detect reset entry, and perform actions in reset
     if (isGlobalStateReset())
@@ -1529,7 +1420,115 @@ void loop()
     }
 
     // Run actions (eg. SD SPI) on regular ticks
-    performOnClock();
+    uint32_t cycle_ = ARM_DWT_CYCCNT;
+    if ((cycle_ - globalCycleCount) >= TICK_CYCCNT)
+    {
+        globalCycleCount = cycle_;
+
+        // Perform tick updates at TICK_FREQ
+        sdSpiOnTick();
+        espUart.onTick();
+        tzxPlayer.onTick();
+        if (wifiNtpEnabled)
+        {
+            if (wifiNtp.onTick())
+            {
+                wifiNtpEnabled = false;
+                rtcTeensy.setAscTime(wifiNtp.getAscTime(), wifiNtpTz);
+                wifiNtpHasTime = true;
+
+                // Enable the UART, now time is updated
+                espUart.flush();
+                uartEnabled = true;
+
+                // Trigger NMI in menu to redraw
+                if (menuPaged && !nmiPending)
+                {
+                    menuGenerate();
+                    nmiPending = true;
+                    digitalWriteFast(NMI_PIN, 1);
+                }
+            }
+        }
+
+        // Debounce the reset detection
+        switch (resetTrigState)
+        {
+            case TRIGGER_HOLD :
+                if (digitalReadFast(RESET_IN_PIN))
+                {
+                    resetTrigState = TRIGGER_DELAY;
+                    resetTrigExitCount = TRIGGER_DELAY_CNT;
+                } else {
+                    --resetHardTrigCount;
+                    if (resetHardTrigCount == 0)
+                    {
+                        performHardReset();
+                        return;
+                    }
+                }
+                break;
+            case TRIGGER_DELAY :
+                if (digitalReadFast(RESET_IN_PIN))
+                {
+                    --resetTrigExitCount;
+                    if (resetTrigExitCount == 0)
+                    {
+                        resetTrigState = TRIGGER_READY;
+                    }
+                } else {
+                    resetTrigState = TRIGGER_HOLD;
+                    resetHardTrigCount = HARD_RESET_DELAY_CNT;
+                }
+                break;
+            default :
+                break;
+        }
+
+        // Debounce the button detection
+        switch (buttonTrigState)
+        {
+            case TRIGGER_ACTIVE :
+                if (!nmiPending && digitalReadFast(BUTTON_PIN))
+                {
+                    buttonTrigState = TRIGGER_HOLD;
+                }
+                break;
+            case TRIGGER_HOLD :
+                if (digitalReadFast(BUTTON_PIN))
+                {
+                    buttonTrigState = TRIGGER_DELAY;
+                    buttonTrigExitCount = TRIGGER_DELAY_CNT;
+                }
+                break;
+            case TRIGGER_DELAY :
+                if (digitalReadFast(BUTTON_PIN))
+                {
+                    --buttonTrigExitCount;
+                    if (buttonTrigExitCount == 0)
+                    {
+                        buttonTrigState = TRIGGER_READY;
+                    }
+                } else {
+                    buttonTrigExitCount = TRIGGER_DELAY_CNT;
+                }
+                break;
+            default :
+                break;
+        }
+
+        // Perform menu actions
+        if (menuSelected)
+        {
+            menuSelected = false;
+            if (menuPerformSelection(menuSelectedIndex))
+            {
+                // The menu needs the Spectrum in reset to access the SD card,
+                // reload ROMs, update FW etc.
+                setState(STATE_RESET_MENU);
+            }
+        }
+    }
 
     // Run HTTP server actions
     httpRunServer();

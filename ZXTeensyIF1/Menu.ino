@@ -2,8 +2,6 @@
 #define FLASH_FILENAME "ZXTEENSY.HEX"
 #define CFG_FILENAME ((const char*)F("ZXTEENSY.CFG"))
 #define INTERNAL_ROM_NAME ((const char*)F(":INTERNAL"))
-#define ROM_NAME_LEN 32
-#define MAX_PATH 256
 
 #define NETMAN_PATH "/netman.z80"
 #define RTC_SETUP_PATH "/rtc_setup.z80"
@@ -22,6 +20,8 @@ static const uint8_t CHAR_Z80_L = 28;
 static const uint8_t CHAR_Z80_R = 29;
 static const uint8_t CHAR_TZX_L = 30;
 static const uint8_t CHAR_TZX_R = 31;
+
+static const size_t ROM_NAME_LEN = 32;
 
 typedef enum {
     MENU_TYPE_SETTINGS,
@@ -140,7 +140,7 @@ char* menuInsertSetting(menu_action_t action, uint8_t index, char* ptr, const ch
         menuPageLine = 0;
         ++menuPage;
     }
-    return (ptr+1);
+    return (ptr + 1);
 }
 
 inline __attribute__((always_inline)) char* menuInsertSpacer(char* ptr)
@@ -224,7 +224,7 @@ char* menuInsertFile(menu_action_t action, icon_type_t icon, uint8_t index, char
         menuPageLine = 0;
         ++menuPage;
     }
-    return (ptr+1);
+    return (ptr + 1);
 }
 
 char* menuAddRomFile(uint8_t index, char* ptr, const char* filename)
@@ -865,6 +865,10 @@ bool menuPerformSelection(uint8_t index)
 
 void menuPerformAction()
 {
+    // Save the configuration, if changed
+    menuSaveConfiguration();
+
+    // Perform the menu action
     switch (menuAction)
     {
         case MENU_ACTION_UPDATE_FW :
@@ -894,8 +898,7 @@ void menuPerformAction()
             menuConfigReload = false;
             break;
         default :
-            // Save the configuration to load new ROM
-            menuSaveConfiguration();
+            // Reload the configuration to load new ROM
             menuConfigReload = true;
             break;
     }
@@ -1051,7 +1054,7 @@ bool updateBrowserPath(uint8_t fileIndex, char* filename)
                 } else if (strlen(browserPath) > 1)
                 {
                     // Return to root directory
-                    *(fileext+1) = 0;
+                    *(fileext + 1) = 0;
                 } else {
                     // Exit the browser
                     directory.close();
