@@ -301,9 +301,11 @@ RingBuffer<WRITE_BUFFER_SIZE> sdSpiWriteBuffer;
 RingBuffer<WRITE_BUFFER_SIZE> sdSpiFlagsBuffer;
 
 // MB03+ UART
+static const size_t UART_BUFFER_SIZE = 4096;
 volatile bool uartPresent = false;
 volatile bool uartEnabled = false;
 UartZXTeensy espUart;
+DMAMEM uint8_t uartBuffer[UART_BUFFER_SIZE];
 
 // RTC module
 volatile bool wifiNtpPresent = false;
@@ -865,6 +867,7 @@ void setup()
     setState(STATE_RESET);
 
     // Configure UART, and USB serial debug
+    Serial8.addMemoryForRead(uartBuffer, UART_BUFFER_SIZE);
 #ifdef DEBUG_OUTPUT
     Serial.begin(115200);
 #endif

@@ -1,14 +1,19 @@
 
-#define BUFFER_SIZE 1024
-
+// Occasionally, receive 2 x MTU into buffer, so size over (2 * 1500)
+static const size_t PKT_BUFFER_SIZE = 3072;
 volatile bool httpEnabled = false;
-char connectionId[16];
+char connectionId[8];
 bool isReceivingPacket = false;
-uint8_t packetBuffer[BUFFER_SIZE];
+DMAMEM uint8_t packetBuffer[PKT_BUFFER_SIZE];
 size_t packetBufferIndex = 0;
 size_t packetLength = 0;
 int packetCount = 0;
 String httpServerStatus;
+
+File httpUploadFile;
+bool httpUploadActive = false;
+size_t httpUploadContentLength = 0;
+size_t httpUploadBytesWritten = 0;
 
 bool httpWaitFor(const char *token, uint32_t timeout = 3000)
 {
@@ -63,38 +68,6 @@ void httpSend404()
     httpSendString(msg);
 }
 
-/*void httpHandleUpload(int conn, String name, int length)
-{
-    File f = SD.open(name, FILE_WRITE_BEGIN);
-    if (f)
-    {
-        uint8_t buffer[BUFFER_SIZE];
-        int remaining = length;
-        while (remaining > 0)
-        {
-            int chunk = min(remaining, BUFFER_SIZE);
-            int readBytes = 0;
-            while (readBytes < chunk)
-            {
-                if (ESP.available())
-                {
-                    buffer[readBytes++] = ESP.read();
-                }
-            }
-            f.write(buffer, readBytes);
-            remaining -= readBytes;
-        }
-        f.close();
-
-        // Success
-        String msg = "OK";
-        sendHeader(conn, 200, "text/plain", msg.length());
-        sendString(conn, msg);
-    } else {
-        httpSend404(conn);
-    }
-}*/
-
 void urldecode2(char *dst, const char *src)
 {
     char a, b;
@@ -129,15 +102,65 @@ void urldecode2(char *dst, const char *src)
     *dst++ = '\0';
 }
 
+void httpFinishUpload()
+{
+    String msg;
+    if (httpUploadFile)
+    {
+        httpUploadFile.close();
+        msg = "Number of bytes written: ";
+        msg += httpUploadBytesWritten;
+        msg += "\r\n";
+    } else {
+        msg = "Error opening file to write";
+        msg += "\r\n";
+    }
+    httpSendHeader(200, "text/plain", msg.length());
+    httpSendString(msg);
+    httpUploadActive = false;
+
+    // Close
+    Serial8.print("AT+CIPCLOSE=");
+    Serial8.println(connectionId);
+}
+
+void httpContinueUpload(uint8_t* content, size_t size)
+{
+    if (httpUploadFile)
+    {
+        httpUploadBytesWritten += httpUploadFile.write(content, size);
+    }
+    if (size < httpUploadContentLength)
+    {
+        httpUploadContentLength -= size;
+    } else {
+        httpUploadContentLength = 0;
+        httpFinishUpload();
+    }
+}
+
 void httpPerformPacket(char action, const char* path, size_t contentLength,
     uint8_t* content, size_t size)
 {
+    char decodedPath[256];
+    urldecode2(decodedPath, path);
     if (action == 'P')
     {
-        // TODO:
+        httpUploadActive = true;
+        httpUploadBytesWritten = 0;
+        httpUploadFile = SD.open(decodedPath, FILE_WRITE_BEGIN);
+        if (httpUploadFile && (size > 0))
+        {
+            httpUploadBytesWritten += httpUploadFile.write(content, size);
+        }
+        if (size < contentLength)
+        {
+            httpUploadContentLength = (contentLength - size);
+        } else {
+            httpUploadContentLength = 0;
+            httpFinishUpload();
+        }
     } else {
-        char decodedPath[256];
-        urldecode2(decodedPath, path);
         File file = SD.open(decodedPath, FILE_READ);
         if (file)
         {
@@ -169,7 +192,7 @@ void httpPerformPacket(char action, const char* path, size_t contentLength,
                 httpSendHeader(200, "application/octet-stream", file.size());
                 while (file.available())
                 {
-                    size = file.read(packetBuffer, BUFFER_SIZE);
+                    size = file.read(packetBuffer, PKT_BUFFER_SIZE);
                     sendData(packetBuffer, size);
                 }
             }
@@ -186,10 +209,12 @@ void httpPerformPacket(char action, const char* path, size_t contentLength,
 
 void httpProcessPacket()
 {
-    if (packetCount > 0)
+    if ((packetCount > 0) || httpUploadActive)
     {
-        // TODO:
-        //httpContinueAction(packetBuffer, packetLength);
+        if (httpUploadActive)
+        {
+            httpContinueUpload(packetBuffer, packetBufferIndex);
+        }
     } else {
         // Find end of the HTTP header
         char* content = strstr((const char*)packetBuffer, "\r\n\r\n");
@@ -203,7 +228,7 @@ void httpProcessPacket()
                 char* ptr = strstr((const char*)&(packetBuffer[4]), " ");
                 if (ptr != 0)
                 {
-                    size_t contentLength = 0;
+                    size_t contentLength;
                     *ptr++ = 0;
                     ptr = strstr(ptr, "Content-Length: ");
                     if (ptr != 0)
@@ -215,9 +240,12 @@ void httpProcessPacket()
                             *ptr = 0;
                         }
                         contentLength = atoi(value);
+                    } else {
+                        contentLength = 0;
                     }
-                    httpPerformPacket(packetBuffer[0], (const char*)&(packetBuffer[4]), contentLength,
-                        (uint8_t*)content, (packetLength - (content - (char*)packetBuffer)));
+                    size_t contentIndex = (content - (char*)packetBuffer);
+                    httpPerformPacket(packetBuffer[0], (const char*)&(packetBuffer[4]),
+                        contentLength, (uint8_t*)content, (packetBufferIndex - contentIndex));
                 }
             }
         }
@@ -230,19 +258,27 @@ void httpRunServer()
     {
         while (Serial8.available())
         {
-            // Fetch a byte into the buffer
-            uint8_t c = Serial8.read();
-            packetBuffer[packetBufferIndex] = c;
-            ++packetBufferIndex;
-
-            // Decide if all bytes are received
             if (isReceivingPacket)
             {
-                if ((packetBufferIndex >= packetLength) ||
-                    (packetBufferIndex >= BUFFER_SIZE))
+                // Fetch all available into the buffer
+                int size = ((packetLength > PKT_BUFFER_SIZE) ?
+                    PKT_BUFFER_SIZE : packetLength) - packetBufferIndex;
+                if (size > Serial8.available())
                 {
-                    packetLength -= packetBufferIndex;
+                    size = Serial8.available();
+                }
+                size = Serial8.readBytes(&(packetBuffer[packetBufferIndex]), size);
+                if (size > 0)
+                {
+                    packetBufferIndex += size;
+                }
+
+                // Decide if a packet has been received
+                if ((packetBufferIndex >= packetLength) ||
+                    (packetBufferIndex >= PKT_BUFFER_SIZE))
+                {
                     httpProcessPacket();
+                    packetLength -= packetBufferIndex;
                     if (packetLength == 0)
                     {
                         isReceivingPacket = false;
@@ -255,8 +291,13 @@ void httpRunServer()
                     packetBufferIndex = 0;
                 }
             } else {
-                // Receive a line from the ESP
-                if ((packetBufferIndex >= (BUFFER_SIZE - 1)) ||
+                // Fetch a byte into the buffer
+                uint8_t c = Serial8.read();
+                packetBuffer[packetBufferIndex] = c;
+                ++packetBufferIndex;
+
+                // Decide if a line or packet has been received
+                if ((packetBufferIndex >= (PKT_BUFFER_SIZE - 1)) ||
                     (c == ':') || (c == '\n'))
                 {
                     // Parse for an incoming packet
@@ -268,7 +309,8 @@ void httpRunServer()
                         if (lenPtr != 0)
                         {
                             *lenPtr = 0;
-                            strncpy(connectionId, ptr, 16);
+                            strncpy(connectionId, ptr, 8);
+                            connectionId[7] = 0;
                             ptr = lenPtr + 1;
                             packetLength = atoi(ptr);
                             isReceivingPacket = true;
@@ -286,6 +328,7 @@ void httpRunServer()
 
 void httpStartServer()
 {
+    httpStopServer();
     if (!httpEnabled)
     {
         if (uartPresent)
@@ -338,7 +381,15 @@ void httpStopServer()
         Serial8.println("AT+CIPSERVER=0");
         httpWaitFor("OK");
         Serial8.end();
+
+        // Close any partial uploads
+        if (httpUploadFile)
+        {
+            httpUploadFile.close();
+        }
     }
     httpServerStatus = "";
     httpEnabled = false;
+    httpUploadActive = false;
+    packetBufferIndex = 0;
 }
