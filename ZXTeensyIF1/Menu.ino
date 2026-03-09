@@ -29,7 +29,8 @@ typedef enum {
     MENU_TYPE_NTP_TZ,
     MENU_TYPE_BROWSER,
     MENU_TYPE_BROWSER_OPEN,
-    MENU_TYPE_BROWSER_MOUNT_HDF
+    MENU_TYPE_BROWSER_MOUNT_HDF,
+    MENU_TYPE_HTTP_SERVER
 } menu_type_t;
 
 typedef struct {
@@ -65,6 +66,7 @@ typedef enum {
     SETTING_ACTION_TOGGLE_NTP,
     SETTING_ACTION_UNMOUNT_SDA,
     SETTING_ACTION_UNMOUNT_SDB,
+    SETTING_ACTION_OPEN_SERVER = 0xFB,
     SETTING_ACTION_OPEN_ROMS = 0xFC,
     SETTING_ACTION_OPEN_NTP_TZ = 0xFD,
     SETTING_ACTION_OPEN_BROWSER = 0xFE,
@@ -305,6 +307,18 @@ char* menuAddBrowserFile(uint8_t index, char* ptr, File entry)
 
     // Insert the menu entry
     return menuInsertFile(action, icon, index, ptr, filename);
+}
+
+char* menuGenerateHttpServer(char* ptr)
+{
+    ptr = menuInsertSetting(MENU_ACTION_TOP_MENU, 0, ptr, MENU_STRINGS[STRING_CANCEL], 0);
+    ptr = menuInsertSetting(MENU_ACTION_START_SERVER, 0, ptr, MENU_STRINGS[STRING_START_HTTP], 0);
+    if (httpIpAddress != "")
+    {
+        ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_NO_OP, ptr, httpIpAddress.c_str(), 0);
+    }
+    ptr = menuInsertSetting(MENU_ACTION_STOP_SERVER, 0, ptr, MENU_STRINGS[STRING_STOP_HTTP], 0);
+    return ptr;
 }
 
 char* menuGenerateNtpTz(char* ptr)
@@ -564,6 +578,8 @@ char* menuGenerateSettings(char* ptr)
             MENU_STRINGS[STRING_LOAD_NETMAN], 0);
         tmpFile.close();
     }
+    ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_OPEN_SERVER,
+        ptr, MENU_STRINGS[STRING_OPEN_HTTP_SERVER], 0);
     return ptr;
 }
 
@@ -595,6 +611,9 @@ void menuGenerate()
             break;
         case MENU_TYPE_BROWSER_MOUNT_HDF :
             textPtr = menuGenerateBrowserMountHdf(textPtr);
+            break;
+        case MENU_TYPE_HTTP_SERVER :
+            textPtr = menuGenerateHttpServer(textPtr);
             break;
     }
 
@@ -723,6 +742,9 @@ bool menuPerformSelection(uint8_t index)
                     strncpy(browserPath, "/", MAX_PATH);
                     menuCurrent = MENU_TYPE_BROWSER;
                     break;
+                case SETTING_ACTION_OPEN_SERVER :
+                    menuCurrent = MENU_TYPE_HTTP_SERVER;
+                    break;
                 case SETTING_ACTION_INTERNAL_ROM :
                     // Load internal ROM name
                     if (stricmp(cfgData.romName, INTERNAL_ROM_NAME) == 0)
@@ -827,6 +849,12 @@ bool menuPerformSelection(uint8_t index)
         case MENU_ACTION_BROWSER_LOAD_DSK :
             // TODO: Disk emulation?
             menuCurrent = MENU_TYPE_SETTINGS;
+            break;
+        case MENU_ACTION_START_SERVER :
+            httpStartServer();
+            break;
+        case MENU_ACTION_STOP_SERVER :
+            httpStopServer();
             break;
     }
 

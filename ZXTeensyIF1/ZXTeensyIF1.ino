@@ -1,5 +1,5 @@
 
-#define ZXTEENSY_VERSION "20260308"
+#define ZXTEENSY_VERSION "20260309"
 #define ENABLE_BUILTIN_ROM_IF1
 //define DEBUG_OUTPUT
 
@@ -52,7 +52,9 @@ typedef enum {
     MENU_ACTION_BROWSER_LOAD_TZX,
     MENU_ACTION_BROWSER_LOAD_DSK,
     MENU_ACTION_BROWSER_MOUNT_SDA,
-    MENU_ACTION_BROWSER_MOUNT_SDB
+    MENU_ACTION_BROWSER_MOUNT_SDB,
+    MENU_ACTION_START_SERVER,
+    MENU_ACTION_STOP_SERVER
 } menu_action_t;
 
 typedef enum {
@@ -868,20 +870,14 @@ void setup()
 #endif
 
     // Setup RD, WR, ROMCS, reset and button ISRs
+    // NOTE: Set GPIO interrupt as high priority, to avoid misses
     attachInterrupt(digitalPinToInterrupt(RD_PIN), isrRdEvent, CHANGE);
     attachInterrupt(digitalPinToInterrupt(WR_PIN), isrWrEvent, FALLING);
     attachInterrupt(digitalPinToInterrupt(ROMCS_IN_PIN), isrRdEvent, CHANGE);
     attachInterrupt(digitalPinToInterrupt(RESET_IN_PIN), isrPinReset, FALLING);
     attachInterrupt(digitalPinToInterrupt(BUTTON_PIN), isrPinButton, FALLING);
     attachInterruptVector(IRQ_GPIO6789, &isrFastGpios);
-
-    // Setup UART ISRs
-    attachInterruptVector(IRQ_LPUART5, isrUartEvent);
-    NVIC_ENABLE_IRQ(IRQ_LPUART5);
-
-    // TODO: set HW ints as high priority, otherwise ethernet int timer causes misses
     NVIC_SET_PRIORITY(IRQ_GPIO6789, 16);
-    NVIC_SET_PRIORITY(IRQ_LPUART5, 64);
 }
 
 bool detectSdCard()
@@ -1386,6 +1382,12 @@ void handleStateReset()
     // If UART is required, then initialise
     if (uartPresent)
     {
+        // Setup UART ISRs
+        attachInterruptVector(IRQ_LPUART5, isrUartEvent);
+        NVIC_ENABLE_IRQ(IRQ_LPUART5);
+        NVIC_SET_PRIORITY(IRQ_LPUART5, 64);
+
+        // Start the UART
         espUart.begin(0);
 
         // Disable time over WiFi, in case already started
@@ -1529,6 +1531,9 @@ void loop()
 
     // Run actions (eg. SD SPI) on regular ticks
     performOnClock();
+
+    // Run HTTP server actions
+    httpRunServer();
 
     // Perform USB host functions
     if (usbEnabled)
