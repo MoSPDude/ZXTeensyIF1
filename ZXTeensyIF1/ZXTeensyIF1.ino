@@ -1,7 +1,13 @@
 
-#define ZXTEENSY_VERSION "20260309"
+#define ZXTEENSY_VERSION "20260312"
 #define ENABLE_BUILTIN_ROM_IF1
 //define DEBUG_OUTPUT
+
+#define ESXMMC_BIN_PATH ((const char*)F("/ZXTEENSY/esxmmc.bin"))
+#define MF128_ROM_PATH ((const char*)F("/ZXTEENSY/mf128.rom"))
+#define IF1_ROM_PATH ((const char*)F("/ZXTEENSY/if1.rom"))
+#define MENU_ROM_PATH ((const char*)F("/ZXTEENSY/menu.rom"))
+#define MDR_EMULATOR_ROM_PATH ((const char*)F("/ZXTEENSY/SPECTRA_IF1_ED2_ME_ROM_Formatted.bin"))
 
 #include <SD.h>
 #include <SdFat.h>
@@ -21,13 +27,17 @@
 #define TICK_FREQ 7000000ULL
 #define TICK_CYCCNT (TEENSY_CLK_FREQ / TICK_FREQ)
 
-// Allow ~500ms for reset/button to debounce (at 816MHz, TRIGGER_DELAY_CNT = 0x6B5672)
+// Allow ~500ms for reset/button to debounce
 #define TRIGGER_DELAY_MS 500
 #define TRIGGER_DELAY_CNT ((TRIGGER_DELAY_MS * TEENSY_CLK_FREQ) / (TICK_CYCCNT * 1000))
 
 // If reset is held for an additional 2 seconds, then perform a hard reset
 #define HARD_RESET_DELAY_MS 2000
 #define HARD_RESET_DELAY_CNT ((HARD_RESET_DELAY_MS * TEENSY_CLK_FREQ) / (TICK_CYCCNT * 1000))
+
+// ZXC3 flash erasure delay
+#define ZXC3_ERASE_DELAY_MS 100
+#define ZXC3_ERASE_DELAY_CNT ((ZXC3_ERASE_DELAY_MS * TEENSY_CLK_FREQ) / (TICK_CYCCNT * 1000))
 
 extern "C" volatile uint32_t systick_millis_count;
 extern "C" uint32_t set_arm_clock(uint32_t frequency);
@@ -46,11 +56,14 @@ typedef enum {
     MENU_ACTION_LOAD_RTC_SETUP,
     MENU_ACTION_BROWSER_CD,
     MENU_ACTION_BROWSER_OPEN,
+    MENU_ACTION_BROWSER_OPEN_ZXC2,
     MENU_ACTION_BROWSER_OPEN_HDF,
     MENU_ACTION_BROWSER_LOAD_CART,
     MENU_ACTION_BROWSER_LOAD_ZXC2,
+    MENU_ACTION_BROWSER_LOAD_ZXC3,
     MENU_ACTION_BROWSER_LOAD_Z80,
     MENU_ACTION_BROWSER_LOAD_TZX,
+    MENU_ACTION_BROWSER_LOAD_MDR,
     MENU_ACTION_BROWSER_LOAD_DSK,
     MENU_ACTION_BROWSER_MOUNT_SDA,
     MENU_ACTION_BROWSER_MOUNT_SDB,
@@ -140,68 +153,66 @@ typedef enum {
     DIVMMC_HDF_B
 } divmmc_spi_t;
 
-// I/O pin assignments
-const uint8_t LED_PIN = 13;
-const uint8_t DATA_DIS_PIN = 29;
-const uint8_t DATA_OUT_PIN = 36;  // 1 = output, 0 = input
-const uint8_t RESET_PIN = 31;
-const uint8_t RESET_IN_PIN = 2;
-const uint8_t BUTTON_PIN = 33;
-const uint8_t ROMCS_PIN = 37;
-const uint8_t ROMCS_IN_PIN = 3;
-const uint8_t IF1_DIS_PIN = 5;
-const uint8_t NMI_PIN = 30;
-const uint8_t RD_PIN = 1;
-const uint8_t WR_PIN = 0;
-const uint8_t MREQ_PIN = 24;
-const uint8_t IOREQ_PIN = 25;
-const uint8_t M1_PIN = 4;
-const uint8_t ESP_ENABLE = 28;
-const uint8_t SD_CS_PIN = 46;
+typedef enum {
+    ZXC3_FLASH_IDLE,
+    ZXC3_FLASH_UNLOCK,
+    ZXC3_FLASH_CMD,
+    ZXC3_FLASH_WRITE
+} zxc3_flash_state_t;
 
-const uint8_t INPUT_PINS[] = {
+// I/O pin assignments
+static const uint8_t LED_PIN = 13;
+static const uint8_t DATA_DIS_PIN = 29;
+static const uint8_t DATA_OUT_PIN = 36;  // 1 = output, 0 = input
+static const uint8_t RESET_PIN = 31;
+static const uint8_t RESET_IN_PIN = 2;
+static const uint8_t BUTTON_PIN = 33;
+static const uint8_t ROMCS_PIN = 37;
+static const uint8_t ROMCS_IN_PIN = 3;
+static const uint8_t IF1_DIS_PIN = 5;
+static const uint8_t NMI_PIN = 30;
+static const uint8_t RD_PIN = 1;
+static const uint8_t WR_PIN = 0;
+static const uint8_t MREQ_PIN = 24;
+static const uint8_t IOREQ_PIN = 25;
+static const uint8_t M1_PIN = 4;
+static const uint8_t ESP_ENABLE = 28;
+static const uint8_t SD_CS_PIN = 46;
+
+static const uint8_t INPUT_PINS[] = {
     RESET_IN_PIN, MREQ_PIN, RD_PIN, IOREQ_PIN, WR_PIN, M1_PIN, ROMCS_IN_PIN,
     19, 18, 14, 15, 40, 41, 17, 16, 22, 23, 20, 21, 38, 39, 26, 27, // Address bus
     BUTTON_PIN, ESP_ENABLE
 };
 
-const uint32_t RD_PIN_BITMASK = CORE_PIN1_BITMASK;
-const uint32_t WR_PIN_BITMASK = CORE_PIN0_BITMASK;
-const uint32_t M1_PIN_BITMASK = CORE_PIN4_BITMASK;
-const uint32_t IOREQ_PIN_BITMASK = CORE_PIN25_BITMASK;
-const uint32_t MREQ_PIN_BITMASK = CORE_PIN24_BITMASK;
-const uint32_t A15_PIN_BITMASK = CORE_PIN27_BITMASK;
-const uint32_t A14_PIN_BITMASK = CORE_PIN26_BITMASK;
-const uint32_t A13_PIN_BITMASK = CORE_PIN39_BITMASK;
-const uint32_t A12_PIN_BITMASK = CORE_PIN38_BITMASK;
-const uint32_t ROMCS_IN_PIN_BITMASK = CORE_PIN3_BITMASK;
+static const uint32_t RD_PIN_BITMASK = CORE_PIN1_BITMASK;
+static const uint32_t WR_PIN_BITMASK = CORE_PIN0_BITMASK;
+static const uint32_t M1_PIN_BITMASK = CORE_PIN4_BITMASK;
+static const uint32_t IOREQ_PIN_BITMASK = CORE_PIN25_BITMASK;
+static const uint32_t MREQ_PIN_BITMASK = CORE_PIN24_BITMASK;
+static const uint32_t A15_PIN_BITMASK = CORE_PIN27_BITMASK;
+static const uint32_t A14_PIN_BITMASK = CORE_PIN26_BITMASK;
+static const uint32_t A13_PIN_BITMASK = CORE_PIN39_BITMASK;
+static const uint32_t A12_PIN_BITMASK = CORE_PIN38_BITMASK;
+static const uint32_t ROMCS_IN_PIN_BITMASK = CORE_PIN3_BITMASK;
+static const uint32_t DATA_OUT_PIN_BITMASK = CORE_PIN36_BITMASK;
 
-const uint8_t DATA_PINS[] = { 6, 7, 8, 9, 10, 11, 12, 32 };
+static const uint8_t DATA_PINS[] = { 6, 7, 8, 9, 10, 11, 12, 32 };
 
-const uint32_t GPIO7_DATA_MASK = (CORE_PIN6_BITMASK | CORE_PIN7_BITMASK |
+static const uint32_t GPIO7_DATA_MASK = (CORE_PIN6_BITMASK | CORE_PIN7_BITMASK |
     CORE_PIN8_BITMASK | CORE_PIN9_BITMASK |
     CORE_PIN10_BITMASK | CORE_PIN11_BITMASK |
     CORE_PIN12_BITMASK | CORE_PIN32_BITMASK);
 
-const uint32_t DATA_OUT_PIN_BITMASK = CORE_PIN36_BITMASK;
-
-const uint8_t OUTPUT_PINS[] = {
+static const uint8_t OUTPUT_PINS[] = {
     LED_PIN, ROMCS_PIN, NMI_PIN, IF1_DIS_PIN
 };
 
-// Mask for A15, A14, ^RD, and ^MREQ
-const uint32_t ROM_READ_MASK = (A15_PIN_BITMASK | A14_PIN_BITMASK |
-    RD_PIN_BITMASK | MREQ_PIN_BITMASK);
-
-// Mask for ^RD and ^IOREQ
-const uint32_t IO_READ_MASK = (IOREQ_PIN_BITMASK | RD_PIN_BITMASK);
-
-// Mask for A15, A14, A13 and ^MREQ
-const uint32_t DIVMMC_RAM_WRITE_MASK = (A15_PIN_BITMASK | A14_PIN_BITMASK |
-    A13_PIN_BITMASK | MREQ_PIN_BITMASK);
+// Mask for A15 and A14 and ^MREQ
+static const uint32_t ROM_ADDRESS_MASK = (A15_PIN_BITMASK | A14_PIN_BITMASK | MREQ_PIN_BITMASK);
 
 // Number of SD detection retries
-const uint8_t NUM_SD_RETRIES = 3;
+static const uint8_t NUM_SD_RETRIES = 3;
 
 // Global state
 volatile bool bootIntoMenu = false;
@@ -222,8 +233,8 @@ volatile trigger_state_t buttonTrigState = TRIGGER_READY;
 volatile uint32_t buttonTrigExitCount = 0;
 
 // ROM banking
-const uint16_t RAM_PAGE_SIZE = 0x2000;
-const uint16_t ROM_PAGE_SIZE = (RAM_PAGE_SIZE * 2);
+static const uint16_t RAM_PAGE_SIZE = 0x2000;
+static const uint16_t ROM_PAGE_SIZE = (RAM_PAGE_SIZE * 2);
 volatile rom_select_t romSelected = ROM_ROM0;
 volatile bank_select_t romArraySelected = BANK_ROM0;
 volatile uint8_t romArray[ROM_PAGE_COUNT][RAM_PAGE_SIZE] __attribute__((aligned(16)));
@@ -240,8 +251,8 @@ volatile bool rom1Paged = false;
 volatile bool rom23Paged = false;
 
 // DivMMC with total 512KB of RAM
-const uint16_t RAM_PAGE_COUNT = 16;
-const uint16_t EXT_RAM_PAGE_COUNT = 48;
+static const uint16_t RAM_PAGE_COUNT = 16;
+static const uint16_t EXT_RAM_PAGE_COUNT = 48;
 volatile uint8_t divMmcRamArray[RAM_PAGE_COUNT][RAM_PAGE_SIZE] __attribute__((aligned(16)));
 volatile DMAMEM uint8_t divMmcExtRamArray[EXT_RAM_PAGE_COUNT][RAM_PAGE_SIZE] __attribute__((aligned(16)));
 volatile bool divMmcPresent = false;
@@ -277,6 +288,23 @@ volatile bool zxC2Paged = false;
 volatile bool zxC2Lock = false;
 volatile bool zxC2ShadowRom = false;
 volatile uint8_t zxC2BankPtr = 0x00;
+
+// ZXC3 flash cartridge
+static const uint16_t ZXC3_PAGE_COUNT = 16;
+volatile bool zxC3Enabled = false;
+volatile bool zxC3Write = false;
+volatile zxc3_flash_state_t zxC3FlashState = ZXC3_FLASH_IDLE;
+volatile bool zxC3FlashSetup = false;
+volatile trigger_state_t zxC3WriteTrigState = TRIGGER_READY;
+volatile uint32_t zxC3WriteTrigExitCount = 0;
+volatile trigger_state_t zxC3EraseTrigState = TRIGGER_READY;
+volatile uint32_t zxC3EraseTrigExitCount = 0;
+DMAMEM RingBuffer<EXT_RAM_PAGE_COUNT> zxC3EraseBuffer;
+
+// Microdrive emulator
+static const uint8_t MDR_MAX_SECTOR = 0xB4;
+volatile bool mdrEnabled = false;
+volatile uint8_t mdrMaxSector = 0;
 
 // Z80 snapshot loader banking
 volatile bool snaLoaderPresent = false;
@@ -917,6 +945,22 @@ bool loadZXC2RomFile(File RomFile)
     return zxC2Present;
 }
 
+void saveZXC3RomFile(const char* filePath)
+{
+    File saveFile = SD.open(filePath, FILE_WRITE_BEGIN);
+    if (saveFile)
+    {
+        for (uint8_t i_ = 0; i_ < ZXC3_PAGE_COUNT; ++i_)
+        {
+            if (saveFile.write((uint8_t*)divMmcExtRamArray[i_], RAM_PAGE_SIZE) < RAM_PAGE_SIZE)
+            {
+                break;
+            }
+        }
+        saveFile.close();
+    }
+}
+
 bool loadSnapshotFile(File RomFile, bool isSnaFile)
 {
     // Reset the loader state only, as will page in the Spectrum ROM
@@ -995,6 +1039,222 @@ bool loadTzxPlayerFile(const char* fileName, size_t* count)
     return (*count > 0);
 }
 
+void saveMicrodriveEmulatorFile(const char* fileName)
+{
+    File mdrFile = SD.open(fileName, FILE_WRITE_BEGIN);
+    if (mdrFile)
+    {
+        // Load the header from the first sector
+        uint8_t buffer[0x21F];
+        uint8_t sector = mdrMaxSector;
+        uint8_t* ptr = (uint8_t*)divMmcExtRamArray[2];
+        memcpy(buffer, ptr + 1, 15);
+
+        // Generate empty sectors that had been truncated on load
+        memset(&(buffer[0x0F]), 0x00, 0x210);
+        while (sector > MDR_MAX_SECTOR)
+        {
+            // Replace HDNUMB with new sector
+            buffer[1] = sector--;
+
+            // Update HDCHK for the header
+            buffer[14] = 0;
+            for (uint16_t x = 0; x < 14; ++x)
+            {
+                uint16_t y = buffer[14] + buffer[x];
+                if (y >= 0x100)
+                {
+                    buffer[14] += buffer[x] + 1;
+                } else {
+                    buffer[14] += buffer[x];
+                }
+            }
+
+            // Write header and zero payload
+            mdrFile.write(buffer, 0x21F);
+        }
+
+        // Write out the existing sectors from pages 1 to 6
+        for (uint8_t i_ = 2; i_ < 14; i_ += 2)
+        {
+            for (uint8_t j_ = 0; j_ < 0x1E; ++j_)
+            {
+                uint8_t* ptr = (uint8_t*)divMmcExtRamArray[i_] + (j_ * 0x220);
+                if (*ptr != 0xFF)
+                {
+                    mdrFile.write(ptr + 1, 0x21F);
+                    --sector;
+                }
+            }
+        }
+        mdrFile.close();
+    }
+}
+
+bool loadMicrodriveEmulatorFile(const char* fileName)
+{
+    bool result = false;
+    File mdrFile = SD.open(fileName, FILE_READ);
+    if (mdrFile)
+    {
+        uint16_t i_, j_;
+        uint8_t buffer[0x21F];
+        mdrMaxSector = 0;
+
+        // The emulator can load microdrives with 180 used sectors,
+        // in pages 1 to 6. Microdrive files may be sparse, so re-pack to fit
+        // the emulator.
+        uint8_t newSector = MDR_MAX_SECTOR;
+        for (i_ = 2; i_ < 14; i_ += 2)
+        {
+            for (j_ = 0; j_ < 0x1E; ++j_)
+            {
+                uint8_t* ptr = (uint8_t*)divMmcExtRamArray[i_] + (j_ * 0x220);
+                if (mdrFile.readBytes((char*)(ptr + 1), 0x21F) >= 0x21F)
+                {
+                    // Replace HDNUMB with new sector
+                    if (ptr[2] > mdrMaxSector)
+                    {
+                        mdrMaxSector = ptr[2];
+                    }
+                    ptr[0] = 0x00;
+                    ptr[2] = newSector--;
+
+                    // Update HDCHK for the header
+                    ptr[15] = 0;
+                    for (uint16_t x = 1; x < 15; ++x)
+                    {
+                        uint16_t y = ptr[15] + ptr[x];
+                        if (y >= 0x100)
+                        {
+                            ptr[15] += ptr[x] + 1;
+                        } else {
+                            ptr[15] += ptr[x];
+                        }
+                    }
+                } else {
+                    result = true;
+                    break;
+                }
+            }
+            if (result)
+            {
+                break;
+            }
+        }
+
+        // Continue to load sectors that are not empty, into any blank sectors
+        // that had been loaded from the file
+        i_ = 2;
+        j_ = 0;
+        while (!result)
+        {
+            // Find an existing blank sector
+            bool isUsed = false;
+            uint8_t* ptr = (uint8_t*)divMmcExtRamArray[i_] + (j_ * 0x220);
+            for (uint16_t k_ = 16; k_ < 0x220; ++k_)
+            {
+                if (ptr[k_] != 0x00)
+                {
+                    isUsed = true;
+                    break;
+                }
+            }
+
+            // Attempt to load a sector from file to replace this blank sector
+            if (!isUsed)
+            {
+                if (mdrFile.readBytes((char*)buffer, 0x21F) >= 0x21F)
+                {
+                    // Test that the loaded sector is not blank itself
+                    for (uint16_t k_ = 15; k_ < 0x21F; ++k_)
+                    {
+                        if (buffer[k_] != 0x00)
+                        {
+                            // Replace HDNUMB with existing new sector
+                            if (buffer[1] > mdrMaxSector)
+                            {
+                                mdrMaxSector = buffer[1];
+                            }
+                            ptr[1] = buffer[0];
+                            ptr[2] = newSector--;
+                            memcpy(&(ptr[3]), &(buffer[2]), 0x21D);
+                            isUsed = true;
+
+                            // Update HDCHK for the header
+                            ptr[15] = 0;
+                            for (uint16_t x = 1; x < 15; ++x)
+                            {
+                                uint16_t y = ptr[15] + ptr[x];
+                                if (y >= 0x100)
+                                {
+                                    ptr[15] += ptr[x] + 1;
+                                } else {
+                                    ptr[15] += ptr[x];
+                                }
+                            }
+                            break;
+                        }
+                    }
+                    if (!isUsed)
+                    {
+                        --j_;
+                    }
+                } else {
+                    result = true;
+                    break;
+                }
+            }
+
+            // Increment to the next sector
+            if (++j_ >= 0x1E)
+            {
+                j_ = 0;
+                i_ += 2;
+                if (i_ >= 14)
+                {
+                    // Detect if there are any more valid sectors in the file,
+                    // that cannot be loaded into the emulator
+                    result = true;
+                    while (mdrFile.readBytes((char*)buffer, 0x21F) >= 0x21F)
+                    {
+                        for (uint16_t k_ = 15; k_ < 0x21F; ++k_)
+                        {
+                            if (buffer[k_] != 0x00)
+                            {
+                                // Fail to load if more data is found, to avoid
+                                // corruption
+                                result = false;
+                                break;
+                            }
+                        }
+                        if (!result)
+                        {
+                            break;
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+        mdrFile.close();
+    }
+
+    // Load the microdrive emulator ROM
+    if (result &&
+        (loadRomImage(MDR_EMULATOR_ROM_PATH, (char *)divMmcExtRamArray[0],
+            ROM_PAGE_SIZE) > 0))
+    {
+        zxC2Present = true;
+        zxC3Enabled = true;
+        zxC2ShadowRom = true;
+        divMmcExtRamEnabled = false;
+        romArrayPresent |= BANK_RAM;
+        return true;
+    }
+    return false;
+}
+
 void initialiseRamBanks()
 {
     divMmcExtRamEnabled = true;
@@ -1029,7 +1289,8 @@ void handleStateResetEntry()
         while (hasDebugData())
         {
             while ( (uint) Serial.availableForWrite() <  0x400);
-            Serial.printf("%02x%02x%02x, ", readDebugData(), readDebugData(), readDebugData());
+            Serial.printf("%02x%02x%02x %02x, ", readDebugData(), readDebugData(),
+                readDebugData(), readDebugData());
         }
         Serial.printf("\nEND\n");
         while ( (uint) Serial.availableForWrite() <  0x400);
@@ -1128,19 +1389,22 @@ void handleStateResetEntry()
             if (beginSdfsSd())
             {
                 // Load DivMMC Esxdos ROM
-                if (loadRomImage("esxmmc.bin", (char *)romArray[ROM_PAGE_DIVMMC], RAM_PAGE_SIZE) > 0)
+                if (loadRomImage(ESXMMC_BIN_PATH, (char *)romArray[ROM_PAGE_DIVMMC],
+                    RAM_PAGE_SIZE) > 0)
                 {
                     romArrayPresent |= BANK_DIVMMC;
                 }
 
                 // Load Multiface 128 ROM
-                if (loadRomImage("mf128.rom", (char *)romArray[ROM_PAGE_MF128], RAM_PAGE_SIZE) > 0)
+                if (loadRomImage(MF128_ROM_PATH, (char *)romArray[ROM_PAGE_MF128],
+                    RAM_PAGE_SIZE) > 0)
                 {
                     romArrayPresent |= BANK_MF128;
                 }
 
                 // Load Interface 1 ROM
-                if (loadRomImage("if1.rom", (char *)romArray[ROM_PAGE_IF1], ROM_PAGE_SIZE) > 0)
+                if (loadRomImage(IF1_ROM_PATH, (char *)romArray[ROM_PAGE_IF1],
+                    ROM_PAGE_SIZE) > 0)
                 {
                     romArrayPresent |= BANK_IF1;
                 }
@@ -1162,7 +1426,8 @@ void handleStateResetEntry()
                 // Load menu ROM into the DivMMC RAM area
                 if ((menuEnterOnReset || (!afterFirstReset && bootIntoMenu)) &&
                     !digitalReadFast(ROMCS_IN_PIN) &&
-                    (loadRomImage("menu.rom", (char *)divMmcRamArray[0], RAM_PAGE_SIZE) > 0))
+                    (loadRomImage(MENU_ROM_PATH, (char *)divMmcRamArray[0],
+                        RAM_PAGE_SIZE) > 0))
                 {
                     menuPaged = true;
                     romArrayPresent |= BANK_RAM;
@@ -1259,6 +1524,12 @@ void handleStateReset()
     zxC2Paged = false;
     zxC2Lock = false;
     zxC2BankPtr = 0x00;
+    zxC3Enabled = false;
+    zxC3Write = false;
+    zxC3FlashState = ZXC3_FLASH_IDLE;
+    zxC3FlashSetup = false;
+    zxC3WriteTrigState = TRIGGER_READY;
+    mdrEnabled = false;
     snaLoaderPaged = false;
     uartEnabled = false;
     tzxEnabled = false;
@@ -1312,6 +1583,15 @@ void handleStateReset()
     {
         menuInitialise(divMmcRamArray[0]);
     } else {
+        // Load the microdrive emulator
+        if (mdrEnabled)
+        {
+            if (!loadMicrodriveEmulatorFile(menuGetBrowserPath()))
+            {
+                mdrEnabled = false;
+            }
+        }
+
         // Page in the ZXC2 cartridge, or snapshot loader ROM
         if (zxC2Present)
         {
@@ -1532,6 +1812,93 @@ FASTRUN void loop()
                 // The menu needs the Spectrum in reset to access the SD card,
                 // reload ROMs, update FW etc.
                 setState(STATE_RESET_MENU);
+            }
+        }
+
+        // Perform ZXC3 flash actions
+        if (zxC3Enabled)
+        {
+            if (zxC3EraseBuffer.canRead())
+            {
+                switch (zxC3EraseTrigState)
+                {
+                    case TRIGGER_HOLD :
+                        if (!zxC3Write)
+                        {
+                            zxC3EraseTrigState = TRIGGER_DELAY;
+                            zxC3EraseTrigExitCount = ZXC3_ERASE_DELAY_CNT;
+                        }
+                        break;
+                    case TRIGGER_DELAY :
+                        if (!zxC3Write)
+                        {
+                            --zxC3EraseTrigExitCount;
+                            if (zxC3EraseTrigExitCount == 0)
+                            {
+                                zxC3EraseTrigState = TRIGGER_READY;
+                                if (zxC3EraseBuffer.canRead())
+                                {
+                                    uint8_t sector = zxC3EraseBuffer.readRaw();
+                                    if (sector < 0xFF)
+                                    {
+                                        memset((void*)&(divMmcExtRamArray[sector][1]),
+                                            0xFF, (ROM_PAGE_SIZE - 1));
+                                        *divMmcExtRamArray[sector] = 0xFF;
+                                    } else {
+                                        memset((void*)&(divMmcExtRamArray[0][1]),
+                                            0xFF, ((ZXC3_PAGE_COUNT * RAM_PAGE_SIZE) - 1));
+                                        *divMmcExtRamArray[0] = 0xFF;
+                                    }
+                                }
+                            }
+                        } else {
+                            zxC3EraseTrigExitCount = ZXC3_ERASE_DELAY_CNT;
+                        }
+                        break;
+                    default :
+                        if (!zxC3Write)
+                        {
+                            zxC3EraseTrigState = TRIGGER_HOLD;
+                        }
+                        break;
+                }
+            }
+
+            switch (zxC3WriteTrigState)
+            {
+                case TRIGGER_ACTIVE :
+                    if (!zxC3Write)
+                    {
+                        zxC3WriteTrigState = TRIGGER_HOLD;
+                    }
+                    break;
+                case TRIGGER_HOLD :
+                    if (!zxC3Write)
+                    {
+                        zxC3WriteTrigState = TRIGGER_DELAY;
+                        zxC3WriteTrigExitCount = TRIGGER_DELAY_CNT;
+                    }
+                    break;
+                case TRIGGER_DELAY :
+                    if (!zxC3Write)
+                    {
+                        --zxC3WriteTrigExitCount;
+                        if (zxC3WriteTrigExitCount == 0)
+                        {
+                            if (mdrEnabled)
+                            {
+                                saveMicrodriveEmulatorFile(menuGetBrowserPath());
+                            } else {
+                                saveZXC3RomFile(menuGetBrowserPath());
+                            }
+                            zxC3WriteTrigState = TRIGGER_READY;
+                        }
+                    } else {
+                        zxC3WriteTrigExitCount = TRIGGER_DELAY_CNT;
+                    }
+                    break;
+                default :
+                    break;
             }
         }
     }
@@ -1758,17 +2125,22 @@ FASTRUN void isrWrEvent()
     {
         // Start of write access
         uint32_t gpioSix = (*(volatile uint32_t *)IMXRT_GPIO6_ADDRESS);
-        if ((gpioSix & DIVMMC_RAM_WRITE_MASK) == A13_PIN_BITMASK)
+        if ((gpioSix & ROM_ADDRESS_MASK) == 0x00000000)
         {
-            // Perform high ROM area (0x2000) write
-            uint16_t address = decodeRamAddress(gpioSix);
+            uint16_t address = decodeAddress(gpioSix);
 
             // Perform ZXC2 address based paging
             if (zxC2Present && !zxC2Lock &&
                 (!zxC2ShadowRom || zxC2Paged) &&
-                ((address & 0xffc0) == 0x1fc0))
+                ((address & 0xffc0) == 0x3fc0))
             {
-                zxC2BankPtr = ((address & 0x0f) << 1);
+                if (zxC3Enabled)
+                {
+                    zxC3Write = ((address & 0x08) != 0);
+                    zxC2BankPtr = ((address & 0x07) << 1);
+                } else {
+                    zxC2BankPtr = ((address & 0x0f) << 1);
+                }
                 zxC2Paged = ((address & 0x10) == 0);
                 zxC2Lock = ((address & 0x20) != 0);
                 updateRomIndex(true);
@@ -1778,18 +2150,105 @@ FASTRUN void isrWrEvent()
             {
                 case ROM_MF128 :
                     // Perform Multiface 128 RAM write
-                    romPtr[(RAM_PAGE_SIZE | address)] = readData();
+                    if (address >= RAM_PAGE_SIZE)
+                    {
+                        romPtr[address] = readData();
+                    }
                     break;
                 case ROM_DIVMMC :
                     // Perform DivMMC RAM write
-                    if (!divMmcMapRam || divMmcConMem || !divMmcRamBankThree)
+                    if ((address >= RAM_PAGE_SIZE) &&
+                        (!divMmcMapRam || divMmcConMem || !divMmcRamBankThree))
                     {
-                        divMmcRamPtr[address] = readData();
+                        divMmcRamPtr[address & (RAM_PAGE_SIZE - 1)] = readData();
+                    }
+                    break;
+                case ROM_ZXC2 :
+                    if (zxC3Write)
+                    {
+                        uint8_t data = readData();
+#ifdef DEBUG_OUTPUT
+                        writeDebugData(zxC2BankPtr >> 1);
+                        writeDebugData(address >> 8);
+                        writeDebugData(address);
+                        writeDebugData(data);
+#endif
+                        switch (zxC3FlashState)
+                        {
+                            case ZXC3_FLASH_UNLOCK :
+                                if ((zxC2BankPtr == 0) && (address == 0x2AAA) && (data == 0x55))
+                                {
+                                    zxC3FlashState = ZXC3_FLASH_CMD;
+                                } else {
+                                    zxC3FlashState = ZXC3_FLASH_IDLE;
+                                    zxC3FlashSetup = false;
+                                }
+                                break;
+                            case ZXC3_FLASH_CMD :
+                                zxC3FlashState = ZXC3_FLASH_IDLE;
+                                switch (data)
+                                {
+                                    case 0x10 :
+                                        // Chip erase
+                                        if ((zxC2BankPtr == 2) && (address == 0x1555) &&
+                                            zxC3FlashSetup)
+                                        {
+                                            for (uint8_t i = 0; i < ZXC3_PAGE_COUNT; ++i)
+                                            {
+                                                *divMmcExtRamArray[i] = 0x08;
+                                            }
+                                            zxC3EraseBuffer.write(0xFF);
+                                            zxC3WriteTrigState = TRIGGER_ACTIVE;
+                                        }
+                                        zxC3FlashSetup = false;
+                                        break;
+                                    case 0x30 :
+                                        // Sector erase
+                                        if (zxC3FlashSetup)
+                                        {
+                                            *divMmcExtRamArray[zxC2BankPtr] = 0x08;
+                                            zxC3EraseBuffer.write(zxC2BankPtr);
+                                            zxC3WriteTrigState = TRIGGER_ACTIVE;
+                                        }
+                                        zxC3FlashSetup = false;
+                                        break;
+                                    case 0x80 :
+                                        // Setup command
+                                        if ((zxC2BankPtr == 2) && (address == 0x1555))
+                                        {
+                                            zxC3FlashSetup = true;
+                                        }
+                                        break;
+                                    case 0xA0 :
+                                        // Program byte
+                                        if ((zxC2BankPtr == 2) && (address == 0x1555))
+                                        {
+                                            zxC3FlashState = ZXC3_FLASH_WRITE;
+                                        }
+                                        break;
+                                    default :
+                                        zxC3FlashSetup = false;
+                                        break;
+                                }
+                                break;
+                            case ZXC3_FLASH_WRITE :
+                                // Program byte
+                                romPtr[address] = data;
+                                zxC3FlashState = ZXC3_FLASH_IDLE;
+                                zxC3WriteTrigState = TRIGGER_ACTIVE;
+                                break;
+                            default :
+                                if ((zxC2BankPtr == 2) && (address == 0x1555) && (data == 0xAA))
+                                {
+                                    zxC3FlashState = ZXC3_FLASH_UNLOCK;
+                                }
+                                break;
+                        }
                     }
                     break;
                 case ROM_SNA :
                     // Detect snapshot loader paging
-                    if (address == 0x1FFF)
+                    if (address == 0x3FFF)
                     {
                         if (snaLoaderBanks > 0)
                         {
@@ -1982,7 +2441,7 @@ FASTRUN void isrRdEvent()
         }
     } else if (globalState == STATE_ROM_ENABLE)
     {
-        if ((gpioSix & ROM_READ_MASK) == 0x00000000)
+        if ((gpioSix & ROM_ADDRESS_MASK) == 0x00000000)
         {
             // Perform ROM read access
             uint32_t gpioNine = (*(volatile uint32_t *)IMXRT_GPIO9_ADDRESS);
@@ -2000,7 +2459,13 @@ FASTRUN void isrRdEvent()
                     (!zxC2ShadowRom || zxC2Paged) &&
                     ((address & 0xffc0) == 0x3fc0))
                 {
-                    zxC2BankPtr = ((address & 0x0f) << 1);
+                    if (zxC3Enabled)
+                    {
+                        zxC3Write = ((address & 0x08) != 0);
+                        zxC2BankPtr = ((address & 0x07) << 1);
+                    } else {
+                        zxC2BankPtr = ((address & 0x0f) << 1);
+                    }
                     zxC2Paged = ((address & 0x10) == 0);
                     zxC2Lock = ((address & 0x20) != 0);
                     updateRomIndex(true);
@@ -2190,10 +2655,10 @@ FASTRUN void isrRdEvent()
 
 #ifdef DEBUG_OUTPUT
                 // Debug tracing
-                traceDebug(address);
+                //traceDebug(address);
 #endif
             }
-        } else if (!busRdActive && ((gpioSix & IO_READ_MASK) == 0x00000000))
+        } else if (!busRdActive && ((gpioSix & IOREQ_PIN_BITMASK) == 0x00000000))
         {
             // Perform I/O read access
             uint8_t port = decodeLowAddress(gpioSix);

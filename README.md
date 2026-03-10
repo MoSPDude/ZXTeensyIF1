@@ -13,8 +13,11 @@ A Teensy 4.1 powered DivMMC and ZX Interface 1 clone for the ZX Spectrum 48K/128
     * Shares the Teensy main SD card
 * Multiface 128 emulation
     * NMI button and soft ROM
-* ZX Interface 2, and ZXC2 ROM emulation
+* ZX Interface 2 emulation
+* ZXC2 and ZXC3 with Flash ROM cartridge emulation
     * Implements ZXC2 ROM banking
+    * Implements ZXC3 ROM banking with 128KB Flash ROM
+    * Implements SPECTRA shadow ROM support
 * ESP-01S module via TX8/RX8
     * Requires the 9V power rail for the 3.3V regulator
     * Available on ports 0x143B (5179) for RX and 0x133B (4923) for TX
@@ -37,6 +40,9 @@ A Teensy 4.1 powered DivMMC and ZX Interface 1 clone for the ZX Spectrum 48K/128
 * Menu ROM derived from TomDDGs ZXPicoIF2Lite ROMExplorer
 * Z80 snapshot loading from TomDDGs ZXPicoIF2Lite
     * Integrated "z80torom" for loading 'z80' and 'sna' files
+* Microdrive file loading using Paul Farrows SPECTRA Microdrive Emulator
+    * http://www.fruitcake.plus.com/Sinclair/Interface2/Cartridges/Interface2_RC_New_Microdrive_Emulator.htm
+    * Supports microdrives with up to 90KB of data
 * Nihirash's Network Manager for WiFi configuration
     * Small bugfix to clear the BASIC keypress on load
 * Velesoft's RTC_SETUP for RTC configuration
@@ -68,6 +74,8 @@ It borrows content, ideas and inspiration from,
     * Initial code and parts for the Teensy 4.1 firmware
 * https://github.com/TomDDG/ZXPicoIF2Lite
     * ROM menu source code, Z80 snapshot loader, and the idea of a soft ROM
+* http://www.fruitcake.plus.com/Sinclair/Interface2/Cartridges/Interface2_RC_Cartridges.htm
+    * ZXC2 and ZXC3 banking, and Microdrive Emulator
 * https://github.com/nihirash/netman-zx
     * WiFi Network Manager for the ESP-01S
 * https://velesoft.speccy.cz/zx/rtcmodule/index.htm
@@ -111,10 +119,15 @@ the DivMMC and enable the Interface 1.
 ## SD Card Setup
 
 * ROOT/
-    * MENU.ROM
-    * MF128.ROM (MD5SUM: ca8c9d97c8aedd718d1081fad2e3af8d)
-    * ESXMMC.BIN (MD5SUM: fa50b0258e52b8d72bd83cc2fb6e1013)
-    * IF1.ROM (Optional, MD5SUM: 31b704ae925305e74f50699271fddd9a)
+    * ZXTEENSY/
+        * MENU.ROM
+        * MF128.ROM (MD5SUM: ca8c9d97c8aedd718d1081fad2e3af8d)
+        * ESXMMC.BIN (MD5SUM: fa50b0258e52b8d72bd83cc2fb6e1013)
+        * SPECTRA_IF1_ED2_ME_ROM_Formatted.bin (MD5SUM: 052ad91ee822604960e8ca8d32a3ddb9)
+        * IF1.ROM (Optional, MD5SUM: 31b704ae925305e74f50699271fddd9a)
+        * netman.z80 (WiFi Network Manager snapshot)
+        * rtc_setup.z80 (RTC Setup snapshot)
+        * ZXTEENSY.CFG (Saved configuration from Menu ROM)
     * ROMS/
         * (ZX Spectrum ROMs ending ".rom")
         * (Interface 2 and ZXC2 ROMs ending ".bin")
@@ -122,9 +135,6 @@ the DivMMC and enable the Interface 1.
     * SYS/
         * RTC.SYS (Optional, for RTC access)
         * (Other ESXDOS files)
-    * netman.z80 (WiFi Network Manager snapshot)
-    * rtc_setup.z80 (RTC Setup snapshot)
-    * ZXTEENSY.CFG (Saved configuration from Menu ROM)
     * ZXTEENSY.HEX (Optional, firmware update)
 
 Hold the button on Reset to load the menu ROM - here, you can toggle the DivMMC, Interface 1 and

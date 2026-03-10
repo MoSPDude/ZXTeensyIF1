@@ -1,10 +1,10 @@
 
-#define FLASH_FILENAME "ZXTEENSY.HEX"
-#define CFG_FILENAME ((const char*)F("ZXTEENSY.CFG"))
 #define INTERNAL_ROM_NAME ((const char*)F(":INTERNAL"))
 
-#define NETMAN_PATH "/netman.z80"
-#define RTC_SETUP_PATH "/rtc_setup.z80"
+#define FWUPDATE_HEX_PATH "ZXTEENSY.HEX"
+#define ZXTEENSY_CFG_PATH ((const char*)F("/ZXTEENSY/ZXTEENSY.CFG"))
+#define NETMAN_Z80_PATH ((const char*)F("/ZXTEENSY/netman.z80"))
+#define RTC_SETUP_Z80_PATH ((const char*)F("/ZXTEENSY/rtc_setup.z80"))
 
 #include "StringsZXTeensy.h"
 
@@ -29,6 +29,7 @@ typedef enum {
     MENU_TYPE_NTP_TZ,
     MENU_TYPE_BROWSER,
     MENU_TYPE_BROWSER_OPEN,
+    MENU_TYPE_BROWSER_OPEN_ZXC2,
     MENU_TYPE_BROWSER_MOUNT_HDF,
     MENU_TYPE_HTTP_SERVER
 } menu_type_t;
@@ -275,7 +276,7 @@ char* menuAddBrowserFile(uint8_t index, char* ptr, File entry)
             } else if (stricmp(fileext + 1, "bin") == 0)
             {
                 icon = ICON_TYPE_ZXC2;
-                action = MENU_ACTION_BROWSER_LOAD_ZXC2;
+                action = MENU_ACTION_BROWSER_OPEN_ZXC2;
             } else if ((stricmp(fileext + 1, "z80") == 0) ||
                 (stricmp(fileext + 1, "sna") == 0))
             {
@@ -290,6 +291,10 @@ char* menuAddBrowserFile(uint8_t index, char* ptr, File entry)
             {
                 icon = ICON_TYPE_DSK;
                 action = MENU_ACTION_BROWSER_LOAD_DSK;
+            } else if (stricmp(fileext + 1, "mdr") == 0)
+            {
+                icon = ICON_TYPE_DSK;
+                action = MENU_ACTION_BROWSER_LOAD_MDR;
             } else if ((stricmp(fileext + 1, "tap") == 0) ||
                 (stricmp(fileext + 1, "tzx") == 0))
             {
@@ -360,6 +365,14 @@ char* menuGenerateNtpTz(char* ptr)
     return ptr;
 }
 
+char* menuGenerateBrowserOpenZXC2(char* ptr)
+{
+    ptr = menuInsertSetting(MENU_ACTION_BROWSER_CD, 0xFF, ptr, MENU_STRINGS[STRING_CANCEL], 0);
+    ptr = menuInsertSetting(MENU_ACTION_BROWSER_LOAD_ZXC2, 0, ptr, MENU_STRINGS[STRING_LOAD_ZXC2], 0);
+    ptr = menuInsertSetting(MENU_ACTION_BROWSER_LOAD_ZXC3, 0, ptr, MENU_STRINGS[STRING_LOAD_ZXC3], 0);
+    return ptr;
+}
+
 char* menuGenerateBrowserMountHdf(char* ptr)
 {
     ptr = menuInsertSetting(MENU_ACTION_BROWSER_CD, 0xFF, ptr, MENU_STRINGS[STRING_CANCEL], 0);
@@ -373,8 +386,10 @@ char* menuGenerateBrowserOpen(char* ptr)
     ptr = menuInsertSetting(MENU_ACTION_BROWSER_CD, 0xFF, ptr, MENU_STRINGS[STRING_CANCEL], 0);
     ptr = menuInsertSetting(MENU_ACTION_BROWSER_LOAD_CART, 0, ptr, MENU_STRINGS[STRING_LOAD_ROM], 0);
     ptr = menuInsertSetting(MENU_ACTION_BROWSER_LOAD_ZXC2, 0, ptr, MENU_STRINGS[STRING_LOAD_ZXC2], 0);
+    ptr = menuInsertSetting(MENU_ACTION_BROWSER_LOAD_ZXC3, 0, ptr, MENU_STRINGS[STRING_LOAD_ZXC3], 0);
     ptr = menuInsertSetting(MENU_ACTION_BROWSER_LOAD_Z80, 0, ptr, MENU_STRINGS[STRING_LOAD_Z80], 0);
     ptr = menuInsertSetting(MENU_ACTION_BROWSER_LOAD_TZX, 0, ptr, MENU_STRINGS[STRING_LOAD_TZX], 0);
+    ptr = menuInsertSetting(MENU_ACTION_BROWSER_LOAD_MDR, 0, ptr, MENU_STRINGS[STRING_LOAD_MDR], 0);
     ptr = menuInsertSetting(MENU_ACTION_BROWSER_LOAD_DSK, 0, ptr, MENU_STRINGS[STRING_LOAD_DSK], 0);
     ptr = menuInsertSetting(MENU_ACTION_BROWSER_MOUNT_SDA, 0, ptr, MENU_STRINGS[STRING_MOUNT_SDA], 0);
     ptr = menuInsertSetting(MENU_ACTION_BROWSER_MOUNT_SDB, 0, ptr, MENU_STRINGS[STRING_MOUNT_SDB], 0);
@@ -467,7 +482,7 @@ char* menuGenerateSettings(char* ptr)
     ptr = menuInsertSpacer(ptr);
 
     // Add firmware update option, if available
-    File tmpFile = SD.open(FLASH_FILENAME, FILE_READ);
+    File tmpFile = SD.open(FWUPDATE_HEX_PATH, FILE_READ);
     if (tmpFile)
     {
         menuHasUpdateFw = true;
@@ -558,23 +573,23 @@ char* menuGenerateSettings(char* ptr)
 
     // Add tools
     bool hasToolSpacer = false;
-    tmpFile = SD.open(RTC_SETUP_PATH, FILE_READ);
+    tmpFile = SD.open(RTC_SETUP_Z80_PATH, FILE_READ);
     if (tmpFile)
     {
         hasToolSpacer = true;
         ptr = menuInsertSpacer(ptr);
-        ptr = menuInsertSetting(MENU_ACTION_LOAD_RTC_SETUP, 0, ptr, 
+        ptr = menuInsertSetting(MENU_ACTION_LOAD_RTC_SETUP, 0, ptr,
             MENU_STRINGS[STRING_LOAD_RTC_CONFIG], 0);
         tmpFile.close();
     }
-    tmpFile = SD.open(NETMAN_PATH, FILE_READ);
+    tmpFile = SD.open(NETMAN_Z80_PATH, FILE_READ);
     if (tmpFile)
     {
         if (!hasToolSpacer)
         {
             ptr = menuInsertSpacer(ptr);
         }
-        ptr = menuInsertSetting(MENU_ACTION_LOAD_NETMAN, 0, ptr, 
+        ptr = menuInsertSetting(MENU_ACTION_LOAD_NETMAN, 0, ptr,
             MENU_STRINGS[STRING_LOAD_NETMAN], 0);
         tmpFile.close();
     }
@@ -608,6 +623,9 @@ void menuGenerate()
             break;
         case MENU_TYPE_BROWSER_OPEN :
             textPtr = menuGenerateBrowserOpen(textPtr);
+            break;
+        case MENU_TYPE_BROWSER_OPEN_ZXC2 :
+            textPtr = menuGenerateBrowserOpenZXC2(textPtr);
             break;
         case MENU_TYPE_BROWSER_MOUNT_HDF :
             textPtr = menuGenerateBrowserMountHdf(textPtr);
@@ -776,6 +794,7 @@ bool menuPerformSelection(uint8_t index)
             }
             break;
         case MENU_ACTION_LOAD_CART :
+            menuSaveConfiguration();
             updateRomName(entryIndex, entryPtr);
             return true;
         case MENU_ACTION_UPDATE_FW :
@@ -792,10 +811,10 @@ bool menuPerformSelection(uint8_t index)
             menuCurrent = MENU_TYPE_SETTINGS;
             break;
         case MENU_ACTION_LOAD_NETMAN :
-            strncpy(browserPath, NETMAN_PATH, MAX_PATH);
+            strncpy(browserPath, NETMAN_Z80_PATH, MAX_PATH);
             return true;
         case MENU_ACTION_LOAD_RTC_SETUP :
-            strncpy(browserPath, RTC_SETUP_PATH, MAX_PATH);
+            strncpy(browserPath, RTC_SETUP_Z80_PATH, MAX_PATH);
             return true;
         case MENU_ACTION_BROWSER_CD :
             if (updateBrowserPath(entryIndex, entryPtr))
@@ -813,6 +832,14 @@ bool menuPerformSelection(uint8_t index)
                 menuCurrent = MENU_TYPE_SETTINGS;
             }
             break;
+        case MENU_ACTION_BROWSER_OPEN_ZXC2 :
+            if (updateBrowserPath(entryIndex, entryPtr))
+            {
+                menuCurrent = MENU_TYPE_BROWSER_OPEN_ZXC2;
+            } else {
+                menuCurrent = MENU_TYPE_SETTINGS;
+            }
+            break;
         case MENU_ACTION_BROWSER_OPEN_HDF :
             if (updateBrowserPath(entryIndex, entryPtr))
             {
@@ -822,10 +849,21 @@ bool menuPerformSelection(uint8_t index)
             }
             break;
         case MENU_ACTION_BROWSER_LOAD_CART :
-        case MENU_ACTION_BROWSER_LOAD_ZXC2 :
         case MENU_ACTION_BROWSER_LOAD_Z80 :
         case MENU_ACTION_BROWSER_LOAD_TZX :
+        case MENU_ACTION_BROWSER_LOAD_MDR :
             if ((menuCurrent == MENU_TYPE_BROWSER_OPEN) ||
+                updateBrowserPath(entryIndex, entryPtr))
+            {
+                return true;
+            } else {
+                menuCurrent = MENU_TYPE_SETTINGS;
+            }
+            break;
+        case MENU_ACTION_BROWSER_LOAD_ZXC2 :
+        case MENU_ACTION_BROWSER_LOAD_ZXC3 :
+            if ((menuCurrent == MENU_TYPE_BROWSER_OPEN) ||
+                (menuCurrent == MENU_TYPE_BROWSER_OPEN_ZXC2) ||
                 updateBrowserPath(entryIndex, entryPtr))
             {
                 return true;
@@ -839,8 +877,8 @@ bool menuPerformSelection(uint8_t index)
                 (menuCurrent == MENU_TYPE_BROWSER_MOUNT_HDF) ||
                 updateBrowserPath(entryIndex, entryPtr))
             {
-                strncpy(((menuAction == MENU_ACTION_BROWSER_MOUNT_SDB) ? 
-                    cfgData.divMmcSdbPath : cfgData.divMmcSdaPath), 
+                strncpy(((menuAction == MENU_ACTION_BROWSER_MOUNT_SDB) ?
+                    cfgData.divMmcSdbPath : cfgData.divMmcSdaPath),
                     browserPath, MAX_PATH);
                 menuConfigChanged = true;
             }
@@ -873,7 +911,7 @@ void menuPerformAction()
     {
         case MENU_ACTION_UPDATE_FW :
             // Flash the firmware update
-            flashUpdate(FLASH_FILENAME);
+            flashUpdate(FWUPDATE_HEX_PATH);
             break;
         case MENU_ACTION_LOAD_CART :
         case MENU_ACTION_BROWSER_LOAD_CART :
@@ -883,10 +921,23 @@ void menuPerformAction()
             divMmcPresent = false;
             menuConfigReload = false;
             break;
+        case MENU_ACTION_BROWSER_LOAD_ZXC3 :
+            // Load new flash cartridge, with DivMMC disabled
+            zxC3Enabled = true;
+            divMmcPresent = false;
+            menuConfigReload = false;
+            break;
         case MENU_ACTION_BROWSER_LOAD_TZX :
             // Load new tape, with DivMMC disabled
             tzxPresent = true;
             divMmcPresent = false;
+            menuConfigReload = false;
+            break;
+        case MENU_ACTION_BROWSER_LOAD_MDR :
+            // Load new tape, with DivMMC disabled
+            mdrEnabled = true;
+            divMmcPresent = false;
+            interface1Present = false;
             menuConfigReload = false;
             break;
         case MENU_ACTION_LOAD_NETMAN :
@@ -1104,7 +1155,7 @@ File menuGetForegroundRomFile(rom_type_t* romType)
                     {
                         if (!entry.isDirectory())
                         {
-                            if (strncmp(cfgData.romName, entry.name(), 
+                            if (strncmp(cfgData.romName, entry.name(),
                                 strlen(cfgData.romName)) == 0)
                             {
                                 *romType = getRomType(entry.name());
@@ -1174,6 +1225,7 @@ File menuGetRomFile(rom_type_t* romType)
     switch (menuAction)
     {
         case MENU_ACTION_BROWSER_LOAD_ZXC2 :
+        case MENU_ACTION_BROWSER_LOAD_ZXC3 :
             *romType = TYPE_ZXC2;
             return menuGetBrowserRomFile();
         case MENU_ACTION_BROWSER_LOAD_CART :
@@ -1213,7 +1265,7 @@ void menuLoadConfiguration()
     if (menuConfigReload)
     {
         bool hasCfgFile = false;
-        File cfgFile = SD.open(CFG_FILENAME, FILE_READ);
+        File cfgFile = SD.open(ZXTEENSY_CFG_PATH, FILE_READ);
         if (cfgFile)
         {
             if (cfgFile.readBytes((char*)&cfgData, sizeof(cfgData)) >= sizeof(cfgData))
@@ -1260,7 +1312,7 @@ void menuSaveConfiguration()
     if (menuConfigChanged)
     {
         menuConfigChanged = false;
-        File cfgFile = SD.open(CFG_FILENAME, FILE_WRITE_BEGIN);
+        File cfgFile = SD.open(ZXTEENSY_CFG_PATH, FILE_WRITE_BEGIN);
         if (cfgFile)
         {
             cfgData.divMmcPresent = divMmcPresent;
