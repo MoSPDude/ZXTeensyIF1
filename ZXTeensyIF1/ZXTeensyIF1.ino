@@ -291,7 +291,7 @@ volatile uint8_t zxC2BankPtr = 0x00;
 
 // ZXC3 flash cartridge
 static const uint16_t ZXC3_PAGE_COUNT = 16;
-volatile bool zxC3Enabled = false;
+volatile bool zxC3Present = false;
 volatile bool zxC3Write = false;
 volatile zxc3_flash_state_t zxC3FlashState = ZXC3_FLASH_IDLE;
 volatile bool zxC3FlashSetup = false;
@@ -871,17 +871,15 @@ uint16_t loadRomImage(const char* filename, char* ptr, const uint16_t size)
     return count;
 }
 
-void loadSpectrumRomFile(File RomFile)
+void loadSpectrumRomFile()
 {
     // Reset the Spectrum ROM and "DivMMC RAM as ROM" state
-    romArrayPresent &= ~(BANK_ROM0 | BANK_ROM1 | BANK_ROM2 | BANK_ROM3 | BANK_RAM);
+    romArrayPresent &= ~(BANK_ROM0 | BANK_ROM1 | BANK_ROM2 | BANK_ROM3);
     rom1Present = false;
     rom23Present = false;
-    zxC2Present = false;
-    zxC2ShadowRom = false;
-    snaLoaderPresent = false;
 
     // Attempt to load four 16KB ROM banks
+    File RomFile = menuGetSpectrumRomFile();
     if (RomFile)
     {
         size_t count = RomFile.readBytes((char *)romArray[ROM_PAGE_ROM0], ROM_PAGE_SIZE);
@@ -914,12 +912,6 @@ void loadSpectrumRomFile(File RomFile)
 
 bool loadZXC2RomFile(File RomFile)
 {
-    // Reset the ZXC2 state only, as can page into the Spectrum ROM
-    romArrayPresent &= ~(BANK_RAM);
-    zxC2Present = false;
-    zxC2ShadowRom = false;
-    snaLoaderPresent = false;
-
     // The ZXC2 cartridge is loaded into the DivMMC RAM area
     if (RomFile)
     {
@@ -945,30 +937,8 @@ bool loadZXC2RomFile(File RomFile)
     return zxC2Present;
 }
 
-void saveZXC3RomFile(const char* filePath)
-{
-    File saveFile = SD.open(filePath, FILE_WRITE_BEGIN);
-    if (saveFile)
-    {
-        for (uint8_t i_ = 0; i_ < ZXC3_PAGE_COUNT; ++i_)
-        {
-            if (saveFile.write((uint8_t*)divMmcExtRamArray[i_], RAM_PAGE_SIZE) < RAM_PAGE_SIZE)
-            {
-                break;
-            }
-        }
-        saveFile.close();
-    }
-}
-
 bool loadSnapshotFile(File RomFile, bool isSnaFile)
 {
-    // Reset the loader state only, as will page in the Spectrum ROM
-    romArrayPresent &= ~(BANK_RAM);
-    zxC2Present = false;
-    zxC2ShadowRom = false;
-    snaLoaderPresent = false;
-
     // Convert the Z80 snapshot into a loader ROM, in the DivMMC RAM area
     if (RomFile)
     {
@@ -989,21 +959,28 @@ bool loadSnapshotFile(File RomFile, bool isSnaFile)
 
 bool loadForegroundRom()
 {
+    romArrayPresent &= ~(BANK_RAM);
+    zxC2Present = false;
+    zxC3Present = false;
+    zxC2ShadowRom = false;
+    snaLoaderPresent = false;
+
     rom_type_t romType;
     File RomFile = menuGetRomFile(&romType);
-    switch (romType)
+    if (RomFile)
     {
-        case TYPE_CART :
-            // Interface 2 cartridge is ZXC2 with paging locked
-            zxC2Lock = true;
-        case TYPE_ZXC2 :
-            return loadZXC2RomFile(RomFile);
-        case TYPE_Z80 :
-        case TYPE_SNA :
-            return loadSnapshotFile(RomFile, (romType != TYPE_Z80));
-        default :
-            loadSpectrumRomFile(RomFile);
-            break;
+        switch (romType)
+        {
+            case TYPE_Z80 :
+            case TYPE_SNA :
+                return loadSnapshotFile(RomFile, (romType != TYPE_Z80));
+            case TYPE_ROM :
+            case TYPE_CART :
+                // Interface 2 cartridge is ZXC2 with paging locked
+                zxC2Lock = true;
+            default :
+                return loadZXC2RomFile(RomFile);
+        }
     }
     return true;
 }
@@ -1037,58 +1014,6 @@ bool loadTzxPlayerFile(const char* fileName, size_t* count)
         *count = 0;
     }
     return (*count > 0);
-}
-
-void saveMicrodriveEmulatorFile(const char* fileName)
-{
-    File mdrFile = SD.open(fileName, FILE_WRITE_BEGIN);
-    if (mdrFile)
-    {
-        // Load the header from the first sector
-        uint8_t buffer[0x21F];
-        uint8_t sector = mdrMaxSector;
-        uint8_t* ptr = (uint8_t*)divMmcExtRamArray[2];
-        memcpy(buffer, ptr + 1, 15);
-
-        // Generate empty sectors that had been truncated on load
-        memset(&(buffer[0x0F]), 0x00, 0x210);
-        while (sector > MDR_MAX_SECTOR)
-        {
-            // Replace HDNUMB with new sector
-            buffer[1] = sector--;
-
-            // Update HDCHK for the header
-            buffer[14] = 0;
-            for (uint16_t x = 0; x < 14; ++x)
-            {
-                uint16_t y = buffer[14] + buffer[x];
-                if (y >= 0x100)
-                {
-                    buffer[14] += buffer[x] + 1;
-                } else {
-                    buffer[14] += buffer[x];
-                }
-            }
-
-            // Write header and zero payload
-            mdrFile.write(buffer, 0x21F);
-        }
-
-        // Write out the existing sectors from pages 1 to 6
-        for (uint8_t i_ = 2; i_ < 14; i_ += 2)
-        {
-            for (uint8_t j_ = 0; j_ < 0x1E; ++j_)
-            {
-                uint8_t* ptr = (uint8_t*)divMmcExtRamArray[i_] + (j_ * 0x220);
-                if (*ptr != 0xFF)
-                {
-                    mdrFile.write(ptr + 1, 0x21F);
-                    --sector;
-                }
-            }
-        }
-        mdrFile.close();
-    }
 }
 
 bool loadMicrodriveEmulatorFile(const char* fileName)
@@ -1246,13 +1171,80 @@ bool loadMicrodriveEmulatorFile(const char* fileName)
             ROM_PAGE_SIZE) > 0))
     {
         zxC2Present = true;
-        zxC3Enabled = true;
+        zxC3Present = true;
         zxC2ShadowRom = true;
         divMmcExtRamEnabled = false;
         romArrayPresent |= BANK_RAM;
-        return true;
     }
-    return false;
+    return zxC2Present;
+}
+
+void saveMicrodriveEmulatorFile(const char* fileName)
+{
+    File mdrFile = SD.open(fileName, FILE_WRITE_BEGIN);
+    if (mdrFile)
+    {
+        // Load the header from the first sector
+        uint8_t buffer[0x21F];
+        uint8_t sector = mdrMaxSector;
+        uint8_t* ptr = (uint8_t*)divMmcExtRamArray[2];
+        memcpy(buffer, ptr + 1, 15);
+
+        // Generate empty sectors that had been truncated on load
+        memset(&(buffer[0x0F]), 0x00, 0x210);
+        while (sector > MDR_MAX_SECTOR)
+        {
+            // Replace HDNUMB with new sector
+            buffer[1] = sector--;
+
+            // Update HDCHK for the header
+            buffer[14] = 0;
+            for (uint16_t x = 0; x < 14; ++x)
+            {
+                uint16_t y = buffer[14] + buffer[x];
+                if (y >= 0x100)
+                {
+                    buffer[14] += buffer[x] + 1;
+                } else {
+                    buffer[14] += buffer[x];
+                }
+            }
+
+            // Write header and zero payload
+            mdrFile.write(buffer, 0x21F);
+        }
+
+        // Write out the existing sectors from pages 1 to 6
+        for (uint8_t i_ = 2; i_ < 14; i_ += 2)
+        {
+            for (uint8_t j_ = 0; j_ < 0x1E; ++j_)
+            {
+                uint8_t* ptr = (uint8_t*)divMmcExtRamArray[i_] + (j_ * 0x220);
+                if (*ptr != 0xFF)
+                {
+                    mdrFile.write(ptr + 1, 0x21F);
+                    --sector;
+                }
+            }
+        }
+        mdrFile.close();
+    }
+}
+
+void saveZXC3RomFile(const char* filePath)
+{
+    File saveFile = SD.open(filePath, FILE_WRITE_BEGIN);
+    if (saveFile)
+    {
+        for (uint8_t i_ = 0; i_ < ZXC3_PAGE_COUNT; ++i_)
+        {
+            if (saveFile.write((uint8_t*)divMmcExtRamArray[i_], RAM_PAGE_SIZE) < RAM_PAGE_SIZE)
+            {
+                break;
+            }
+        }
+        saveFile.close();
+    }
 }
 
 void initialiseRamBanks()
@@ -1344,6 +1336,7 @@ void handleStateResetEntry()
         divMmcPresent = false;
         mf128Present = false;
         zxC2Present = false;
+        zxC3Present = false;
         zxC2ShadowRom = false;
         snaLoaderPresent = false;
         tzxPresent = false;
@@ -1411,6 +1404,9 @@ void handleStateResetEntry()
 
                 // Load configuration
                 menuLoadConfiguration();
+
+                // Load Spectrum ROM
+                loadSpectrumRomFile();
 
                 // Load foreground ROM
                 if (!loadForegroundRom())
@@ -1524,7 +1520,6 @@ void handleStateReset()
     zxC2Paged = false;
     zxC2Lock = false;
     zxC2BankPtr = 0x00;
-    zxC3Enabled = false;
     zxC3Write = false;
     zxC3FlashState = ZXC3_FLASH_IDLE;
     zxC3FlashSetup = false;
@@ -1816,7 +1811,7 @@ FASTRUN void loop()
         }
 
         // Perform ZXC3 flash actions
-        if (zxC3Enabled)
+        if (zxC3Present)
         {
             if (zxC3EraseBuffer.canRead())
             {
@@ -2134,7 +2129,7 @@ FASTRUN void isrWrEvent()
                 (!zxC2ShadowRom || zxC2Paged) &&
                 ((address & 0xffc0) == 0x3fc0))
             {
-                if (zxC3Enabled)
+                if (zxC3Present)
                 {
                     zxC3Write = ((address & 0x08) != 0);
                     zxC2BankPtr = ((address & 0x07) << 1);
@@ -2459,7 +2454,7 @@ FASTRUN void isrRdEvent()
                     (!zxC2ShadowRom || zxC2Paged) &&
                     ((address & 0xffc0) == 0x3fc0))
                 {
-                    if (zxC3Enabled)
+                    if (zxC3Present)
                     {
                         zxC3Write = ((address & 0x08) != 0);
                         zxC2BankPtr = ((address & 0x07) << 1);

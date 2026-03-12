@@ -89,6 +89,7 @@ DMAMEM menu_entry_t menu[255];
 volatile DMAMEM menu_action_t menuAction;
 
 // Menu file browser
+DMAMEM char fgRomName[(ROM_NAME_LEN + 1)];
 DMAMEM char browserPath[MAX_PATH];
 
 // Menu page creation
@@ -780,21 +781,17 @@ bool menuPerformSelection(uint8_t index)
             }
             break;
         case MENU_ACTION_LOAD_ROM :
+            updateRomName(entryIndex, entryPtr);
+            if (stricmp(cfgData.romName, fgRomName) == 0)
             {
-                char prevName[(ROM_NAME_LEN + 1)];
-                strncpy(prevName, cfgData.romName, ROM_NAME_LEN);
-                prevName[ROM_NAME_LEN] = 0;
-                updateRomName(entryIndex, entryPtr);
-                if (stricmp(prevName, cfgData.romName) == 0)
-                {
-                    return true;
-                } else {
-                    menuConfigChanged = true;
-                }
+                return true;
+            } else {
+                strncpy(cfgData.romName, fgRomName, ROM_NAME_LEN);
+                cfgData.romName[ROM_NAME_LEN] = 0;
+                menuConfigChanged = true;
             }
             break;
         case MENU_ACTION_LOAD_CART :
-            menuSaveConfiguration();
             updateRomName(entryIndex, entryPtr);
             return true;
         case MENU_ACTION_UPDATE_FW :
@@ -905,6 +902,7 @@ void menuPerformAction()
 {
     // Save the configuration, if changed
     menuSaveConfiguration();
+    menuConfigReload = false;
 
     // Perform the menu action
     switch (menuAction)
@@ -919,38 +917,31 @@ void menuPerformAction()
         case MENU_ACTION_BROWSER_LOAD_Z80 :
             // Load new cartridge, with DivMMC disabled
             divMmcPresent = false;
-            menuConfigReload = false;
             break;
         case MENU_ACTION_BROWSER_LOAD_ZXC3 :
             // Load new flash cartridge, with DivMMC disabled
-            zxC3Enabled = true;
+            zxC3Present = true;
             divMmcPresent = false;
-            menuConfigReload = false;
             break;
         case MENU_ACTION_BROWSER_LOAD_TZX :
             // Load new tape, with DivMMC disabled
             tzxPresent = true;
             divMmcPresent = false;
-            menuConfigReload = false;
             break;
         case MENU_ACTION_BROWSER_LOAD_MDR :
             // Load new tape, with DivMMC disabled
             mdrEnabled = true;
             divMmcPresent = false;
             interface1Present = false;
-            menuConfigReload = false;
             break;
         case MENU_ACTION_LOAD_NETMAN :
         case MENU_ACTION_LOAD_RTC_SETUP :
             // Load tools, with DivMMC and UART enabled
-            divMmcPresent = true;
             uartPresent = true;
+            divMmcPresent = true;
             wifiNtpPresent = false;
-            menuConfigReload = false;
             break;
         default :
-            // Reload the configuration to load new ROM
-            menuConfigReload = true;
             break;
     }
 }
@@ -980,20 +971,20 @@ rom_type_t getRomType(const char* fileName)
 void updateRomName(uint8_t fileIndex, char* filename)
 {
     // Attempt to use the menu label as file name directly
+    fgRomName[ROM_NAME_LEN] = 0;
     if (filename != 0)
     {
-        cfgData.romName[ROM_NAME_LEN] = 0;
         for (size_t i = 0; i < ROM_NAME_LEN; ++i)
         {
             if (*filename < ' ')
             {
-                cfgData.romName[i] = 0;
+                fgRomName[i] = 0;
                 return;
             } else if (*filename >= 128)
             {
                 break;
             } else {
-                cfgData.romName[i] = *filename++;
+                fgRomName[i] = *filename++;
             }
         }
     }
@@ -1013,7 +1004,7 @@ void updateRomName(uint8_t fileIndex, char* filename)
                     // Find ROM at matching directory index
                     if (!entry.isDirectory() && (index == fileIndex))
                     {
-                        strncpy(cfgData.romName, entry.name(), ROM_NAME_LEN);
+                        strncpy(fgRomName, entry.name(), ROM_NAME_LEN);
                         entry.close();
                         break;
                     }
@@ -1021,7 +1012,7 @@ void updateRomName(uint8_t fileIndex, char* filename)
                     ++index;
                 } else {
                     // End of listing
-                    strncpy(cfgData.romName, INTERNAL_ROM_NAME, ROM_NAME_LEN);
+                    strncpy(fgRomName, INTERNAL_ROM_NAME, ROM_NAME_LEN);
                     break;
                 }
             }
@@ -1121,21 +1112,21 @@ bool updateBrowserPath(uint8_t fileIndex, char* filename)
     return true;
 }
 
-File menuGetForegroundRomFile(rom_type_t* romType)
+File menuGetCartRomFile(const char* cfgRomName, rom_type_t* romType)
 {
-    if (stricmp(cfgData.romName, INTERNAL_ROM_NAME) != 0)
+    if (stricmp(cfgRomName, INTERNAL_ROM_NAME) != 0)
     {
         // Attempt to open the ROM file directly
-        if (strlen(cfgData.romName) < ROM_NAME_LEN)
+        if (strlen(cfgRomName) < ROM_NAME_LEN)
         {
             strcpy(browserPath, "ROMS/");
-            strcat(browserPath, cfgData.romName);
+            strcat(browserPath, cfgRomName);
             File entry = SD.open(browserPath, FILE_READ);
             if (entry)
             {
                 if (!entry.isDirectory())
                 {
-                    *romType = getRomType(cfgData.romName);
+                    *romType = getRomType(cfgRomName);
                     return entry;
                 }
                 entry.close();
@@ -1155,8 +1146,8 @@ File menuGetForegroundRomFile(rom_type_t* romType)
                     {
                         if (!entry.isDirectory())
                         {
-                            if (strncmp(cfgData.romName, entry.name(),
-                                strlen(cfgData.romName)) == 0)
+                            if (strncmp(cfgRomName, entry.name(),
+                                strlen(cfgRomName)) == 0)
                             {
                                 *romType = getRomType(entry.name());
                                 romDirectory.close();
@@ -1177,6 +1168,12 @@ File menuGetForegroundRomFile(rom_type_t* romType)
     // Return closed File
     *romType = TYPE_ROM;
     return File();
+}
+
+File menuGetSpectrumRomFile()
+{
+    rom_type_t romType;
+    return menuGetCartRomFile(cfgData.romName, &romType);
 }
 
 char* menuGetBrowserPath()
@@ -1235,9 +1232,13 @@ File menuGetRomFile(rom_type_t* romType)
         case MENU_ACTION_LOAD_RTC_SETUP :
         case MENU_ACTION_BROWSER_LOAD_Z80 :
             return menuGetBrowserZ80File(romType);
+        case MENU_ACTION_LOAD_CART :
+            return menuGetCartRomFile(fgRomName, romType);
         default :
-            return menuGetForegroundRomFile(romType);
+            *romType = TYPE_ROM;
+            break;
     }
+    return File();
 }
 
 void menuClearConfiguration()
