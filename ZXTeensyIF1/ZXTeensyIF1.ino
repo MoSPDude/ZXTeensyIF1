@@ -454,7 +454,8 @@ inline __attribute__((always_inline)) uint8_t readData()
 {
     // Decode D[7:0] from GPIO2/7
     uint32_t gpioSeven = (*(volatile uint32_t *)IMXRT_GPIO7_ADDRESS);
-    uint32_t data = ((gpioSeven & 0x07) | ((gpioSeven & 0x1c00) >> 7) | ((gpioSeven & 0x30000) >> 10));
+    uint32_t data = ((gpioSeven & 0x07) | ((gpioSeven & 0x1c00) >> 7) |
+        ((gpioSeven & 0x30000) >> 10));
     return data;
 }
 
@@ -489,7 +490,8 @@ inline __attribute__((always_inline)) uint8_t decodeHighAddress(uint32_t gpioSix
     return ((gpioSix & 0xff000000) >> 24);
 }
 
-inline __attribute__((always_inline)) void writeSdSpiWriteBuffer(sd_spi_action_t spiAction, uint8_t data)
+inline __attribute__((always_inline)) void writeSdSpiWriteBuffer(sd_spi_action_t spiAction,
+    uint8_t data)
 {
     sdSpiFlagsBuffer.write((uint8_t)spiAction);
     sdSpiWriteBuffer.write(data);
@@ -873,7 +875,7 @@ uint16_t loadRomImage(const char* filename, char* ptr, const uint16_t size)
 
 void loadSpectrumRomFile()
 {
-    // Reset the Spectrum ROM and "DivMMC RAM as ROM" state
+    // Reset the Spectrum ROM state
     romArrayPresent &= ~(BANK_ROM0 | BANK_ROM1 | BANK_ROM2 | BANK_ROM3);
     rom1Present = false;
     rom23Present = false;
@@ -895,12 +897,14 @@ void loadSpectrumRomFile()
                     romArrayPresent |= BANK_ROM1;
                     if (count >= ROM_PAGE_SIZE)
                     {
-                        count = RomFile.readBytes((char *)romArray[ROM_PAGE_ROM2], ROM_PAGE_SIZE);
+                        count = RomFile.readBytes((char *)romArray[ROM_PAGE_ROM2],
+                            ROM_PAGE_SIZE);
                         if (count > 0)
                         {
                             rom23Present = true;
                             romArrayPresent |= (BANK_ROM2 | BANK_ROM3);
-                            count = RomFile.readBytes((char *)romArray[ROM_PAGE_ROM3], ROM_PAGE_SIZE);
+                            count = RomFile.readBytes((char *)romArray[ROM_PAGE_ROM3],
+                                ROM_PAGE_SIZE);
                         }
                     }
                 }
@@ -924,7 +928,8 @@ bool loadZXC2RomFile(File RomFile)
             romArrayPresent |= BANK_RAM;
             for (uint8_t i_ = 1; i_ < EXT_RAM_PAGE_COUNT; ++i_)
             {
-                size_t blk_count_ = RomFile.readBytes((char *)divMmcExtRamArray[i_], RAM_PAGE_SIZE);
+                size_t blk_count_ = RomFile.readBytes((char *)divMmcExtRamArray[i_],
+                    RAM_PAGE_SIZE);
                 count += blk_count_;
                 if (blk_count_ < RAM_PAGE_SIZE)
                 {
@@ -959,28 +964,28 @@ bool loadSnapshotFile(File RomFile, bool isSnaFile)
 
 bool loadForegroundRom()
 {
+    // Reset the "DivMMC as ROM" state
     romArrayPresent &= ~(BANK_RAM);
     zxC2Present = false;
     zxC3Present = false;
     zxC2ShadowRom = false;
     snaLoaderPresent = false;
 
+    // Open and load the foreground ROM, if present
     rom_type_t romType;
-    File RomFile = menuGetRomFile(&romType);
-    if (RomFile)
+    File RomFile = menuGetForegroundRomFile(&romType);
+    switch (romType)
     {
-        switch (romType)
-        {
-            case TYPE_Z80 :
-            case TYPE_SNA :
-                return loadSnapshotFile(RomFile, (romType != TYPE_Z80));
-            case TYPE_ROM :
-            case TYPE_CART :
-                // Interface 2 cartridge is ZXC2 with paging locked
-                zxC2Lock = true;
-            default :
-                return loadZXC2RomFile(RomFile);
-        }
+        case TYPE_Z80 :
+        case TYPE_SNA :
+            return loadSnapshotFile(RomFile, (romType != TYPE_Z80));
+        case TYPE_CART :
+            // Interface 2 cartridge is ZXC2 with paging locked
+            zxC2Lock = true;
+        case TYPE_ZXC2 :
+            return loadZXC2RomFile(RomFile);
+        default :
+            break;
     }
     return true;
 }
@@ -1001,7 +1006,8 @@ bool loadTzxPlayerFile(const char* fileName, size_t* count)
             divMmcExtRamEnabled = false;
             for (uint8_t i_ = 1; i_ < EXT_RAM_PAGE_COUNT; ++i_)
             {
-                size_t blk_count_ = tzxFile.readBytes((char *)divMmcExtRamArray[i_], RAM_PAGE_SIZE);
+                size_t blk_count_ = tzxFile.readBytes((char *)divMmcExtRamArray[i_],
+                    RAM_PAGE_SIZE);
                 *count += blk_count_;
                 if (blk_count_ < RAM_PAGE_SIZE)
                 {

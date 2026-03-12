@@ -79,6 +79,7 @@ DMAMEM cfg_data_t cfgData;
 bool menuConfigChanged = false;
 bool menuConfigReload = true;
 bool menuHasUpdateFw = false;
+bool menuHasMdrEmu = false;
 
 // Menu structure
 DMAMEM char* menuPtr;
@@ -283,8 +284,9 @@ char* menuAddBrowserFile(uint8_t index, char* ptr, File entry)
             {
                 icon = ICON_TYPE_Z80;
                 action = MENU_ACTION_BROWSER_LOAD_Z80;
-            } else if ((stricmp(fileext + 1, "img") == 0) ||
-                (stricmp(fileext + 1, "hdf") == 0))
+            } else if (((romArrayPresent & BANK_DIVMMC) != 0) &&
+                ((stricmp(fileext + 1, "img") == 0) ||
+                    (stricmp(fileext + 1, "hdf") == 0)))
             {
                 icon = ICON_TYPE_DSK;
                 action = MENU_ACTION_BROWSER_OPEN_HDF;
@@ -292,7 +294,8 @@ char* menuAddBrowserFile(uint8_t index, char* ptr, File entry)
             {
                 icon = ICON_TYPE_DSK;
                 action = MENU_ACTION_BROWSER_LOAD_DSK;
-            } else if (stricmp(fileext + 1, "mdr") == 0)
+            } else if (menuHasMdrEmu &&
+                (stricmp(fileext + 1, "mdr") == 0))
             {
                 icon = ICON_TYPE_DSK;
                 action = MENU_ACTION_BROWSER_LOAD_MDR;
@@ -390,10 +393,16 @@ char* menuGenerateBrowserOpen(char* ptr)
     ptr = menuInsertSetting(MENU_ACTION_BROWSER_LOAD_ZXC3, 0, ptr, MENU_STRINGS[STRING_LOAD_ZXC3], 0);
     ptr = menuInsertSetting(MENU_ACTION_BROWSER_LOAD_Z80, 0, ptr, MENU_STRINGS[STRING_LOAD_Z80], 0);
     ptr = menuInsertSetting(MENU_ACTION_BROWSER_LOAD_TZX, 0, ptr, MENU_STRINGS[STRING_LOAD_TZX], 0);
-    ptr = menuInsertSetting(MENU_ACTION_BROWSER_LOAD_MDR, 0, ptr, MENU_STRINGS[STRING_LOAD_MDR], 0);
     ptr = menuInsertSetting(MENU_ACTION_BROWSER_LOAD_DSK, 0, ptr, MENU_STRINGS[STRING_LOAD_DSK], 0);
-    ptr = menuInsertSetting(MENU_ACTION_BROWSER_MOUNT_SDA, 0, ptr, MENU_STRINGS[STRING_MOUNT_SDA], 0);
-    ptr = menuInsertSetting(MENU_ACTION_BROWSER_MOUNT_SDB, 0, ptr, MENU_STRINGS[STRING_MOUNT_SDB], 0);
+    if (menuHasMdrEmu)
+    {
+        ptr = menuInsertSetting(MENU_ACTION_BROWSER_LOAD_MDR, 0, ptr, MENU_STRINGS[STRING_LOAD_MDR], 0);
+    }
+    if ((romArrayPresent & BANK_DIVMMC) != 0)
+    {
+        ptr = menuInsertSetting(MENU_ACTION_BROWSER_MOUNT_SDA, 0, ptr, MENU_STRINGS[STRING_MOUNT_SDA], 0);
+        ptr = menuInsertSetting(MENU_ACTION_BROWSER_MOUNT_SDB, 0, ptr, MENU_STRINGS[STRING_MOUNT_SDB], 0);
+    }
     return ptr;
 }
 
@@ -663,6 +672,16 @@ void menuInitialise(volatile uint8_t* romPtr)
     // Store the version information
     uint16_t address = ((menuPtr[0x11F9] << 8) + menuPtr[0x11F8]);
     strncpy((char*)&menuPtr[address], VERSION_STR, 9);
+
+    // Check for microdrive emulator ROM
+    File mdrRomFile = SD.open(MDR_EMULATOR_ROM_PATH, FILE_READ);
+    if (mdrRomFile)
+    {
+        menuHasMdrEmu = true;
+        mdrRomFile.close();
+    } else {
+        menuHasMdrEmu = false;
+    }
 
     // Generate the menu
     menuResetAction();
@@ -1112,16 +1131,17 @@ bool updateBrowserPath(uint8_t fileIndex, char* filename)
     return true;
 }
 
-File menuGetCartRomFile(const char* cfgRomName, rom_type_t* romType)
+File menuGetMenuRomFile(const char* cfgRomName, rom_type_t* romType)
 {
     if (stricmp(cfgRomName, INTERNAL_ROM_NAME) != 0)
     {
         // Attempt to open the ROM file directly
         if (strlen(cfgRomName) < ROM_NAME_LEN)
         {
-            strcpy(browserPath, "ROMS/");
-            strcat(browserPath, cfgRomName);
-            File entry = SD.open(browserPath, FILE_READ);
+            char romPath[MAX_PATH];
+            strcpy(romPath, "ROMS/");
+            strcat(romPath, cfgRomName);
+            File entry = SD.open(romPath, FILE_READ);
             if (entry)
             {
                 if (!entry.isDirectory())
@@ -1170,12 +1190,6 @@ File menuGetCartRomFile(const char* cfgRomName, rom_type_t* romType)
     return File();
 }
 
-File menuGetSpectrumRomFile()
-{
-    rom_type_t romType;
-    return menuGetCartRomFile(cfgData.romName, &romType);
-}
-
 char* menuGetBrowserPath()
 {
     return browserPath;
@@ -1217,7 +1231,7 @@ File menuGetBrowserZ80File(rom_type_t* romType)
     return entry;
 }
 
-File menuGetRomFile(rom_type_t* romType)
+File menuGetForegroundRomFile(rom_type_t* romType)
 {
     switch (menuAction)
     {
@@ -1233,12 +1247,20 @@ File menuGetRomFile(rom_type_t* romType)
         case MENU_ACTION_BROWSER_LOAD_Z80 :
             return menuGetBrowserZ80File(romType);
         case MENU_ACTION_LOAD_CART :
-            return menuGetCartRomFile(fgRomName, romType);
+            return menuGetMenuRomFile(fgRomName, romType);
         default :
-            *romType = TYPE_ROM;
             break;
     }
+
+    // Return closed File
+    *romType = TYPE_ROM;
     return File();
+}
+
+File menuGetSpectrumRomFile()
+{
+    rom_type_t romType;
+    return menuGetMenuRomFile(cfgData.romName, &romType);
 }
 
 void menuClearConfiguration()

@@ -11,6 +11,7 @@ A Teensy 4.1 powered DivMMC and ZX Interface 1 clone for the ZX Spectrum 48K/128
     * Supports 16KB shadow soft ROM
 * DivMMC with 512KB RAM
     * Shares the Teensy main SD card
+    * Supports HDF and IMG images
 * Multiface 128 emulation
     * NMI button and soft ROM
 * ZX Interface 2 emulation
@@ -32,6 +33,9 @@ A Teensy 4.1 powered DivMMC and ZX Interface 1 clone for the ZX Spectrum 48K/128
         * Patched byte 6 from 0x0D to 0x7D
     * Not wired to the board - attach a coin cell battery to VBAT
         * See https://www.pjrc.com/store/teensy41.html#timing
+* Single speed TZX and TAP playback
+    * Playback locks the keyboard, as it overdrives the ULA
+    * TAP loading is better done via the DivMMC
 * Soft ROM emulation
     * Override the internal Spectrum ROM with ROMs from SD card
     * Supports 16KB (Spectrum 48K), 32KB (Spectrum 128K/+2 (Grey)) and 64KB (Spectrum +2A/+3) ROMs
@@ -40,9 +44,12 @@ A Teensy 4.1 powered DivMMC and ZX Interface 1 clone for the ZX Spectrum 48K/128
 * Menu ROM derived from TomDDGs ZXPicoIF2Lite ROMExplorer
 * Z80 snapshot loading from TomDDGs ZXPicoIF2Lite
     * Integrated "z80torom" for loading 'z80' and 'sna' files
-* Microdrive file loading using Paul Farrows SPECTRA Microdrive Emulator
+* MDR microdrive loading with Paul Farrows SPECTRA Microdrive Emulator
     * http://www.fruitcake.plus.com/Sinclair/Interface2/Cartridges/Interface2_RC_New_Microdrive_Emulator.htm
-    * Supports microdrives with up to 90KB of data
+    * Supports MDR images with up to 90KB of data
+* Small HTTP server for WiFi file access over ESP-01S
+    * Use HTTP PUT to send files eg. "curl -T FILENAME.ROM http://192.168.0.254/FILENAME.ROM"
+    * Use web browser to list file, and download
 * Nihirash's Network Manager for WiFi configuration
     * Small bugfix to clear the BASIC keypress on load
 * Velesoft's RTC_SETUP for RTC configuration
@@ -137,12 +144,17 @@ the DivMMC and enable the Interface 1.
         * (Other ESXDOS files)
     * ZXTEENSY.HEX (Optional, firmware update)
 
-Hold the button on Reset to load the menu ROM - here, you can toggle the DivMMC, Interface 1 and
-Multiface 128 on and off - then selecting a ROM to load will save the preference and load that
-ROM next time.
+To load the Menu ROM, either,
+    * Use "Boot into Menu" to load on initial power on
+    * or, Hold the button, and Reset
+    * or, Hold Reset for longer than 5 seconds
 
-To firmware update, place the file on the SD card and select the option from the Menu ROM -
-then wait for the Spectrum to restart (!! It will take a minute !!).
+Inside the Menu ROM, you can toggle the available Devices and settings - or choose
+a ROM to load, or browse the SD card to load and mount files.
+
+To firmware update, place the ZXTEENSY.HEX file on the root of the SD card and
+select the option from the Menu ROM - then wait for the Spectrum to restart
+(!! It will take a minute !!).
 
 ### Preparing the SD Card
 
@@ -180,30 +192,9 @@ ESXDOS has trouble loading if it is not "early" on the SD card,
 
 ### Firmware
 
-* Implemented the Z80 snapshot loader from TomDDGs ZXPicoIF2Lite
-* Implemented DivMMC SPI to SDHC bridge driver
-    * No longer needs the soft SPI driver, or SPI_DRIVER_SELECT change
-* Added experimental RTC access via ports 0x7X3B
-* Added experimental USB host, mouse, joystick and keyboard for Kempston mouse and gamepad emulation
-    * USB keyboard responds to "QAOPNM", Space, Enter and arrow keys as Kempston joystick
-* Added experimental UART for ESP-01S module on TX8/RX8
-    * Uses ports 0x143B (5179) for RX and 0x133B (4923) for TX
-* Added firmware update from SD card
-    * Uses https://github.com/joepasquariello/FlasherX
-* Added menu ROM derived from TomDDGs ZXPicoIF2Lite ROMExplorer
-    * https://github.com/TomDDG/ZXPicoIF2Lite/blob/main/ROMExplorerSource/romexplorer.asm
-    * Updated for maximum 255 lines, and reads uncompressed menu text
-    * The Teensy writes the menu text directly into the upper half of the soft ROM
-* First upload
-    * Rough and ready for v0.2 PCB
-    * Address lines now contiguous and in order, on GPIO6
-    * Data lines in order, but not contiguous, on GPIO7
-* Earlier prototypes (not uploaded)
-    * Very rough and ready
-    * Address and data organised to suit the veroboard
-
-The file "if1-2_rom.h" contains the Sinclair ZX Interface 1 v2 (if1-2.rom) ROM in
-hexadecimal format, as embedded in the compiled firmware.
+* 20260312
+    * Updated for v0.7 PCB
+    * Added ZXC3 and MDR emulator support
 
 ## Building the firmware
 
