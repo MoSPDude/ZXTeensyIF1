@@ -9,8 +9,8 @@ template <size_t BUFFER_SIZE> class RingBuffer
 {
     protected :
         volatile uint8_t buffer[BUFFER_SIZE];
-        volatile uint16_t bufferHead;
-        volatile uint16_t bufferTail;
+        volatile size_t bufferHead;
+        volatile size_t bufferTail;
 
     public :
         constexpr RingBuffer() : bufferHead(0), bufferTail(0)
@@ -46,7 +46,7 @@ template <size_t BUFFER_SIZE> class RingBuffer
 
         inline __attribute__((always_inline)) void writeBlock(uint8_t* data, size_t size)
         {
-            uint16_t head = (bufferHead + size) % BUFFER_SIZE;
+            size_t head = (bufferHead + size) % BUFFER_SIZE;
             if (head < bufferHead)
             {
                 size_t partSize = (BUFFER_SIZE - bufferHead);
@@ -72,7 +72,7 @@ template <size_t BUFFER_SIZE> class RingBuffer
 
         inline __attribute__((always_inline)) bool canWrite()
         {
-            uint8_t head = (bufferHead + 1) % BUFFER_SIZE;
+            size_t head = (bufferHead + 1) % BUFFER_SIZE;
             return (head != bufferTail);
         }
 
