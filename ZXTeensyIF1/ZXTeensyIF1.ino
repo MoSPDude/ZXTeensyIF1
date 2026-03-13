@@ -303,6 +303,7 @@ DMAMEM RingBuffer<EXT_RAM_PAGE_COUNT> zxC3EraseBuffer;
 
 // Microdrive emulator
 static const uint8_t MDR_MAX_SECTOR = 0xB4;
+volatile bool mdrPresent = false;
 volatile bool mdrEnabled = false;
 volatile uint8_t mdrMaxSector = 0;
 
@@ -942,6 +943,22 @@ bool loadZXC2RomFile(File RomFile)
     return zxC2Present;
 }
 
+void saveZXC3RomFile(const char* filePath)
+{
+    File saveFile = SD.open(filePath, FILE_WRITE_BEGIN);
+    if (saveFile)
+    {
+        for (uint8_t i_ = 0; i_ < ZXC3_PAGE_COUNT; ++i_)
+        {
+            if (saveFile.write((uint8_t*)divMmcExtRamArray[i_], RAM_PAGE_SIZE) < RAM_PAGE_SIZE)
+            {
+                break;
+            }
+        }
+        saveFile.close();
+    }
+}
+
 bool loadSnapshotFile(File RomFile, bool isSnaFile)
 {
     // Convert the Z80 snapshot into a loader ROM, in the DivMMC RAM area
@@ -960,34 +977,6 @@ bool loadSnapshotFile(File RomFile, bool isSnaFile)
         RomFile.close();
     }
     return snaLoaderPresent;
-}
-
-bool loadForegroundRom()
-{
-    // Reset the "DivMMC as ROM" state
-    romArrayPresent &= ~(BANK_RAM);
-    zxC2Present = false;
-    zxC3Present = false;
-    zxC2ShadowRom = false;
-    snaLoaderPresent = false;
-
-    // Open and load the foreground ROM, if present
-    rom_type_t romType;
-    File RomFile = menuGetForegroundRomFile(&romType);
-    switch (romType)
-    {
-        case TYPE_Z80 :
-        case TYPE_SNA :
-            return loadSnapshotFile(RomFile, (romType != TYPE_Z80));
-        case TYPE_CART :
-            // Interface 2 cartridge is ZXC2 with paging locked
-            zxC2Lock = true;
-        case TYPE_ZXC2 :
-            return loadZXC2RomFile(RomFile);
-        default :
-            break;
-    }
-    return true;
 }
 
 bool loadTzxPlayerFile(const char* fileName, size_t* count)
@@ -1022,7 +1011,7 @@ bool loadTzxPlayerFile(const char* fileName, size_t* count)
     return (*count > 0);
 }
 
-bool loadMicrodriveEmulatorFile(const char* fileName)
+bool loadMdrEmulatorFile(const char* fileName)
 {
     bool result = false;
     File mdrFile = SD.open(fileName, FILE_READ);
@@ -1185,7 +1174,7 @@ bool loadMicrodriveEmulatorFile(const char* fileName)
     return zxC2Present;
 }
 
-void saveMicrodriveEmulatorFile(const char* fileName)
+void saveMdrEmulatorFile(const char* fileName)
 {
     File mdrFile = SD.open(fileName, FILE_WRITE_BEGIN);
     if (mdrFile)
@@ -1237,20 +1226,32 @@ void saveMicrodriveEmulatorFile(const char* fileName)
     }
 }
 
-void saveZXC3RomFile(const char* filePath)
+bool loadForegroundRom()
 {
-    File saveFile = SD.open(filePath, FILE_WRITE_BEGIN);
-    if (saveFile)
+    // Reset the ZXC2 cartridge state
+    romArrayPresent &= ~(BANK_RAM);
+    zxC2Present = false;
+    zxC3Present = false;
+    zxC2ShadowRom = false;
+    snaLoaderPresent = false;
+
+    // Open and load the foreground ROM, if present
+    rom_type_t romType;
+    File RomFile = menuGetForegroundRomFile(&romType);
+    switch (romType)
     {
-        for (uint8_t i_ = 0; i_ < ZXC3_PAGE_COUNT; ++i_)
-        {
-            if (saveFile.write((uint8_t*)divMmcExtRamArray[i_], RAM_PAGE_SIZE) < RAM_PAGE_SIZE)
-            {
-                break;
-            }
-        }
-        saveFile.close();
+        case TYPE_CART :
+            // Interface 2 cartridge is ZXC2 with paging locked
+            zxC2Lock = true;
+        case TYPE_ZXC2 :
+            return loadZXC2RomFile(RomFile);
+        case TYPE_Z80 :
+        case TYPE_SNA :
+            return loadSnapshotFile(RomFile, (romType != TYPE_Z80));
+        default :
+            break;
     }
+    return true;
 }
 
 void initialiseRamBanks()
@@ -1271,9 +1272,10 @@ void performHardReset()
     // Clear the UART
     espUart.end();
 
-    // Perform reset
+    // Perform reset into menu
     afterFirstReset = false;
     isDeviceDisabled = false;
+    menuEnterOnReset = true;
     setState(STATE_RESET);
 }
 
@@ -1330,6 +1332,7 @@ void handleStateResetEntry()
     // Reset the soft ROM detection state
     if (menuEnterOnReset)
     {
+        // Reset and reload the configuration to enter the menu
         afterFirstReset = false;
         isDeviceDisabled = false;
     }
@@ -1343,9 +1346,9 @@ void handleStateResetEntry()
         mf128Present = false;
         zxC2Present = false;
         zxC3Present = false;
-        zxC2ShadowRom = false;
         snaLoaderPresent = false;
         tzxPresent = false;
+        mdrPresent = false;
 
         // Re-initialise RAM, and load the ROMs
         loadRomSets = true;
@@ -1409,7 +1412,10 @@ void handleStateResetEntry()
                 }
 
                 // Load configuration
-                menuLoadConfiguration();
+                if (!afterFirstReset)
+                {
+                    menuLoadConfiguration();
+                }
 
                 // Load Spectrum ROM
                 loadSpectrumRomFile();
@@ -1448,26 +1454,27 @@ void handleStateResetMenu()
     // Perform the menu action
     menuPerformAction();
 
-    // Reload the ROMs
-    loadRomSets = true;
-
     // Perform a full reset
     handleStateResetEntry();
 }
 
 void handleWarmStateReset()
 {
-    // Preserve DivMMC RAM when enabled
-    divMmcPreserveRam = divMmcEnabled;
-
-    // Load the existing ROMs on reset in menu
     if (menuPaged)
     {
-        loadRomSets = true;
+        // Ensure menu actions are performed on reset from menu
+        if (globalState != STATE_RESET_MENU)
+        {
+            menuResetAction();
+            setState(STATE_RESET_MENU);
+        }
     } else if ((romArrayPresent & BANK_RAM) != 0)
     {
         // Reload the menu after ZXC2 cartridge
         menuEnterOnReset = true;
+    } else {
+        // Preserve DivMMC RAM when present
+        divMmcPreserveRam = divMmcPresent;
     }
 }
 
@@ -1526,6 +1533,7 @@ void handleStateReset()
     zxC2Paged = false;
     zxC2Lock = false;
     zxC2BankPtr = 0x00;
+    zxC2ShadowRom = false;
     zxC3Write = false;
     zxC3FlashState = ZXC3_FLASH_IDLE;
     zxC3FlashSetup = false;
@@ -1584,15 +1592,6 @@ void handleStateReset()
     {
         menuInitialise(divMmcRamArray[0]);
     } else {
-        // Load the microdrive emulator
-        if (mdrEnabled)
-        {
-            if (!loadMicrodriveEmulatorFile(menuGetBrowserPath()))
-            {
-                mdrEnabled = false;
-            }
-        }
-
         // Page in the ZXC2 cartridge, or snapshot loader ROM
         if (zxC2Present)
         {
@@ -1603,7 +1602,13 @@ void handleStateReset()
         }
 
         // Enable the SD card access
-        if (tzxPresent)
+        if (mdrPresent)
+        {
+            if (beginSdfsSd() && loadMdrEmulatorFile(menuGetBrowserPath()))
+            {
+                mdrEnabled = true;
+            }
+        } else if (tzxPresent)
         {
             if (beginSdfsSd())
             {
@@ -1888,7 +1893,7 @@ FASTRUN void loop()
                         {
                             if (mdrEnabled)
                             {
-                                saveMicrodriveEmulatorFile(menuGetBrowserPath());
+                                saveMdrEmulatorFile(menuGetBrowserPath());
                             } else {
                                 saveZXC3RomFile(menuGetBrowserPath());
                             }

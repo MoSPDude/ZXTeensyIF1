@@ -77,7 +77,6 @@ typedef enum {
 // Configuration data
 DMAMEM cfg_data_t cfgData;
 bool menuConfigChanged = false;
-bool menuConfigReload = true;
 bool menuHasUpdateFw = false;
 bool menuHasMdrEmu = false;
 
@@ -372,6 +371,7 @@ char* menuGenerateNtpTz(char* ptr)
 char* menuGenerateBrowserOpenZXC2(char* ptr)
 {
     ptr = menuInsertSetting(MENU_ACTION_BROWSER_CD, 0xFF, ptr, MENU_STRINGS[STRING_CANCEL], 0);
+    ptr = menuInsertSetting(MENU_ACTION_BROWSER_LOAD_CART, 0, ptr, MENU_STRINGS[STRING_LOAD_ROM], 0);
     ptr = menuInsertSetting(MENU_ACTION_BROWSER_LOAD_ZXC2, 0, ptr, MENU_STRINGS[STRING_LOAD_ZXC2], 0);
     ptr = menuInsertSetting(MENU_ACTION_BROWSER_LOAD_ZXC3, 0, ptr, MENU_STRINGS[STRING_LOAD_ZXC3], 0);
     return ptr;
@@ -659,7 +659,7 @@ void menuResetAction()
 {
     // Reset the menu actions
     menuCurrent = MENU_TYPE_SETTINGS;
-    menuAction = MENU_ACTION_SETTING;
+    menuAction = MENU_ACTION_LOAD_ROM;
 }
 
 void menuInitialise(volatile uint8_t* romPtr)
@@ -864,7 +864,6 @@ bool menuPerformSelection(uint8_t index)
                 menuCurrent = MENU_TYPE_SETTINGS;
             }
             break;
-        case MENU_ACTION_BROWSER_LOAD_CART :
         case MENU_ACTION_BROWSER_LOAD_Z80 :
         case MENU_ACTION_BROWSER_LOAD_TZX :
         case MENU_ACTION_BROWSER_LOAD_MDR :
@@ -876,6 +875,7 @@ bool menuPerformSelection(uint8_t index)
                 menuCurrent = MENU_TYPE_SETTINGS;
             }
             break;
+        case MENU_ACTION_BROWSER_LOAD_CART :
         case MENU_ACTION_BROWSER_LOAD_ZXC2 :
         case MENU_ACTION_BROWSER_LOAD_ZXC3 :
             if ((menuCurrent == MENU_TYPE_BROWSER_OPEN) ||
@@ -919,9 +919,9 @@ bool menuPerformSelection(uint8_t index)
 
 void menuPerformAction()
 {
-    // Save the configuration, if changed
+    // Save the configuration (if needed), and reload ROMs
     menuSaveConfiguration();
-    menuConfigReload = false;
+    loadRomSets = true;
 
     // Perform the menu action
     switch (menuAction)
@@ -948,8 +948,8 @@ void menuPerformAction()
             divMmcPresent = false;
             break;
         case MENU_ACTION_BROWSER_LOAD_MDR :
-            // Load new tape, with DivMMC disabled
-            mdrEnabled = true;
+            // Load new MDR, with DivMMC and Interface 1 disabled
+            mdrPresent = true;
             divMmcPresent = false;
             interface1Present = false;
             break;
@@ -1284,49 +1284,43 @@ void menuClearConfiguration()
 
 void menuLoadConfiguration()
 {
-    // Load the configuration from the SD card, as required
-    if (menuConfigReload)
+    // Load the configuration from the SD card
+    bool hasCfgFile = false;
+    File cfgFile = SD.open(ZXTEENSY_CFG_PATH, FILE_READ);
+    if (cfgFile)
     {
-        bool hasCfgFile = false;
-        File cfgFile = SD.open(ZXTEENSY_CFG_PATH, FILE_READ);
-        if (cfgFile)
+        if (cfgFile.readBytes((char*)&cfgData, sizeof(cfgData)) >= sizeof(cfgData))
         {
-            if (cfgFile.readBytes((char*)&cfgData, sizeof(cfgData)) >= sizeof(cfgData))
+            hasCfgFile = true;
+            if ((romArrayPresent & BANK_DIVMMC) != 0)
             {
-                hasCfgFile = true;
-                if ((romArrayPresent & BANK_DIVMMC) != 0)
-                {
-                    divMmcPresent = cfgData.divMmcPresent;
-                }
-                if ((romArrayPresent & BANK_IF1) != 0)
-                {
-                    interface1Present = cfgData.interface1Present;
-                }
-                if ((romArrayPresent & BANK_MF128) != 0)
-                {
-                    mf128Present = cfgData.mf128Present;
-                }
-                uartPresent = cfgData.uartPresent;
-                usbPresent = cfgData.usbPresent;
-                wifiNtpPresent = cfgData.wifiNtpPresent;
-                wifiNtpTz = cfgData.wifiNtpTz;
-                bootIntoMenu = cfgData.bootIntoMenu;
-                cfgData.romName[ROM_NAME_LEN] = 0;
-                cfgData.divMmcSdaPath[(MAX_PATH - 1)] = 0;
-                cfgData.divMmcSdbPath[(MAX_PATH - 1)] = 0;
+                divMmcPresent = cfgData.divMmcPresent;
             }
-            cfgFile.close();
+            if ((romArrayPresent & BANK_IF1) != 0)
+            {
+                interface1Present = cfgData.interface1Present;
+            }
+            if ((romArrayPresent & BANK_MF128) != 0)
+            {
+                mf128Present = cfgData.mf128Present;
+            }
+            uartPresent = cfgData.uartPresent;
+            usbPresent = cfgData.usbPresent;
+            wifiNtpPresent = cfgData.wifiNtpPresent;
+            wifiNtpTz = cfgData.wifiNtpTz;
+            bootIntoMenu = cfgData.bootIntoMenu;
+            cfgData.romName[ROM_NAME_LEN] = 0;
+            cfgData.divMmcSdaPath[(MAX_PATH - 1)] = 0;
+            cfgData.divMmcSdbPath[(MAX_PATH - 1)] = 0;
         }
-        if (!hasCfgFile)
-        {
-            menuClearConfiguration();
-            menuConfigChanged = true;
-            menuSaveConfiguration();
-        }
+        cfgFile.close();
     }
-
-    // Always reload the configuration on normal reset
-    menuConfigReload = true;
+    if (!hasCfgFile)
+    {
+        menuClearConfiguration();
+        menuConfigChanged = true;
+        menuSaveConfiguration();
+    }
 }
 
 void menuSaveConfiguration()
