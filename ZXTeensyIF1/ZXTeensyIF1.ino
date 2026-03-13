@@ -20,6 +20,7 @@
 #include "RtcZXTeensy.h"
 #include "EspNtpZXTeensy.h"
 #include "TzxPlayerZXTeensy.h"
+#include "Dsk765ZXTeensy.h"
 
 // Run the Teensy 4.1 with slight overclock at 816MHz
 // Tick the SD and Serial at 14MHz
@@ -369,6 +370,11 @@ TzxPlayerZXTeensy tzxPlayer;
 volatile bool tzxPresent = false;
 volatile bool tzxEnabled = false;
 
+// u765 disk controller
+Dsk765ZXTeensy dskController;
+volatile bool dskPresent = false;
+volatile bool dskEnabled = false;
+
 // SPI and UART tick cycle counter
 volatile uint32_t globalCycleCount;
 
@@ -383,8 +389,10 @@ FASTRUN void loop() __attribute__((hot, optimize("O3")));
 #ifdef DEBUG_OUTPUT
 
 // Debug data buffer
-const uint16_t DEBUG_BUFFER_SIZE = 32768;
+const size_t DEBUG_BUFFER_SIZE = (64 * 1024);
 RingBuffer<DEBUG_BUFFER_SIZE> debugBuffer;
+volatile bool debugTraceOn = false;
+volatile uint8_t debugTraceData = 0;
 
 inline __attribute__((always_inline)) bool writeDebugData(uint8_t data)
 {
@@ -411,31 +419,21 @@ inline __attribute__((always_inline)) bool hasDebugData()
     return debugBuffer.canRead();
 }
 
-volatile bool debugTraceOn = false;
-
 inline __attribute__((always_inline)) void traceDebug(uint16_t address)
 {
-    if (!debugTraceOn && !menuPaged && (address == 0x66))
-    {
-        debugTraceOn = true;
-        debugBuffer.clear();
-    }
     if (debugTraceOn)
     {
-        if (writeDebugData(romSelected))
+        debugBuffer.write(romSelected);
+        debugBuffer.write(address >> 8);
+        debugBuffer.write(address);
+        debugBuffer.write(debugTraceData);
+        /*if (!writeDebugData(romSelected) ||
+            !writeDebugData(address >> 8) ||
+            !writeDebugData(address) ||
+            !writeDebugData(debugTraceData))
         {
-            if (writeDebugData(address >> 8))
-            {
-                if (!writeDebugData(address))
-                {
-                    debugTraceOn = false;
-                }
-            } else {
-                debugTraceOn = false;
-            }
-        } else {
             debugTraceOn = false;
-        }
+        }*/
     }
 }
 
@@ -449,6 +447,9 @@ inline __attribute__((always_inline)) void writeData(uint8_t data)
     CORE_PIN10_DDRREG |= GPIO7_DATA_MASK;
     CORE_PIN10_PORTSET = gpioSeven & GPIO7_DATA_MASK;
     CORE_PIN10_PORTCLEAR = (~gpioSeven) & GPIO7_DATA_MASK;
+#ifdef DEBUG_OUTPUT
+    debugTraceData = data;
+#endif
 }
 
 inline __attribute__((always_inline)) uint8_t readData()
@@ -789,11 +790,20 @@ void setup()
     globalCycleCount = ARM_DWT_CYCCNT;
     setState(STATE_RESET);
 
-    // Configure UART, and USB serial debug
-    Serial8.addMemoryForRead(uartBuffer, UART_BUFFER_SIZE);
+    // Detect debug and crashes
 #ifdef DEBUG_OUTPUT
     Serial.begin(115200);
 #endif
+    if (CrashReport)
+    {
+#ifndef DEBUG_OUTPUT
+        Serial.begin(115200);
+#endif
+        Serial.print(CrashReport);
+    }
+
+    // Configure UART
+    Serial8.addMemoryForRead(uartBuffer, UART_BUFFER_SIZE);
 
     // Setup RD, WR, ROMCS, reset and button ISRs
     // NOTE: Set GPIO interrupt as high priority, to avoid misses
@@ -1284,13 +1294,18 @@ void handleStateResetEntry()
 #ifdef DEBUG_OUTPUT
     if (afterFirstReset)
     {
+        // Stop the trace
+        debugTraceOn = false;
+
         // Dump the debug buffer
         Serial.printf("START\n");
+        Serial.printf("Trace %db\n", debugBuffer.getSize());
         while (hasDebugData())
         {
             while ( (uint) Serial.availableForWrite() <  0x400);
-            Serial.printf("%02x%02x%02x %02x, ", readDebugData(), readDebugData(),
-                readDebugData(), readDebugData());
+            //Serial.printf("%02x:%02x%02x@%02x, ", readDebugData(), readDebugData(),
+            //    readDebugData(), readDebugData());
+            Serial.printf("%02x:%02x, ", readDebugData(), readDebugData());
         }
         Serial.printf("\nEND\n");
         while ( (uint) Serial.availableForWrite() <  0x400);
@@ -1312,6 +1327,9 @@ void handleStateResetEntry()
                 Serial.write((char*)&divMmcExtRamArray[i_][j_], 0x400);
             }
         }*/
+
+        // Reset the trace buffer
+        debugBuffer.clear();
     }
 #endif
 
@@ -1512,6 +1530,12 @@ void handleStateReset()
         tzxPlayer.end();
     }
 
+    // Stop the disk
+    if (dskEnabled)
+    {
+        dskController.end();
+    }
+
     // Reset the banking state
     menuPaged = false;
     menuSelected = false;
@@ -1542,6 +1566,7 @@ void handleStateReset()
     snaLoaderPaged = false;
     uartEnabled = false;
     tzxEnabled = false;
+    dskEnabled = false;
     romSelected = ROM_ROM0;
     romArraySelected = BANK_ROM0;
 
@@ -1602,7 +1627,11 @@ void handleStateReset()
         }
 
         // Enable the SD card access
-        if (mdrPresent)
+        if (rom23Present)
+        {
+            dskEnabled = true;
+            dskController.begin("test.dsk", 0);
+        } else if (mdrPresent)
         {
             if (beginSdfsSd() && loadMdrEmulatorFile(menuGetBrowserPath()))
             {
@@ -1911,6 +1940,8 @@ FASTRUN void loop()
 
     // Run HTTP server actions
     httpRunServer();
+    
+    dskController.onTick();
 
     // Perform USB host functions
     if (usbEnabled)
@@ -2173,12 +2204,6 @@ FASTRUN void isrWrEvent()
                     if (zxC3Write)
                     {
                         uint8_t data = readData();
-#ifdef DEBUG_OUTPUT
-                        writeDebugData(zxC2BankPtr >> 1);
-                        writeDebugData(address >> 8);
-                        writeDebugData(address);
-                        writeDebugData(data);
-#endif
                         switch (zxC3FlashState)
                         {
                             case ZXC3_FLASH_UNLOCK :
@@ -2299,12 +2324,25 @@ FASTRUN void isrWrEvent()
                             }
                             rom1Paged = ((data & 0x10) != 0);
                         }
-                        if (rom23Present && !isPort7F &&
-                            ((gpioSix & A13_PIN_BITMASK) == 0x0) &&
-                            ((gpioSix & A12_PIN_BITMASK) != 0x0))
+                        if (rom23Present && !isPort7F)
                         {
-                            // Detect 0x1ffd write access for +3 ROMs
-                            rom23Paged = ((data & 0x04) != 0);
+                            if ((gpioSix & A13_PIN_BITMASK) != 0x0)
+                            {
+                                if (dskEnabled && ((gpioSix & A12_PIN_BITMASK) != 0x0))
+                                {
+                                    // Detect 0x3ffd write access for disk
+                                    dskController.writeData(Dsk765ZXTeensy::WRITE_DATA, 
+                                        data);
+                                }
+                            } else if ((gpioSix & A12_PIN_BITMASK) != 0x0)
+                            {
+                                // Detect 0x1ffd write access for +3 ROMs
+                                rom23Paged = ((data & 0x04) != 0);
+                                if (dskEnabled)
+                                {
+                                    dskController.setMotor((data & 0x08) != 0);
+                                }
+                            }
                         }
                         updateRomIndex(true);
                     }
@@ -2660,8 +2698,11 @@ FASTRUN void isrRdEvent()
                 }
 
 #ifdef DEBUG_OUTPUT
-                // Debug tracing
-                //traceDebug(address);
+                // Debug instruction tracing
+                if ((gpioNine & M1_PIN_BITMASK) == 0)
+                {
+                    //traceDebug(address);
+                }
 #endif
             }
         } else if (!busRdActive && ((gpioSix & IOREQ_PIN_BITMASK) == 0x00000000))
@@ -2753,6 +2794,19 @@ FASTRUN void isrRdEvent()
                         }
                     }
                     break;
+                case 0xfd :
+                    if (dskEnabled)
+                    {
+                        switch (decodeHighAddress(gpioSix))
+                        {
+                            case 0x2f :
+                                writeData(dskController.getStatusByte());
+                                break;
+                            case 0x3f :
+                                writeData(dskController.readData());
+                                break;
+                        }
+                    }
                 case 0xfe :
                     if (tzxEnabled && tzxPlayer.isTapePlaying())
                     {
