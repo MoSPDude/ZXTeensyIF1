@@ -199,7 +199,9 @@ class TzxPlayerZXTeensy
 
         void begin(volatile uint8_t* buffer, size_t size);
         void end();
-        void onTick();
+
+        // NOTE: onTick is main loop, so optimize
+        void onTick() __attribute__((hot, optimize("O3")));
 
         inline __attribute__((always_inline)) void play()
         {

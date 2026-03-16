@@ -18,10 +18,10 @@ class Dsk765ZXTeensy
     public :
         typedef enum {
             WRITE_DATA,
-            WRITE_MOTOR,
-            WRITE_EOE,
-            WRITE_EOR
+            WRITE_MOTOR
         } flags_t;
+
+    static const uint8_t LED_PIN = 13;
 
     protected :
         static const size_t BUFFER_SIZE = 32;
@@ -46,9 +46,10 @@ class Dsk765ZXTeensy
 
         void begin(const char* diskAPath, const char* diskBPath)
         {
+            // Ensure controller is reset
             end();
 
-            //
+            // Create the FDC, and attach drives with disks
             fdc = fdc_new();
             fdd_x = fd_new();
             if (diskAPath != 0)
@@ -56,19 +57,18 @@ class Dsk765ZXTeensy
                 fdd_a = fd_newdsk();
                 fd_settype(fdd_a, FD_30);
                 fd_setheads(fdd_a, 1);
-                fd_setcyls(fdd_a, 40);
+                fd_setcyls(fdd_a, 42);
                 fdd_setfilename(fdd_a, diskAPath);
             } else {
                 fdd_a = fd_new();
             }
             if (diskBPath != 0)
             {
-                fdd_b = fd_new();
-                /*fdd_b = fd_newdsk();
+                fdd_b = fd_newdsk();
                 fd_settype(fdd_b, FD_30);
                 fd_setheads(fdd_b, 1);
-                fd_setcyls(fdd_b, 40);
-                fdd_setfilename(fdd_b, diskBPath);*/
+                fd_setcyls(fdd_b, 42);
+                fdd_setfilename(fdd_b, diskBPath);
             } else {
                 fdd_b = fd_new();
             }
@@ -85,6 +85,10 @@ class Dsk765ZXTeensy
             readDataStatus = 0xFF;
             motorOn = false;
             statusRegister = 0;
+            wrFlagBuffer.clear();
+            writeBuffer.clear();
+            rdStatusBuffer.clear();
+            readBuffer.clear();
             if (fdc != 0)
             {
                 fdc_destroy(&fdc);
@@ -95,7 +99,8 @@ class Dsk765ZXTeensy
             }
         }
 
-        inline __attribute__((always_inline)) void onTick()
+        // NOTE: onTick is main loop, so optimize
+        inline void onTick() __attribute__((always_inline, hot, optimize("O3")))
         {
             if (fdc != 0)
             {
@@ -144,6 +149,7 @@ class Dsk765ZXTeensy
             {
                 writeData(WRITE_MOTOR, (motor ? 0x0F : 0x00));
                 motorOn = motor;
+                digitalWriteFast(LED_PIN, !motorOn);
             }
         }
 
@@ -155,7 +161,7 @@ class Dsk765ZXTeensy
                 data = readBuffer.readRaw();
                 statusRegister = rdStatusBuffer.readRaw();
             } else {
-                // Unexpected read from FDC
+                // Unexpected read of FDC
                 data = readDataStatus;
             }
             return data;

@@ -36,6 +36,9 @@ A Teensy 4.1 powered DivMMC and ZX Interface 1 clone for the ZX Spectrum 48K/128
 * Single speed TZX and TAP playback
     * Playback locks the keyboard, as it overdrives the ULA
     * TAP loading is better done via the DivMMC
+* Spectrum +3 uPD765a FDC emulation
+    * Integrated lib765 v0.4.2 with additional bug fixes for "EXTENDED" disk loading
+    * Requires Spectrum +2A/+3 soft ROM support (see below), or other compatible DOS
 * Soft ROM emulation
     * Override the internal Spectrum ROM with ROMs from SD card
     * Supports 16KB (Spectrum 48K), 32KB (Spectrum 128K/+2 (Grey)) and 64KB (Spectrum +2A/+3) ROMs
@@ -88,6 +91,8 @@ It borrows content, ideas and inspiration from,
 * https://velesoft.speccy.cz/zx/rtcmodule/index.htm
     * RTC_SETUP for the RTC module
     * RTC.SYS for EsxDOS
+* https://www.seasip.info/Unix/LibDsk/
+    * lib765 FDC controller library
 * https://github.com/joepasquariello/FlasherX
     * Teensy 4.x OTA upgrade library
 * https://github.com/liveboxandy/ZX-Interface-1-Recreated
@@ -192,6 +197,8 @@ ESXDOS has trouble loading if it is not "early" on the SD card,
 
 ### Firmware
 
+* 20260316
+    * Added lib765 and +3 DSK support
 * 20260312
     * Updated for v0.7 PCB
     * Added ZXC3 and MDR emulator support

@@ -1,5 +1,5 @@
 
-#define ZXTEENSY_VERSION "20260312"
+#define ZXTEENSY_VERSION "20260316"
 #define ENABLE_BUILTIN_ROM_IF1
 //define DEBUG_OUTPUT
 
@@ -59,15 +59,17 @@ typedef enum {
     MENU_ACTION_BROWSER_OPEN,
     MENU_ACTION_BROWSER_OPEN_ZXC2,
     MENU_ACTION_BROWSER_OPEN_HDF,
+    MENU_ACTION_BROWSER_OPEN_DSK,
     MENU_ACTION_BROWSER_LOAD_CART,
     MENU_ACTION_BROWSER_LOAD_ZXC2,
     MENU_ACTION_BROWSER_LOAD_ZXC3,
     MENU_ACTION_BROWSER_LOAD_Z80,
     MENU_ACTION_BROWSER_LOAD_TZX,
     MENU_ACTION_BROWSER_LOAD_MDR,
-    MENU_ACTION_BROWSER_LOAD_DSK,
     MENU_ACTION_BROWSER_MOUNT_SDA,
     MENU_ACTION_BROWSER_MOUNT_SDB,
+    MENU_ACTION_BROWSER_MOUNT_FDA,
+    MENU_ACTION_BROWSER_MOUNT_FDB,
     MENU_ACTION_START_SERVER,
     MENU_ACTION_STOP_SERVER
 } menu_action_t;
@@ -385,6 +387,7 @@ FASTRUN void isrWrEvent() __attribute__((hot, optimize("O3")));
 
 // Optimised task loop functions
 FASTRUN void loop() __attribute__((hot, optimize("O3")));
+inline void sdSpiOnTick() __attribute__((always_inline, hot, optimize("O3")));
 
 #ifdef DEBUG_OUTPUT
 
@@ -513,7 +516,8 @@ inline __attribute__((always_inline)) void flushSdSpiBuffers()
     sdSpiWriteBuffer.clear();
 }
 
-inline __attribute__((always_inline)) void sdSpiOnTick()
+// NOTE: onTick is main loop, so optimize
+inline void sdSpiOnTick()
 {
     if (sdSpiWriteBuffer.canRead())
     {
@@ -1627,10 +1631,10 @@ void handleStateReset()
         }
 
         // Enable the SD card access
-        if (rom23Present)
+        if (dskPresent)
         {
             dskEnabled = true;
-            dskController.begin("test.dsk", 0);
+            dskController.begin(menuGetFdcFdaPath(), menuGetFdcFdbPath());
         } else if (mdrPresent)
         {
             if (beginSdfsSd() && loadMdrEmulatorFile(menuGetBrowserPath()))
@@ -1940,7 +1944,8 @@ FASTRUN void loop()
 
     // Run HTTP server actions
     httpRunServer();
-    
+
+    // Run FDC actions
     dskController.onTick();
 
     // Perform USB host functions
@@ -2306,52 +2311,51 @@ FASTRUN void isrWrEvent()
             {
                 if ((gpioSix & A15_PIN_BITMASK) == 0x00000000)
                 {
-                    // Perform I/O 0x1ffd or 0x7ffd write access
+                    // Perform I/O 0x1ffd, 0x3ffd or 0x7ffd write access
                     bool isPort7F = ((gpioSix & A14_PIN_BITMASK) != 0x0);
                     uint8_t data = readData();
-                    if (rom1Present)
+                    if (rom1Present && (!rom23Present || isPort7F))
                     {
-                        if (!rom23Present || isPort7F)
+                        // Detect 0x7ffd write access for 128k ROMs
+                        if (mf128Present)
                         {
-                            // Detect 0x7ffd write access for 128k ROMs
-                            if (mf128Present)
-                            {
-                                mf128VideoRam = ((data & 0x08) != 0);
-                            }
-                            if ((data & 0x20) != 0)
-                            {
-                                rom1Present = false;
-                            }
-                            rom1Paged = ((data & 0x10) != 0);
+                            mf128VideoRam = ((data & 0x08) != 0);
                         }
-                        if (rom23Present && !isPort7F)
+                        if ((data & 0x20) != 0)
                         {
-                            if ((gpioSix & A13_PIN_BITMASK) != 0x0)
-                            {
-                                if (dskEnabled && ((gpioSix & A12_PIN_BITMASK) != 0x0))
-                                {
-                                    // Detect 0x3ffd write access for disk
-                                    dskController.writeData(Dsk765ZXTeensy::WRITE_DATA, 
-                                        data);
-                                }
-                            } else if ((gpioSix & A12_PIN_BITMASK) != 0x0)
-                            {
-                                // Detect 0x1ffd write access for +3 ROMs
-                                rom23Paged = ((data & 0x04) != 0);
-                                if (dskEnabled)
-                                {
-                                    dskController.setMotor((data & 0x08) != 0);
-                                }
-                            }
+                            rom1Present = false;
                         }
+                        rom1Paged = ((data & 0x10) != 0);
                         updateRomIndex(true);
                     }
-
-                    // Detect 0x7ffd write access to disable DivMMC
-                    if (isPort7F && interface1Present && divMmcEnabled &&
-                        divMmcPaged && ((data & 0x10) == 0x0))
+                    if (isPort7F)
                     {
-                        divMmcToggle = true;
+                        if (interface1Present && divMmcEnabled &&
+                            divMmcPaged && ((data & 0x10) == 0x0))
+                        {
+                            // Detect 0x7ffd write access to disable DivMMC
+                            divMmcToggle = true;
+                        }
+                    } else if ((gpioSix & A13_PIN_BITMASK) != 0x0)
+                    {
+                        if (dskEnabled && ((gpioSix & A12_PIN_BITMASK) != 0x0))
+                        {
+                            // Detect 0x3ffd write access for disk
+                            dskController.writeData(Dsk765ZXTeensy::WRITE_DATA,
+                                data);
+                        }
+                    } else if ((gpioSix & A12_PIN_BITMASK) != 0x0)
+                    {
+                        // Detect 0x1ffd write access for +3 ROMs
+                        if (rom1Present && rom23Present)
+                        {
+                            rom23Paged = ((data & 0x04) != 0);
+                            updateRomIndex(true);
+                        }
+                        if (dskEnabled)
+                        {
+                            dskController.setMotor((data & 0x08) != 0);
+                        }
                     }
                 }
             } else {

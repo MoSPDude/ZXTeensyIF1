@@ -119,7 +119,8 @@ class UartZXTeensy
             return status;
         }
 
-        inline __attribute__((always_inline)) void onTick()
+        // NOTE: onTick is main loop, so optimize
+        inline void onTick() __attribute__((always_inline, hot, optimize("O3")))
         {
             if (enabled)
             {
