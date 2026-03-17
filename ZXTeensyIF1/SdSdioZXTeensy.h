@@ -22,8 +22,7 @@ class SdSdioZXTeensy
             STATE_CMD_ARG2  = 0x03,
             STATE_CMD_ARG1  = 0x04,
             STATE_CMD_CRC   = 0x05,
-            STATE_EXECUTE   = 0x08,
-            STATE_DATA      = 0x10
+            STATE_DATA      = 0x08
         } state_t;
 
         typedef enum {
@@ -51,7 +50,7 @@ class SdSdioZXTeensy
         bool dataActive;
         uint32_t dataRegister;
         uint32_t dataIndex;
-        uint8_t dataBuffer[514];
+        uint8_t dataBuffer[528] __attribute__((aligned(16)));
 
         uint32_t currentSector;
         uint32_t numSectors;
@@ -64,6 +63,11 @@ class SdSdioZXTeensy
         inline __attribute__((always_inline)) void writeStatusData()
         {
             writeReadData(isSdIdle ? 0x01 : 0x00);
+        }
+
+        inline __attribute__((always_inline)) void writeErrorData(uint8_t error)
+        {
+            writeReadData(error | (isSdIdle ? 0x01 : 0x00));
         }
 
         bool processData(bool hasData, uint8_t data)
@@ -82,6 +86,7 @@ class SdSdioZXTeensy
 
                         // Write the data
                         sdioCard->writeSector(currentSector, dataBuffer);
+                        ++currentSector;
                         currentState = STATE_IDLE;
                         dataActive = false;
                     }
@@ -92,11 +97,6 @@ class SdSdioZXTeensy
                 }
             }
             return false;
-        }
-
-        void collectResponse()
-        {
-            //
         }
 
         void executeCommand()
@@ -124,6 +124,7 @@ class SdSdioZXTeensy
                                 writeReadData(0xFF);
                                 currentSector = commandArgument;
                                 sdioCard->readSector(currentSector, dataBuffer);
+                                ++currentSector;
                                 writeReadData(0xFE);
                                 sdSpiReadBuffer->writeBlock(dataBuffer, 512);
 
@@ -131,7 +132,8 @@ class SdSdioZXTeensy
                                 writeReadData(0x00);
                                 writeReadData(0x00);
                             } else {
-                                // TODO: Error
+                                // Parameter error
+                                writeErrorData(0x40);
                             }
                         }
                         break;
@@ -145,7 +147,8 @@ class SdSdioZXTeensy
                                 currentState = STATE_DATA;
                                 return;
                             } else {
-                                // TODO: Error
+                                // Parameter error
+                                writeErrorData(0x40);
                             }
                         }
                         break;
@@ -223,7 +226,7 @@ class SdSdioZXTeensy
 
         inline __attribute__((always_inline)) void performTick(bool hasData, uint8_t data)
         {
-            if (hasData || (currentState & (STATE_EXECUTE | STATE_DATA)))
+            if (hasData || (currentState & STATE_DATA))
             {
                 switch (currentState)
                 {
@@ -254,9 +257,6 @@ class SdSdioZXTeensy
                         // Consume the command CRC byte, and add one byte spacer
                         writeReadData(0xFF);
                         executeCommand();
-                        break;
-                    case STATE_EXECUTE :
-                        collectResponse();
                         break;
                     case STATE_DATA :
                         processData(hasData, data);

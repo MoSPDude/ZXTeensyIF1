@@ -1,5 +1,5 @@
 
-#define ZXTEENSY_VERSION "20260316"
+#define ZXTEENSY_VERSION "20260318"
 #define ENABLE_BUILTIN_ROM_IF1
 //define DEBUG_OUTPUT
 
@@ -260,6 +260,7 @@ volatile uint8_t divMmcRamArray[RAM_PAGE_COUNT][RAM_PAGE_SIZE] __attribute__((al
 volatile DMAMEM uint8_t divMmcExtRamArray[EXT_RAM_PAGE_COUNT][RAM_PAGE_SIZE] __attribute__((aligned(16)));
 volatile bool divMmcPresent = false;
 volatile bool divMmcEnabled = false;
+volatile bool divMmcRomEnabled = false;
 volatile bool divMmcToggle = false;
 volatile bool divMmcPaged = false;
 volatile bool divMmcAutoMap = false;
@@ -1630,38 +1631,41 @@ void handleStateReset()
             snaLoaderPaged = true;
         }
 
-        // Enable the SD card access
-        if (dskPresent)
+        // Enable DSK, MDR and TZX peripherals, and prevent direct SD card access
+        bool hasSdAccess = false;
+        if (dskPresent && beginSdfsSd())
         {
             dskEnabled = true;
+            hasSdAccess = true;
             dskController.begin(menuGetFdcFdaPath(), menuGetFdcFdbPath());
-        } else if (mdrPresent)
+        }
+        if (mdrPresent && beginSdfsSd() &&
+            loadMdrEmulatorFile(menuGetBrowserPath()))
         {
-            if (beginSdfsSd() && loadMdrEmulatorFile(menuGetBrowserPath()))
-            {
-                mdrEnabled = true;
-            }
-        } else if (tzxPresent)
+            mdrEnabled = true;
+            hasSdAccess = true;
+        }
+        if (tzxPresent && beginSdfsSd())
         {
-            if (beginSdfsSd())
+            size_t size;
+            if (loadTzxPlayerFile(menuGetBrowserPath(), &size))
             {
-                size_t size;
-                if (loadTzxPlayerFile(menuGetBrowserPath(), &size))
-                {
-                    tzxEnabled = true;
-                    tzxPlayer.begin(divMmcExtRamArray[0], size);
-                }
+                tzxEnabled = true;
+                tzxPlayer.begin(divMmcExtRamArray[0], size);
             }
-        } else if (divMmcPresent)
+        }
+
+        // Enable the DivMMC
+        if (divMmcPresent)
         {
             // The Interface 1 can be enabled by switching back
-            // into 128k mode (".128")
+            // into 128k mode (".128") or enabling the Multiface 128
             divMmcEnabled = true;
             char* sdaPath = menuGetDivMmcSdaPath();
             char* sdbPath = menuGetDivMmcSdbPath();
             if ((sdaPath == 0) && (sdbPath != 0))
             {
-                divMmcDriveSlot[0] = DIVMMC_SDHC;
+                divMmcDriveSlot[0] = (hasSdAccess ? DIVMMC_NONE : DIVMMC_SDHC);
                 if (divMmcSecondHdf.begin(&sdSpiReadBuffer, sdbPath))
                 {
                     divMmcDriveSlot[1] = DIVMMC_HDF_B;
@@ -1669,27 +1673,19 @@ void handleStateReset()
                     divMmcDriveSlot[1] = DIVMMC_NONE;
                 }
             } else {
-                if (sdbPath != 0)
+                if ((sdbPath != 0) &&
+                    divMmcSecondHdf.begin(&sdSpiReadBuffer, sdbPath))
                 {
-                    if (divMmcSecondHdf.begin(&sdSpiReadBuffer, sdbPath))
-                    {
-                        divMmcDriveSlot[1] = DIVMMC_HDF_B;
-                    } else {
-                        divMmcDriveSlot[1] = DIVMMC_NONE;
-                    }
+                    divMmcDriveSlot[1] = DIVMMC_HDF_B;
                 } else {
                     divMmcDriveSlot[1] = DIVMMC_NONE;
                 }
-                if (sdaPath != 0)
+                if ((sdaPath != 0) &&
+                    divMmcHdf.begin(&sdSpiReadBuffer, sdaPath))
                 {
-                    if (divMmcHdf.begin(&sdSpiReadBuffer, sdaPath))
-                    {
-                        divMmcDriveSlot[0] = DIVMMC_HDF_A;
-                    } else {
-                        divMmcDriveSlot[0] = DIVMMC_SDHC;
-                    }
+                    divMmcDriveSlot[0] = DIVMMC_HDF_A;
                 } else {
-                    divMmcDriveSlot[0] = DIVMMC_SDHC;
+                    divMmcDriveSlot[0] = (hasSdAccess ? DIVMMC_NONE : DIVMMC_SDHC);
                 }
             }
         }
@@ -2566,7 +2562,7 @@ FASTRUN void isrRdEvent()
                                 updateRomIndex(true);
                             }
 
-                            if (divMmcEnabled && !mf128Paged)
+                            if (divMmcEnabled && divMmcRomEnabled && !mf128Paged)
                             {
                                 // Detect M1 cycle for DivMMC paging
                                 if ((address & 0xff00) == 0x3d00)

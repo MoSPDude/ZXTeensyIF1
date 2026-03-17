@@ -22,8 +22,7 @@ class SdHdfZXTeensy
             STATE_CMD_ARG2  = 0x03,
             STATE_CMD_ARG1  = 0x04,
             STATE_CMD_CRC   = 0x05,
-            STATE_EXECUTE   = 0x08,
-            STATE_DATA      = 0x10
+            STATE_DATA      = 0x08
         } state_t;
 
         typedef enum {
@@ -52,7 +51,7 @@ class SdHdfZXTeensy
         bool dataActive;
         uint32_t dataRegister;
         uint32_t dataIndex;
-        uint8_t dataBuffer[514];
+        uint8_t dataBuffer[528] __attribute__((aligned(16)));
 
         uint32_t sectorOffset;
         uint32_t currentSector;
@@ -66,6 +65,11 @@ class SdHdfZXTeensy
         inline __attribute__((always_inline)) void writeStatusData()
         {
             writeReadData(isSdIdle ? 0x01 : 0x00);
+        }
+
+        inline __attribute__((always_inline)) void writeErrorData(uint8_t error)
+        {
+            writeReadData(error | (isSdIdle ? 0x01 : 0x00));
         }
 
         inline __attribute__((always_inline)) void openSdCard()
@@ -104,11 +108,6 @@ class SdHdfZXTeensy
                 }
             }
             return false;
-        }
-
-        void collectResponse()
-        {
-            //
         }
 
         void executeCommand()
@@ -150,7 +149,8 @@ class SdHdfZXTeensy
                                 writeReadData(0x00);
                                 writeReadData(0x00);
                             } else {
-                                // TODO: Error
+                                // Parameter error
+                                writeErrorData(0x40);
                             }
                         }
                         break;
@@ -170,7 +170,8 @@ class SdHdfZXTeensy
                                 currentState = STATE_DATA;
                                 return;
                             } else {
-                                // TODO: Error
+                                // Parameter error
+                                writeErrorData(0x40);
                             }
                         }
                         break;
@@ -266,7 +267,7 @@ class SdHdfZXTeensy
 
         inline __attribute__((always_inline)) void performTick(bool hasData, uint8_t data)
         {
-            if (hasData || (currentState & (STATE_EXECUTE | STATE_DATA)))
+            if (hasData || (currentState & STATE_DATA))
             {
                 switch (currentState)
                 {
@@ -297,9 +298,6 @@ class SdHdfZXTeensy
                         // Consume the command CRC byte, and add one byte spacer
                         writeReadData(0xFF);
                         executeCommand();
-                        break;
-                    case STATE_EXECUTE :
-                        collectResponse();
                         break;
                     case STATE_DATA :
                         processData(hasData, data);
