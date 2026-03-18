@@ -72,7 +72,7 @@ class TzxPlayerZXTeensy
         bool loadPulseSequenceBlock();
         bool loadFromTape();
 
-        inline __attribute__((always_inline)) bool runTapeNextByte()
+        inline bool runTapeNextByte() __attribute__((always_inline, optimize("O3")))
         {
             switch (currentBlock)
             {
@@ -123,7 +123,7 @@ class TzxPlayerZXTeensy
             return true;
         }
 
-        inline __attribute__((always_inline)) bool runTapeNextBlock()
+        inline bool runTapeNextBlock() __attribute__((always_inline, optimize("O3")))
         {
             if (dataBuffer.canRead())
             {

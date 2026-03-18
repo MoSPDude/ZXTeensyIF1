@@ -11,7 +11,7 @@
 
 //define DEBUG_HDF_OUTPUT
 
-class SdHdfZXTeensy
+template <size_t READ_BUFFER_SIZE> class SdHdfZXTeensy
 {
     public :
 
@@ -38,7 +38,6 @@ class SdHdfZXTeensy
         } command_t;
 
     protected :
-        static const size_t READ_BUFFER_SIZE = 4096;
         RingBuffer<READ_BUFFER_SIZE>* sdSpiReadBuffer;
 
         File sdCard;
@@ -93,6 +92,7 @@ class SdHdfZXTeensy
                     {
                         // Consume the CRC bytes, then send data response
                         writeReadData(0x05);
+                        writeReadData(0x00);
                         writeReadData(0x00);
 
                         // Write the data
@@ -262,9 +262,6 @@ class SdHdfZXTeensy
             sdCardPath[0] = 0;
         }
 
-        bool begin(RingBuffer<READ_BUFFER_SIZE>* readBuffer, const char* filename);
-        void end(void);
-
         inline __attribute__((always_inline)) void performTick(bool hasData, uint8_t data)
         {
             if (hasData || (currentState & STATE_DATA))
@@ -303,6 +300,63 @@ class SdHdfZXTeensy
                         processData(hasData, data);
                         break;
                 }
+            }
+        }
+
+        bool begin(RingBuffer<READ_BUFFER_SIZE>* readBuffer, const char* filename)
+        {
+            // NOTE: Do NOT clear isSdIdle as the DivMMC can warm reset
+            sdSpiReadBuffer = readBuffer;
+            currentState = SdHdfZXTeensy::STATE_IDLE;
+            currentCommand = SdHdfZXTeensy::CMD_IDLE;
+            commandAppCmd = false;
+            commandArgument = 0;
+            dataActive = false;
+            dataRegister = 0;
+            dataIndex = 0;
+            end();
+
+#ifdef DEBUG_HDF_OUTPUT
+            Serial.begin(115200);
+#endif
+
+            // Load the image header
+            numSectors = 0;
+            currentSector = 0;
+            strcpy(sdCardPath, filename);
+            openSdCard();
+            if (sdCard)
+            {
+                uint8_t header[16];
+                if (sdCard.read(header, 16) >= 16)
+                {
+                    if (memcmp(header, "RS-IDE", 6) == 0)
+                    {
+                        // Find start of the data
+                        sectorOffset = ((header[10] << 8) | header[9]);
+                    } else {
+                        // Assume as disk image
+                        sectorOffset = 0;
+                    }
+
+                    // Determine the card size
+                    sdCard.seek(0, SeekEnd);
+                    int filesize = sdCard.position();
+                    numSectors = (filesize - sectorOffset) / 512;
+                    currentSector = numSectors;
+                    return true;
+                }
+                sdCard.close();
+            }
+            sdCardPath[0] = 0;
+            return false;
+        }
+
+        void end()
+        {
+            if (sdCard)
+            {
+                sdCard.close();
             }
         }
 };

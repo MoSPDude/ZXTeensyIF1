@@ -11,7 +11,7 @@
 
 //define DEBUG_HDF_OUTPUT
 
-class SdSdioZXTeensy
+template <size_t READ_BUFFER_SIZE> class SdSdioZXTeensy
 {
     public :
 
@@ -38,7 +38,6 @@ class SdSdioZXTeensy
         } command_t;
 
     protected :
-        static const size_t READ_BUFFER_SIZE = 4096;
         RingBuffer<READ_BUFFER_SIZE>* sdSpiReadBuffer;
         
         SdioCard* sdioCard;
@@ -82,6 +81,7 @@ class SdSdioZXTeensy
                     {
                         // Consume the CRC bytes, then send data response
                         writeReadData(0x05);
+                        writeReadData(0x00);
                         writeReadData(0x00);
 
                         // Write the data
@@ -221,9 +221,6 @@ class SdSdioZXTeensy
         {
         }
 
-        void begin(RingBuffer<READ_BUFFER_SIZE>* readBuffer, SdCard* card);
-        void end(void);
-
         inline __attribute__((always_inline)) void performTick(bool hasData, uint8_t data)
         {
             if (hasData || (currentState & STATE_DATA))
@@ -262,6 +259,42 @@ class SdSdioZXTeensy
                         processData(hasData, data);
                         break;
                 }
+            }
+        }
+
+        void begin(RingBuffer<READ_BUFFER_SIZE>* readBuffer, SdCard* card)
+        {
+            // NOTE: Do NOT clear isSdIdle as the DivMMC can warm reset
+            sdSpiReadBuffer = readBuffer;
+            currentState = SdSdioZXTeensy::STATE_IDLE;
+            currentCommand = SdSdioZXTeensy::CMD_IDLE;
+            commandAppCmd = false;
+            commandArgument = 0;
+            dataActive = false;
+            dataRegister = 0;
+            dataIndex = 0;
+
+#ifdef DEBUG_HDF_OUTPUT
+            Serial.begin(115200);
+#endif
+
+            sdioCard = static_cast<SdioCard*>(card);
+            if (sdioCard != 0)
+            {
+                numSectors = sdioCard->sectorCount();
+                while (sdioCard->isBusy()) { yield(); };
+            } else {
+                numSectors = 0;
+            }
+        }
+
+        void end()
+        {
+            if (sdioCard != 0)
+            {
+                while (sdioCard->isBusy()) { yield(); };
+                sdioCard->end();
+                sdioCard = 0;
             }
         }
 };

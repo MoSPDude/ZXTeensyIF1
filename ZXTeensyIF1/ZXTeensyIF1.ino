@@ -323,17 +323,16 @@ volatile bool menuSelected = false;
 volatile uint8_t menuSelectedIndex = 0;
 
 // DivMMC SPI/SD
-SdSdioZXTeensy divMmcSpi;
-SdHdfZXTeensy divMmcHdf;
-SdHdfZXTeensy divMmcSecondHdf;
-volatile divmmc_spi_t divMmcDrive = DIVMMC_NONE;
-divmmc_spi_t divMmcDriveSlot[2];
-
-static const size_t READ_BUFFER_SIZE = 4096;
-static const size_t WRITE_BUFFER_SIZE = 8;
+static const size_t READ_BUFFER_SIZE = 1024;
+static const size_t WRITE_BUFFER_SIZE = 16;
 RingBuffer<READ_BUFFER_SIZE> sdSpiReadBuffer;
 RingBuffer<WRITE_BUFFER_SIZE> sdSpiWriteBuffer;
 RingBuffer<WRITE_BUFFER_SIZE> sdSpiFlagsBuffer;
+SdSdioZXTeensy<READ_BUFFER_SIZE> divMmcSpi;
+SdHdfZXTeensy<READ_BUFFER_SIZE> divMmcHdf;
+SdHdfZXTeensy<READ_BUFFER_SIZE> divMmcSecondHdf;
+volatile divmmc_spi_t divMmcDrive = DIVMMC_NONE;
+volatile divmmc_spi_t divMmcDriveSlot[2];
 
 // MB03+ UART
 static const size_t UART_BUFFER_SIZE = 4096;
@@ -2305,23 +2304,20 @@ FASTRUN void isrWrEvent()
             uint8_t port_ = decodeLowAddress(gpioSix);
             if ((port_ & 0x02) == 0)
             {
+                // Perform I/O 0x1ffd, 0x3ffd or 0x7ffd write access
                 if ((gpioSix & A15_PIN_BITMASK) == 0x00000000)
                 {
-                    // Perform I/O 0x1ffd, 0x3ffd or 0x7ffd write access
                     bool isPort7F = ((gpioSix & A14_PIN_BITMASK) != 0x0);
                     uint8_t data = readData();
                     if (rom1Present && (!rom23Present || isPort7F))
                     {
                         // Detect 0x7ffd write access for 128k ROMs
-                        if (mf128Present)
-                        {
-                            mf128VideoRam = ((data & 0x08) != 0);
-                        }
                         if ((data & 0x20) != 0)
                         {
                             rom1Present = false;
                         }
                         rom1Paged = ((data & 0x10) != 0);
+                        mf128VideoRam = ((data & 0x08) != 0);
                         updateRomIndex(true);
                     }
                     if (isPort7F)
@@ -2765,14 +2761,14 @@ FASTRUN void isrRdEvent()
                     {
                         switch (decodeHighAddress(gpioSix))
                         {
+                            case 0xfa :
+                                writeData(mouseBtn);
+                                break;
                             case 0xfb :
                                 writeData(mouseX >> 1);
                                 break;
                             case 0xff :
                                 writeData(mouseY >> 1);
-                                break;
-                            case 0xfa :
-                                writeData(mouseBtn);
                                 break;
                         }
                     }
