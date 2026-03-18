@@ -49,6 +49,7 @@ static const size_t MAX_PATH = 256;
 typedef enum {
     MENU_ACTION_TOP_MENU,
     MENU_ACTION_SETTING,
+    MENU_ACTION_LOAD_CFG,
     MENU_ACTION_LOAD_ROM,
     MENU_ACTION_LOAD_CART,
     MENU_ACTION_UPDATE_FW,
@@ -1436,7 +1437,7 @@ void handleStateResetEntry()
                 // Load configuration
                 if (!afterFirstReset)
                 {
-                    menuLoadConfiguration();
+                    menuLoadConfiguration(0);
                 }
 
                 // Load Spectrum ROM

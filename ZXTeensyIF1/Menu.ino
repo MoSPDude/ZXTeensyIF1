@@ -1,6 +1,4 @@
 
-#define INTERNAL_ROM_NAME ((const char*)F(":INTERNAL"))
-
 #define FWUPDATE_HEX_PATH "ZXTEENSY.HEX"
 #define ZXTEENSY_CFG_PATH ((const char*)F("/ZXTEENSY/ZXTEENSY.CFG"))
 #define NETMAN_Z80_PATH ((const char*)F("/ZXTEENSY/netman.z80"))
@@ -24,6 +22,7 @@ static const uint8_t CHAR_TZX_R = 31;
 static const size_t ROM_NAME_LEN = 32;
 
 typedef enum {
+    MENU_TYPE_MAIN,
     MENU_TYPE_SETTINGS,
     MENU_TYPE_LOAD_ROM,
     MENU_TYPE_NTP_TZ,
@@ -52,11 +51,12 @@ typedef struct {
     char wifiNtpPresent;
     char wifiNtpTz;
     char bootIntoMenu;
-    char romName[(ROM_NAME_LEN + 1)];
+    char cfgName[MAX_PATH];
+    char romName[MAX_PATH];
     char divMmcSdaPath[MAX_PATH];
     char divMmcSdbPath[MAX_PATH];
-    char fdcFdaPath[MAX_PATH];
-    char fdcFdbPath[MAX_PATH];
+    char dskFdaPath[MAX_PATH];
+    char dskFdbPath[MAX_PATH];
 } cfg_data_t;
 
 typedef enum {
@@ -76,10 +76,11 @@ typedef enum {
     SETTING_ACTION_UNMOUNT_SDB,
     SETTING_ACTION_UNMOUNT_FDA,
     SETTING_ACTION_UNMOUNT_FDB,
-    SETTING_ACTION_OPEN_SERVER = 0xFB,
-    SETTING_ACTION_OPEN_ROMS = 0xFC,
-    SETTING_ACTION_OPEN_NTP_TZ = 0xFD,
-    SETTING_ACTION_OPEN_BROWSER = 0xFE,
+    SETTING_ACTION_OPEN_SERVER = 0xFA,
+    SETTING_ACTION_OPEN_ROMS = 0xFB,
+    SETTING_ACTION_OPEN_NTP_TZ = 0xFC,
+    SETTING_ACTION_OPEN_BROWSER = 0xFD,
+    SETTING_ACTION_OPEN_SETTINGS = 0xFE,
     SETTING_ACTION_INTERNAL_ROM = 0xFF
 } settings_menu_action_t;
 
@@ -98,7 +99,7 @@ DMAMEM menu_entry_t menu[255];
 volatile DMAMEM menu_action_t menuAction;
 
 // Menu file browser
-DMAMEM char fgRomName[(ROM_NAME_LEN + 1)];
+DMAMEM char menuFileName[MAX_PATH];
 DMAMEM char browserPath[MAX_PATH];
 
 // Menu page creation
@@ -168,7 +169,7 @@ char* menuInsertFile(menu_action_t action, icon_type_t icon, uint8_t index, char
     // characters
     unsigned int len = strlen(filename);
     const char* labelPtr;
-    if (len > 32)
+    if (len > ROM_NAME_LEN)
     {
         labelPtr = 0;
         for (size_t i = 0; i < 31; ++i)
@@ -238,7 +239,7 @@ char* menuInsertFile(menu_action_t action, icon_type_t icon, uint8_t index, char
     return (ptr + 1);
 }
 
-char* menuAddRomFile(uint8_t index, char* ptr, const char* filename)
+char* menuAddLoadRomFile(uint8_t index, char* ptr, const char* filename)
 {
     // Add check mark against active ROM
     *ptr++ = ((stricmp(filename, cfgData.romName) == 0) ? CHAR_TICK : CHAR_BORDER);
@@ -261,6 +262,26 @@ char* menuAddRomFile(uint8_t index, char* ptr, const char* filename)
 
     // Insert the menu entry
     return menuInsertFile(action, icon, index, ptr, filename);
+}
+
+char* menuAddMainFile(uint8_t index, char* ptr, const char* filename)
+{
+    char name[MAX_PATH];
+    strncpy(name, filename, MAX_PATH);
+    name[(MAX_PATH - 1)] = 0;
+    char *fileext = strrchr(name, '.');
+    if ((fileext != 0) && (stricmp(fileext + 1, "cfg") == 0))
+    {
+        // Remove the file extension
+        *fileext = 0;
+
+        // Add check mark against active configuration
+        *ptr++ = ((stricmp(filename, cfgData.cfgName) == 0) ? CHAR_TICK : CHAR_BORDER);
+
+        // Insert the menu entry
+        ptr = menuInsertFile(MENU_ACTION_LOAD_CFG, ICON_TYPE_NONE, index, ptr, name);
+    }
+    return ptr;
 }
 
 char* menuAddBrowserFile(uint8_t index, char* ptr, File entry)
@@ -340,7 +361,7 @@ char* menuGenerateHttpServer(char* ptr)
 
 char* menuGenerateNtpTz(char* ptr)
 {
-    ptr = menuInsertSetting(MENU_ACTION_TOP_MENU, 0, ptr, MENU_STRINGS[STRING_CANCEL], 0);
+    ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_OPEN_SETTINGS, ptr, MENU_STRINGS[STRING_CANCEL], 0);
     ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 0, ptr, MENU_STRINGS[STRING_MINUS_12_00_HOURS], (wifiNtpTz == 0));
     ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 4, ptr, MENU_STRINGS[STRING_MINUS_11_00_HOURS], (wifiNtpTz == 4));
     ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 8, ptr, MENU_STRINGS[STRING_MINUS_10_00_HOURS], (wifiNtpTz == 8));
@@ -447,7 +468,7 @@ char* menuGenerateBrowser(char* ptr)
                 }
 
                 // End of menu check
-                if ((ptr > menuEndPtr) || (menuEntries == 254))
+                if ((ptr > menuEndPtr) || (menuEntries == 255))
                 {
                     break;
                 }
@@ -462,7 +483,7 @@ char* menuGenerateLoadRom(char* ptr)
 {
     ptr = menuInsertSetting(MENU_ACTION_TOP_MENU, 0, ptr, MENU_STRINGS[STRING_CANCEL], 0);
     ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_INTERNAL_ROM,
-        ptr, MENU_STRINGS[STRING_INTERNAL_ROM], (stricmp(cfgData.romName, INTERNAL_ROM_NAME) == 0));
+        ptr, MENU_STRINGS[STRING_INTERNAL_ROM], (cfgData.romName[0] == 0));
     File romDirectory = SD.open("ROMS", FILE_READ);
     if (romDirectory)
     {
@@ -476,7 +497,7 @@ char* menuGenerateLoadRom(char* ptr)
                 {
                     if (!entry.isDirectory())
                     {
-                        ptr = menuAddRomFile(index, ptr, entry.name());
+                        ptr = menuAddLoadRomFile(index, ptr, entry.name());
                     }
                     entry.close();
                     ++index;
@@ -497,7 +518,7 @@ char* menuGenerateLoadRom(char* ptr)
     return ptr;
 }
 
-char* menuGenerateSettings(char* ptr)
+char* menuGenerateMain(char* ptr)
 {
     ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_RESTART,
         ptr, MENU_STRINGS[STRING_RESTART], 0);
@@ -508,6 +529,55 @@ char* menuGenerateSettings(char* ptr)
     ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_OPEN_ROMS,
         ptr, MENU_STRINGS[STRING_OPEN_ROMS], 0);
     ptr = menuInsertSpacer(ptr);
+
+    // List stored configurations for quick selection
+    File cfgDirectory = SD.open("/ZXTEENSY/CONFIGS", FILE_READ);
+    if (cfgDirectory)
+    {
+        if (cfgDirectory.isDirectory())
+        {
+            uint8_t index = 0;
+            while (true)
+            {
+                File entry = cfgDirectory.openNextFile();
+                if (entry)
+                {
+                    if (!entry.isDirectory())
+                    {
+                        ptr = menuAddMainFile(index, ptr, entry.name());
+                    }
+                    entry.close();
+                    ++index;
+                } else {
+                    // End of listing
+                    break;
+                }
+
+                // End of menu check
+                if ((ptr > menuEndPtr) || (menuEntries == 252))
+                {
+                    break;
+                }
+            }
+            if (index > 0)
+            {
+                ptr = menuInsertSpacer(ptr);
+            }
+        }
+        cfgDirectory.close();
+    }
+
+    // Add settings and HTTP server
+    ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_OPEN_SETTINGS,
+        ptr, MENU_STRINGS[STRING_OPEN_SETTINGS], 0);
+    ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_OPEN_SERVER,
+        ptr, MENU_STRINGS[STRING_OPEN_HTTP_SERVER], 0);
+    return ptr;
+}
+
+char* menuGenerateSettings(char* ptr)
+{
+    ptr = menuInsertSetting(MENU_ACTION_TOP_MENU, 0, ptr, MENU_STRINGS[STRING_CANCEL], 0);
 
     // Add firmware update option, if available
     File tmpFile = SD.open(FWUPDATE_HEX_PATH, FILE_READ);
@@ -579,7 +649,7 @@ char* menuGenerateSettings(char* ptr)
                     ptr, label, 0);
                 tmpFile.close();
             } else {
-                cfgData.fdcFdaPath[0] = 0;
+                cfgData.dskFdaPath[0] = 0;
             }
         }
         tmpPath = menuGetFdcFdbPath();
@@ -593,7 +663,7 @@ char* menuGenerateSettings(char* ptr)
                     ptr, label, 0);
                 tmpFile.close();
             } else {
-                cfgData.fdcFdbPath[0] = 0;
+                cfgData.dskFdbPath[0] = 0;
             }
         }
     }
@@ -660,8 +730,6 @@ char* menuGenerateSettings(char* ptr)
             MENU_STRINGS[STRING_LOAD_NETMAN], 0);
         tmpFile.close();
     }
-    ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_OPEN_SERVER,
-        ptr, MENU_STRINGS[STRING_OPEN_HTTP_SERVER], 0);
     return ptr;
 }
 
@@ -676,6 +744,9 @@ void menuGenerate()
     char* textPtr = menuPtr + RAM_PAGE_SIZE;
     switch (menuCurrent)
     {
+        case MENU_TYPE_MAIN :
+            textPtr = menuGenerateMain(textPtr);
+            break;
         case MENU_TYPE_SETTINGS :
             textPtr = menuGenerateSettings(textPtr);
             break;
@@ -718,7 +789,7 @@ void menuGenerate()
 void menuResetAction()
 {
     // Reset the menu actions
-    menuCurrent = MENU_TYPE_SETTINGS;
+    menuCurrent = MENU_TYPE_MAIN;
     menuAction = MENU_ACTION_LOAD_ROM;
 }
 
@@ -764,7 +835,7 @@ bool menuPerformSelection(uint8_t index)
     switch (menuAction)
     {
         case MENU_ACTION_TOP_MENU :
-            menuCurrent = MENU_TYPE_SETTINGS;
+            menuCurrent = MENU_TYPE_MAIN;
             break;
         case MENU_ACTION_SETTING :
             switch (entryIndex)
@@ -836,12 +907,15 @@ bool menuPerformSelection(uint8_t index)
                     menuConfigChanged = true;
                     break;
                 case SETTING_ACTION_UNMOUNT_FDA :
-                    cfgData.fdcFdaPath[0] = 0;
+                    cfgData.dskFdaPath[0] = 0;
                     menuConfigChanged = true;
                     break;
                 case SETTING_ACTION_UNMOUNT_FDB :
-                    cfgData.fdcFdbPath[0] = 0;
+                    cfgData.dskFdbPath[0] = 0;
                     menuConfigChanged = true;
+                    break;
+                case SETTING_ACTION_OPEN_SERVER :
+                    menuCurrent = MENU_TYPE_HTTP_SERVER;
                     break;
                 case SETTING_ACTION_OPEN_ROMS :
                     // Start ROM browser
@@ -856,18 +930,17 @@ bool menuPerformSelection(uint8_t index)
                     strncpy(browserPath, "/", MAX_PATH);
                     menuCurrent = MENU_TYPE_BROWSER;
                     break;
-                case SETTING_ACTION_OPEN_SERVER :
-                    menuCurrent = MENU_TYPE_HTTP_SERVER;
+                case SETTING_ACTION_OPEN_SETTINGS :
+                    menuCurrent = MENU_TYPE_SETTINGS;
                     break;
                 case SETTING_ACTION_INTERNAL_ROM :
                     // Load internal ROM name
-                    if (stricmp(cfgData.romName, INTERNAL_ROM_NAME) == 0)
+                    if (cfgData.romName[0] == 0)
                     {
                         menuAction = MENU_ACTION_LOAD_ROM;
                         return true;
                     } else {
-                        strncpy(cfgData.romName, INTERNAL_ROM_NAME, ROM_NAME_LEN);
-                        cfgData.romName[ROM_NAME_LEN] = 0;
+                        cfgData.romName[0] = 0;
                         menuConfigChanged = true;
                     }
                     break;
@@ -876,19 +949,31 @@ bool menuPerformSelection(uint8_t index)
             }
             break;
         case MENU_ACTION_LOAD_ROM :
-            updateRomName(entryIndex, entryPtr);
-            if (stricmp(cfgData.romName, fgRomName) == 0)
+            menuUpdateRomFileName(entryIndex, entryPtr);
+            if (stricmp(cfgData.romName, menuFileName) == 0)
             {
                 return true;
             } else {
-                strncpy(cfgData.romName, fgRomName, ROM_NAME_LEN);
-                cfgData.romName[ROM_NAME_LEN] = 0;
+                strncpy(cfgData.romName, menuFileName, MAX_PATH);
+                cfgData.romName[(MAX_PATH - 1)] = 0;
                 menuConfigChanged = true;
             }
             break;
         case MENU_ACTION_LOAD_CART :
-            updateRomName(entryIndex, entryPtr);
+            menuUpdateRomFileName(entryIndex, entryPtr);
             return true;
+        case MENU_ACTION_LOAD_CFG :
+            menuUpdateCfgFileName(entryIndex, entryPtr);
+            if (stricmp(cfgData.cfgName, menuFileName) == 0)
+            {
+                return true;
+            } else {
+                strncpy(cfgData.cfgName, menuFileName, MAX_PATH);
+                cfgData.cfgName[(MAX_PATH - 1)] = 0;
+                menuLoadConfiguration(cfgData.cfgName);
+                menuSaveConfiguration();
+            }
+            break;
         case MENU_ACTION_UPDATE_FW :
             // Perform firmware update, if available
             if (menuHasUpdateFw)
@@ -913,7 +998,7 @@ bool menuPerformSelection(uint8_t index)
             {
                 menuCurrent = MENU_TYPE_BROWSER;
             } else {
-                menuCurrent = MENU_TYPE_SETTINGS;
+                menuCurrent = MENU_TYPE_MAIN;
             }
             break;
         case MENU_ACTION_BROWSER_OPEN :
@@ -921,7 +1006,7 @@ bool menuPerformSelection(uint8_t index)
             {
                 menuCurrent = MENU_TYPE_BROWSER_OPEN;
             } else {
-                menuCurrent = MENU_TYPE_SETTINGS;
+                menuCurrent = MENU_TYPE_MAIN;
             }
             break;
         case MENU_ACTION_BROWSER_OPEN_ZXC2 :
@@ -929,7 +1014,7 @@ bool menuPerformSelection(uint8_t index)
             {
                 menuCurrent = MENU_TYPE_BROWSER_OPEN_ZXC2;
             } else {
-                menuCurrent = MENU_TYPE_SETTINGS;
+                menuCurrent = MENU_TYPE_MAIN;
             }
             break;
         case MENU_ACTION_BROWSER_OPEN_HDF :
@@ -937,7 +1022,7 @@ bool menuPerformSelection(uint8_t index)
             {
                 menuCurrent = MENU_TYPE_BROWSER_MOUNT_HDF;
             } else {
-                menuCurrent = MENU_TYPE_SETTINGS;
+                menuCurrent = MENU_TYPE_MAIN;
             }
             break;
         case MENU_ACTION_BROWSER_OPEN_DSK :
@@ -945,7 +1030,7 @@ bool menuPerformSelection(uint8_t index)
             {
                 menuCurrent = MENU_TYPE_BROWSER_MOUNT_DSK;
             } else {
-                menuCurrent = MENU_TYPE_SETTINGS;
+                menuCurrent = MENU_TYPE_MAIN;
             }
             break;
         case MENU_ACTION_BROWSER_LOAD_Z80 :
@@ -956,7 +1041,7 @@ bool menuPerformSelection(uint8_t index)
             {
                 return true;
             } else {
-                menuCurrent = MENU_TYPE_SETTINGS;
+                menuCurrent = MENU_TYPE_MAIN;
             }
             break;
         case MENU_ACTION_BROWSER_LOAD_CART :
@@ -968,7 +1053,7 @@ bool menuPerformSelection(uint8_t index)
             {
                 return true;
             } else {
-                menuCurrent = MENU_TYPE_SETTINGS;
+                menuCurrent = MENU_TYPE_MAIN;
             }
             break;
         case MENU_ACTION_BROWSER_MOUNT_SDA :
@@ -983,7 +1068,7 @@ bool menuPerformSelection(uint8_t index)
                 divMmcPresent = true;
                 menuConfigChanged = true;
             }
-            menuCurrent = MENU_TYPE_SETTINGS;
+            menuCurrent = MENU_TYPE_MAIN;
             break;
         case MENU_ACTION_BROWSER_MOUNT_FDA :
         case MENU_ACTION_BROWSER_MOUNT_FDB :
@@ -992,12 +1077,12 @@ bool menuPerformSelection(uint8_t index)
                 updateBrowserPath(entryIndex, entryPtr))
             {
                 strncpy(((menuAction == MENU_ACTION_BROWSER_MOUNT_FDB) ?
-                    cfgData.fdcFdbPath : cfgData.fdcFdaPath),
+                    cfgData.dskFdbPath : cfgData.dskFdaPath),
                     browserPath, MAX_PATH);
                 dskPresent = true;
                 menuConfigChanged = true;
             }
-            menuCurrent = MENU_TYPE_SETTINGS;
+            menuCurrent = MENU_TYPE_MAIN;
             break;
         case MENU_ACTION_START_SERVER :
             httpStartServer();
@@ -1008,6 +1093,10 @@ bool menuPerformSelection(uint8_t index)
     }
 
     // Refresh the menu
+    if (menuConfigChanged)
+    {
+        cfgData.cfgName[0] = 0;
+    }
     menuGenerate();
     return false;
 }
@@ -1082,43 +1171,45 @@ rom_type_t getRomType(const char* fileName)
     return TYPE_CART;
 }
 
-void updateRomName(uint8_t fileIndex, char* filename)
+bool menuUpdateFileName(uint8_t fileIndex, char* filename, const char* dirname)
 {
     // Attempt to use the menu label as file name directly
-    fgRomName[ROM_NAME_LEN] = 0;
+    menuFileName[ROM_NAME_LEN] = 0;
     if (filename != 0)
     {
         for (size_t i = 0; i < ROM_NAME_LEN; ++i)
         {
             if (*filename < ' ')
             {
-                fgRomName[i] = 0;
-                return;
+                menuFileName[i] = 0;
+                return true;
             } else if (*filename >= 128)
             {
                 break;
             } else {
-                fgRomName[i] = *filename++;
+                menuFileName[i] = *filename++;
             }
         }
     }
 
     // Iterate the directory to find the file name
-    File romDirectory = SD.open("ROMS", FILE_READ);
-    if (romDirectory)
+    bool result = false;
+    File directory = SD.open(dirname, FILE_READ);
+    if (directory)
     {
-        if (romDirectory.isDirectory())
+        if (directory.isDirectory())
         {
             uint8_t index = 0;
             while (true)
             {
-                File entry = romDirectory.openNextFile();
+                File entry = directory.openNextFile();
                 if (entry)
                 {
                     // Find ROM at matching directory index
                     if (!entry.isDirectory() && (index == fileIndex))
                     {
-                        strncpy(fgRomName, entry.name(), ROM_NAME_LEN);
+                        result = true;
+                        strncpy(menuFileName, entry.name(), MAX_PATH);
                         entry.close();
                         break;
                     }
@@ -1126,12 +1217,27 @@ void updateRomName(uint8_t fileIndex, char* filename)
                     ++index;
                 } else {
                     // End of listing
-                    strncpy(fgRomName, INTERNAL_ROM_NAME, ROM_NAME_LEN);
+                    menuFileName[0] = 0;
+                    result = false;
                     break;
                 }
             }
         }
-        romDirectory.close();
+        directory.close();
+    }
+    return result;
+}
+
+void menuUpdateRomFileName(uint8_t fileIndex, char* filename)
+{
+    menuUpdateFileName(fileIndex, filename, "/ROMS");
+}
+
+void menuUpdateCfgFileName(uint8_t fileIndex, char* filename)
+{
+    if (menuUpdateFileName(fileIndex, filename, "/ZXTEENSY/CONFIGS"))
+    {
+        strcat(menuFileName, ".cfg");
     }
 }
 
@@ -1226,65 +1332,6 @@ bool updateBrowserPath(uint8_t fileIndex, char* filename)
     return true;
 }
 
-File menuGetMenuRomFile(const char* cfgRomName, rom_type_t* romType)
-{
-    if (stricmp(cfgRomName, INTERNAL_ROM_NAME) != 0)
-    {
-        // Attempt to open the ROM file directly
-        if (strlen(cfgRomName) < ROM_NAME_LEN)
-        {
-            char romPath[MAX_PATH];
-            strcpy(romPath, "ROMS/");
-            strcat(romPath, cfgRomName);
-            File entry = SD.open(romPath, FILE_READ);
-            if (entry)
-            {
-                if (!entry.isDirectory())
-                {
-                    *romType = getRomType(cfgRomName);
-                    return entry;
-                }
-                entry.close();
-            }
-        }
-
-        // Iterate the directory to find the partial file name
-        File romDirectory = SD.open("ROMS", FILE_READ);
-        if (romDirectory)
-        {
-            if (romDirectory.isDirectory())
-            {
-                while (true)
-                {
-                    File entry = romDirectory.openNextFile();
-                    if (entry)
-                    {
-                        if (!entry.isDirectory())
-                        {
-                            if (strncmp(cfgRomName, entry.name(),
-                                strlen(cfgRomName)) == 0)
-                            {
-                                *romType = getRomType(entry.name());
-                                romDirectory.close();
-                                return entry;
-                            }
-                        }
-                        entry.close();
-                    } else {
-                        // End of listing
-                        break;
-                    }
-                }
-            }
-            romDirectory.close();
-        }
-    }
-
-    // Return closed File
-    *romType = TYPE_ROM;
-    return File();
-}
-
 char* menuGetBrowserPath()
 {
     return browserPath;
@@ -1302,12 +1349,36 @@ char* menuGetDivMmcSdbPath()
 
 char* menuGetFdcFdaPath()
 {
-    return ((strlen(cfgData.fdcFdaPath) > 0) ? cfgData.fdcFdaPath : 0);
+    return ((strlen(cfgData.dskFdaPath) > 0) ? cfgData.dskFdaPath : 0);
 }
 
 char* menuGetFdcFdbPath()
 {
-    return ((strlen(cfgData.fdcFdbPath) > 0) ? cfgData.fdcFdbPath : 0);
+    return ((strlen(cfgData.dskFdbPath) > 0) ? cfgData.dskFdbPath : 0);
+}
+
+File menuGetMenuRomFile(const char* cfgRomName, rom_type_t* romType)
+{
+    if (cfgRomName[0] != 0)
+    {
+        char romPath[MAX_PATH];
+        strcpy(romPath, "/ROMS/");
+        strcat(romPath, cfgRomName);
+        File entry = SD.open(romPath, FILE_READ);
+        if (entry)
+        {
+            if (!entry.isDirectory())
+            {
+                *romType = getRomType(cfgRomName);
+                return entry;
+            }
+            entry.close();
+        }
+    }
+
+    // Return closed File
+    *romType = TYPE_ROM;
+    return File();
 }
 
 File menuGetBrowserRomFile()
@@ -1352,7 +1423,7 @@ File menuGetForegroundRomFile(rom_type_t* romType)
         case MENU_ACTION_BROWSER_LOAD_Z80 :
             return menuGetBrowserZ80File(romType);
         case MENU_ACTION_LOAD_CART :
-            return menuGetMenuRomFile(fgRomName, romType);
+            return menuGetMenuRomFile(menuFileName, romType);
         default :
             break;
     }
@@ -1382,55 +1453,145 @@ void menuClearConfiguration()
     cfgData.bootIntoMenu = bootIntoMenu;
     wifiNtpPresent = false;
     wifiNtpTz = 48;
-    strncpy(cfgData.romName, INTERNAL_ROM_NAME, ROM_NAME_LEN);
-    cfgData.romName[ROM_NAME_LEN] = 0;
+    cfgData.wifiNtpTz = bootIntoMenu;
+    cfgData.cfgName[0] = 0;
+    cfgData.romName[0] = 0;
     cfgData.divMmcSdaPath[0] = 0;
     cfgData.divMmcSdbPath[0] = 0;
-    cfgData.fdcFdaPath[0] = 0;
-    cfgData.fdcFdbPath[0] = 0;
-    menuConfigChanged = true;
+    cfgData.dskFdaPath[0] = 0;
+    cfgData.dskFdbPath[0] = 0;
 }
 
-void menuLoadConfiguration()
+void menuLoadConfiguration(const char* cfgCfgName)
 {
     // Load the configuration from the SD card
-    bool hasCfgFile = false;
-    File cfgFile = SD.open(ZXTEENSY_CFG_PATH, FILE_READ);
+    size_t count = 0;
+    char cfgPath[MAX_PATH];
+    if (cfgCfgName != 0)
+    {
+        strcpy(cfgPath, "/ZXTEENSY/CONFIGS/");
+        strcat(cfgPath, cfgCfgName);
+    } else {
+        menuClearConfiguration();
+        strncpy(cfgPath, ZXTEENSY_CFG_PATH, MAX_PATH);
+    }
+    File cfgFile = SD.open(cfgPath, FILE_READ);
     if (cfgFile)
     {
-        if (cfgFile.readBytes((char*)&cfgData, sizeof(cfgData)) >= sizeof(cfgData))
+        // Read the configuration from file
+        String cfgStr;
+        while (cfgFile.available())
         {
-            hasCfgFile = true;
-            if ((romArrayPresent & BANK_DIVMMC) != 0)
+            cfgStr = cfgFile.readStringUntil('\n');
+            const char* cfgPtr = cfgStr.c_str();
+            switch (*cfgPtr)
             {
-                divMmcPresent = cfgData.divMmcPresent;
-                divMmcRomEnabled = cfgData.divMmcRomEnabled;
+                case 0 :
+                    // Empty line
+                    break;
+                case 'd' :
+                    if (strncmp("divMmcPresent = ", cfgPtr, 16) == 0)
+                    {
+                        cfgData.divMmcPresent = ((cfgPtr[16] == '1') ? true : false);
+                        ++count;
+                    } else if (strncmp("divMmcRomEnabled = ", cfgPtr, 19) == 0)
+                    {
+                        cfgData.divMmcRomEnabled = ((cfgPtr[19] == '1') ? true : false);
+                        ++count;
+                    } else if (strncmp("divMmcSdaPath = ", cfgPtr, 16) == 0)
+                    {
+                        strncpy(cfgData.divMmcSdaPath, &(cfgPtr[16]), MAX_PATH);
+                        cfgData.divMmcSdaPath[(MAX_PATH - 1)] = 0;
+                        ++count;
+                    } else if (strncmp("divMmcSdbPath = ", cfgPtr, 16) == 0)
+                    {
+                        strncpy(cfgData.divMmcSdbPath, &(cfgPtr[16]), MAX_PATH);
+                        cfgData.divMmcSdbPath[(MAX_PATH - 1)] = 0;
+                        ++count;
+                    } else if (strncmp("dskPresent = ", cfgPtr, 13) == 0)
+                    {
+                        cfgData.dskPresent = ((cfgPtr[13] == '1') ? true : false);
+                        ++count;
+                    } else if (strncmp("dskFdaPath = ", cfgPtr, 13) == 0)
+                    {
+                        strncpy(cfgData.dskFdaPath, &(cfgPtr[13]), MAX_PATH);
+                        cfgData.dskFdaPath[(MAX_PATH - 1)] = 0;
+                        ++count;
+                    } else if (strncmp("dskFdbPath = ", cfgPtr, 13) == 0)
+                    {
+                        strncpy(cfgData.dskFdbPath, &(cfgPtr[13]), MAX_PATH);
+                        cfgData.dskFdbPath[(MAX_PATH - 1)] = 0;
+                        ++count;
+                    }
+                    break;
+                case 'u' :
+                    if (strncmp("uartPresent = ", cfgPtr, 14) == 0)
+                    {
+                        cfgData.uartPresent = ((cfgPtr[14] == '1') ? true : false);
+                        ++count;
+                    } else if (strncmp("usbPresent = ", cfgPtr, 13) == 0)
+                    {
+                        cfgData.usbPresent = ((cfgPtr[13] == '1') ? true : false);
+                        ++count;
+                    }
+                    break;
+                case 'w' :
+                    if (strncmp("wifiNtpPresent = ", cfgPtr, 17) == 0)
+                    {
+                        cfgData.wifiNtpPresent = ((cfgPtr[17] == '1') ? true : false);
+                        ++count;
+                    } else if (strncmp("wifiNtpTz = ", cfgPtr, 12) == 0)
+                    {
+                        cfgData.wifiNtpTz = atol(&(cfgPtr[12]));
+                        ++count;
+                    }
+                    break;
+                default :
+                    if (strncmp("interface1Present = ", cfgPtr, 20) == 0)
+                    {
+                        cfgData.interface1Present = ((cfgPtr[20] == '1') ? true : false);
+                        ++count;
+                    } else if (strncmp("mf128Present = ", cfgPtr, 15) == 0)
+                    {
+                        cfgData.mf128Present = ((cfgPtr[15] == '1') ? true : false);
+                        ++count;
+                    } else if (strncmp("bootIntoMenu = ", cfgPtr, 15) == 0)
+                    {
+                        cfgData.bootIntoMenu = ((cfgPtr[15] == '1') ? true : false);
+                        ++count;
+                    } else if (strncmp("romName = ", cfgPtr, 10) == 0)
+                    {
+                        strncpy(cfgData.romName, &(cfgPtr[10]), MAX_PATH);
+                        cfgData.romName[(MAX_PATH - 1)] = 0;
+                        ++count;
+                    } else if ((cfgCfgName == 0) && 
+                        (strncmp("cfgName = ", cfgPtr, 10) == 0))
+                    {
+                        strncpy(cfgData.cfgName, &(cfgPtr[10]), MAX_PATH);
+                        cfgData.cfgName[(MAX_PATH - 1)] = 0;
+                        ++count;
+                    }
+                    break;
             }
-            if ((romArrayPresent & BANK_IF1) != 0)
-            {
-                interface1Present = cfgData.interface1Present;
-            }
-            if ((romArrayPresent & BANK_MF128) != 0)
-            {
-                mf128Present = cfgData.mf128Present;
-            }
-            uartPresent = cfgData.uartPresent;
-            usbPresent = cfgData.usbPresent;
-            dskPresent = cfgData.dskPresent;
-            wifiNtpPresent = cfgData.wifiNtpPresent;
-            wifiNtpTz = cfgData.wifiNtpTz;
-            bootIntoMenu = cfgData.bootIntoMenu;
-            cfgData.romName[ROM_NAME_LEN] = 0;
-            cfgData.divMmcSdaPath[(MAX_PATH - 1)] = 0;
-            cfgData.divMmcSdbPath[(MAX_PATH - 1)] = 0;
-            cfgData.fdcFdaPath[(MAX_PATH - 1)] = 0;
-            cfgData.fdcFdbPath[(MAX_PATH - 1)] = 0;
         }
         cfgFile.close();
+
+        // Update the configuration
+        divMmcPresent = cfgData.divMmcPresent;
+        divMmcRomEnabled = cfgData.divMmcRomEnabled;
+        interface1Present = cfgData.interface1Present;
+        mf128Present = cfgData.mf128Present;
+        uartPresent = cfgData.uartPresent;
+        usbPresent = cfgData.usbPresent;
+        dskPresent = cfgData.dskPresent;
+        wifiNtpPresent = cfgData.wifiNtpPresent;
+        wifiNtpTz = cfgData.wifiNtpTz;
+        bootIntoMenu = cfgData.bootIntoMenu;
     }
-    if (!hasCfgFile)
+    if (count > 0)
     {
-        menuClearConfiguration();
+        menuConfigChanged = ((cfgCfgName != 0) ? true : false);
+    } else {
         menuConfigChanged = true;
         menuSaveConfiguration();
     }
@@ -1445,6 +1606,7 @@ void menuSaveConfiguration()
         File cfgFile = SD.open(ZXTEENSY_CFG_PATH, FILE_WRITE_BEGIN);
         if (cfgFile)
         {
+            // Update the configuration
             cfgData.divMmcPresent = divMmcPresent;
             cfgData.divMmcRomEnabled = divMmcRomEnabled;
             cfgData.interface1Present = interface1Present;
@@ -1455,12 +1617,31 @@ void menuSaveConfiguration()
             cfgData.wifiNtpPresent = wifiNtpPresent;
             cfgData.wifiNtpTz = wifiNtpTz;
             cfgData.bootIntoMenu = bootIntoMenu;
-            cfgData.romName[ROM_NAME_LEN] = 0;
+            cfgData.romName[(MAX_PATH - 1)] = 0;
+            cfgData.cfgName[(MAX_PATH - 1)] = 0;
             cfgData.divMmcSdaPath[(MAX_PATH - 1)] = 0;
             cfgData.divMmcSdbPath[(MAX_PATH - 1)] = 0;
-            cfgData.fdcFdaPath[(MAX_PATH - 1)] = 0;
-            cfgData.fdcFdbPath[(MAX_PATH - 1)] = 0;
-            cfgFile.write((char*)&cfgData, sizeof(cfgData));
+            cfgData.dskFdaPath[(MAX_PATH - 1)] = 0;
+            cfgData.dskFdbPath[(MAX_PATH - 1)] = 0;
+
+            // Write configuration to file
+            cfgFile.truncate();
+            cfgFile.printf("divMmcPresent = %0d\n", divMmcPresent);
+            cfgFile.printf("divMmcRomEnabled = %0d\n", divMmcRomEnabled);
+            cfgFile.printf("interface1Present = %0d\n", interface1Present);
+            cfgFile.printf("mf128Present = %0d\n", mf128Present);
+            cfgFile.printf("uartPresent = %0d\n", uartPresent);
+            cfgFile.printf("usbPresent = %0d\n", usbPresent);
+            cfgFile.printf("dskPresent = %0d\n", dskPresent);
+            cfgFile.printf("wifiNtpPresent = %0d\n", wifiNtpPresent);
+            cfgFile.printf("wifiNtpTz = %0d\n", wifiNtpTz);
+            cfgFile.printf("bootIntoMenu = %0d\n", bootIntoMenu);
+            cfgFile.printf("cfgName = %s\n", cfgData.cfgName);
+            cfgFile.printf("romName = %s\n", cfgData.romName);
+            cfgFile.printf("divMmcSdaPath = %s\n", cfgData.divMmcSdaPath);
+            cfgFile.printf("divMmcSdbPath = %s\n", cfgData.divMmcSdbPath);
+            cfgFile.printf("dskFdaPath = %s\n", cfgData.dskFdaPath);
+            cfgFile.printf("dskFdbPath = %s\n", cfgData.dskFdbPath);
             cfgFile.close();
         }
     }

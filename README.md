@@ -132,6 +132,8 @@ the DivMMC and enable the Interface 1.
 
 * ROOT/
     * ZXTEENSY/
+        * CONFIGS/
+            * <NAME>.CFG (Configurations that appear as "NAME" in the Menu ROM for quick selection)
         * MENU.ROM
         * MF128.ROM (MD5SUM: ca8c9d97c8aedd718d1081fad2e3af8d)
         * ESXMMC.BIN (MD5SUM: fa50b0258e52b8d72bd83cc2fb6e1013)
@@ -139,7 +141,7 @@ the DivMMC and enable the Interface 1.
         * IF1.ROM (Optional, MD5SUM: 31b704ae925305e74f50699271fddd9a)
         * netman.z80 (WiFi Network Manager snapshot)
         * rtc_setup.z80 (RTC Setup snapshot)
-        * ZXTEENSY.CFG (Saved configuration from Menu ROM)
+        * ZXTEENSY.CFG (Current configuration from Menu ROM)
     * ROMS/
         * (ZX Spectrum ROMs ending ".rom")
         * (Interface 2 and ZXC2 ROMs ending ".bin")
