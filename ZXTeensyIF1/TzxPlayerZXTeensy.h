@@ -201,7 +201,17 @@ class TzxPlayerZXTeensy
         void end();
 
         // NOTE: onTick is main loop, so optimize
-        void onTick() __attribute__((hot, optimize("O3")));
+        inline void onTick() __attribute__((always_inline, hot, optimize("O3")))
+        {
+            if (isBuffering)
+            {
+                bufferTape();
+            }
+            if (isPlaying)
+            {
+                isPlaying = runTape();
+            }
+        }
 
         inline __attribute__((always_inline)) void play()
         {

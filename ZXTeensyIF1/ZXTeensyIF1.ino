@@ -397,6 +397,7 @@ FASTRUN void isrWrEvent() __attribute__((hot, optimize("O3")));
 // Optimised task loop functions
 FASTRUN void loop() __attribute__((hot, optimize("O3")));
 inline void sdSpiOnTick() __attribute__((always_inline, hot, optimize("O3")));
+inline void zxC3OnTick() __attribute__((always_inline, hot, optimize("O3")));
 
 #ifdef DEBUG_OUTPUT
 
@@ -525,7 +526,7 @@ inline __attribute__((always_inline)) void flushSdSpiBuffers()
     sdSpiWriteBuffer.clear();
 }
 
-// NOTE: onTick is main loop, so optimize
+// NOTE: sdSpiOnTick is main loop, so optimize
 inline void sdSpiOnTick()
 {
     if (sdSpiWriteBuffer.canRead())
@@ -580,6 +581,96 @@ inline void sdSpiOnTick()
                     default :
                         break;
                 }
+                break;
+        }
+    }
+}
+
+// NOTE: sdSpiOnTick is main loop, so optimize
+inline void zxC3OnTick()
+{
+    if (zxC3Present)
+    {
+        if (zxC3EraseBuffer.canRead())
+        {
+            switch (zxC3EraseTrigState)
+            {
+                case TRIGGER_HOLD :
+                    if (!zxC3Write)
+                    {
+                        zxC3EraseTrigState = TRIGGER_DELAY;
+                        zxC3EraseTrigExitCount = ZXC3_ERASE_DELAY_CNT;
+                    }
+                    break;
+                case TRIGGER_DELAY :
+                    if (!zxC3Write)
+                    {
+                        --zxC3EraseTrigExitCount;
+                        if (zxC3EraseTrigExitCount == 0)
+                        {
+                            zxC3EraseTrigState = TRIGGER_READY;
+                            if (zxC3EraseBuffer.canRead())
+                            {
+                                uint8_t sector = zxC3EraseBuffer.readRaw();
+                                if (sector < 0xFF)
+                                {
+                                    memset((void*)&(divMmcExtRamArray[sector][1]),
+                                        0xFF, (ROM_PAGE_SIZE - 1));
+                                    *divMmcExtRamArray[sector] = 0xFF;
+                                } else {
+                                    memset((void*)&(divMmcExtRamArray[0][1]),
+                                        0xFF, ((ZXC3_PAGE_COUNT * RAM_PAGE_SIZE) - 1));
+                                    *divMmcExtRamArray[0] = 0xFF;
+                                }
+                            }
+                        }
+                    } else {
+                        zxC3EraseTrigExitCount = ZXC3_ERASE_DELAY_CNT;
+                    }
+                    break;
+                default :
+                    if (!zxC3Write)
+                    {
+                        zxC3EraseTrigState = TRIGGER_HOLD;
+                    }
+                    break;
+            }
+        }
+
+        switch (zxC3WriteTrigState)
+        {
+            case TRIGGER_ACTIVE :
+                if (!zxC3Write)
+                {
+                    zxC3WriteTrigState = TRIGGER_HOLD;
+                }
+                break;
+            case TRIGGER_HOLD :
+                if (!zxC3Write)
+                {
+                    zxC3WriteTrigState = TRIGGER_DELAY;
+                    zxC3WriteTrigExitCount = TRIGGER_DELAY_CNT;
+                }
+                break;
+            case TRIGGER_DELAY :
+                if (!zxC3Write)
+                {
+                    --zxC3WriteTrigExitCount;
+                    if (zxC3WriteTrigExitCount == 0)
+                    {
+                        if (mdrEnabled)
+                        {
+                            saveMdrEmulatorFile(menuGetBrowserPath());
+                        } else {
+                            saveZXC3RomFile(menuGetBrowserPath());
+                        }
+                        zxC3WriteTrigState = TRIGGER_READY;
+                    }
+                } else {
+                    zxC3WriteTrigExitCount = TRIGGER_DELAY_CNT;
+                }
+                break;
+            default :
                 break;
         }
     }
@@ -1787,6 +1878,7 @@ FASTRUN void loop()
         sdSpiOnTick();
         espUart.onTick();
         tzxPlayer.onTick();
+        zxC3OnTick();
         if (wifiNtpEnabled)
         {
             if (wifiNtp.onTick())
@@ -1818,6 +1910,18 @@ FASTRUN void loop()
                     nmiPending = true;
                     digitalWriteFast(NMI_PIN, 1);
                 }
+            }
+        }
+
+        // Perform menu actions
+        if (menuSelected)
+        {
+            menuSelected = false;
+            if (menuPerformSelection(menuSelectedIndex))
+            {
+                // The menu needs the Spectrum in reset to access the SD card,
+                // reload ROMs, update FW etc.
+                setState(STATE_RESET_MENU);
             }
         }
 
@@ -1885,105 +1989,6 @@ FASTRUN void loop()
                 break;
             default :
                 break;
-        }
-
-        // Perform menu actions
-        if (menuSelected)
-        {
-            menuSelected = false;
-            if (menuPerformSelection(menuSelectedIndex))
-            {
-                // The menu needs the Spectrum in reset to access the SD card,
-                // reload ROMs, update FW etc.
-                setState(STATE_RESET_MENU);
-            }
-        }
-
-        // Perform ZXC3 flash actions
-        if (zxC3Present)
-        {
-            if (zxC3EraseBuffer.canRead())
-            {
-                switch (zxC3EraseTrigState)
-                {
-                    case TRIGGER_HOLD :
-                        if (!zxC3Write)
-                        {
-                            zxC3EraseTrigState = TRIGGER_DELAY;
-                            zxC3EraseTrigExitCount = ZXC3_ERASE_DELAY_CNT;
-                        }
-                        break;
-                    case TRIGGER_DELAY :
-                        if (!zxC3Write)
-                        {
-                            --zxC3EraseTrigExitCount;
-                            if (zxC3EraseTrigExitCount == 0)
-                            {
-                                zxC3EraseTrigState = TRIGGER_READY;
-                                if (zxC3EraseBuffer.canRead())
-                                {
-                                    uint8_t sector = zxC3EraseBuffer.readRaw();
-                                    if (sector < 0xFF)
-                                    {
-                                        memset((void*)&(divMmcExtRamArray[sector][1]),
-                                            0xFF, (ROM_PAGE_SIZE - 1));
-                                        *divMmcExtRamArray[sector] = 0xFF;
-                                    } else {
-                                        memset((void*)&(divMmcExtRamArray[0][1]),
-                                            0xFF, ((ZXC3_PAGE_COUNT * RAM_PAGE_SIZE) - 1));
-                                        *divMmcExtRamArray[0] = 0xFF;
-                                    }
-                                }
-                            }
-                        } else {
-                            zxC3EraseTrigExitCount = ZXC3_ERASE_DELAY_CNT;
-                        }
-                        break;
-                    default :
-                        if (!zxC3Write)
-                        {
-                            zxC3EraseTrigState = TRIGGER_HOLD;
-                        }
-                        break;
-                }
-            }
-
-            switch (zxC3WriteTrigState)
-            {
-                case TRIGGER_ACTIVE :
-                    if (!zxC3Write)
-                    {
-                        zxC3WriteTrigState = TRIGGER_HOLD;
-                    }
-                    break;
-                case TRIGGER_HOLD :
-                    if (!zxC3Write)
-                    {
-                        zxC3WriteTrigState = TRIGGER_DELAY;
-                        zxC3WriteTrigExitCount = TRIGGER_DELAY_CNT;
-                    }
-                    break;
-                case TRIGGER_DELAY :
-                    if (!zxC3Write)
-                    {
-                        --zxC3WriteTrigExitCount;
-                        if (zxC3WriteTrigExitCount == 0)
-                        {
-                            if (mdrEnabled)
-                            {
-                                saveMdrEmulatorFile(menuGetBrowserPath());
-                            } else {
-                                saveZXC3RomFile(menuGetBrowserPath());
-                            }
-                            zxC3WriteTrigState = TRIGGER_READY;
-                        }
-                    } else {
-                        zxC3WriteTrigExitCount = TRIGGER_DELAY_CNT;
-                    }
-                    break;
-                default :
-                    break;
-            }
         }
     }
 
@@ -2521,6 +2526,9 @@ FASTRUN void isrWrEvent()
             }
         }
     }
+
+    // Re-sync regular ticks
+    globalCycleCount = (ARM_DWT_CYCCNT - TICK_CYCCNT);
 }
 
 FASTRUN void isrRdEvent()
@@ -2549,6 +2557,9 @@ FASTRUN void isrRdEvent()
                 romCsDisable = false;
             }
         }
+
+        // Re-sync regular ticks
+        globalCycleCount = (ARM_DWT_CYCCNT - TICK_CYCCNT);
     } else if (globalState == STATE_ROM_ENABLE)
     {
         if ((gpioSix & ROM_ADDRESS_MASK) == 0x00000000)

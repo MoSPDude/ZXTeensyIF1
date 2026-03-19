@@ -105,7 +105,7 @@ class UartZXTeensy
         {
             if (enabled)
             {
-                if (hasWriteData() && Serial8.availableForWrite())
+                if (hasWriteData())
                 {
                     uint8_t data;
                     switch (readWriteData(&data))

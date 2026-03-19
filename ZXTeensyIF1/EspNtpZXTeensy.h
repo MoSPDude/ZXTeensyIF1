@@ -162,7 +162,8 @@ class EspNtpZXTeensy
             setState(STATE_IDLE);
         }
 
-        inline __attribute__((always_inline)) bool onTick()
+        // NOTE: onTick is main loop, so optimize
+        inline bool onTick() __attribute__((always_inline, hot, optimize("O3")))
         {
             if (currentState != STATE_IDLE)
             {

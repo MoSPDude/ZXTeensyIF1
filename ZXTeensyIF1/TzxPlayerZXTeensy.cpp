@@ -439,18 +439,6 @@ bool TzxPlayerZXTeensy::loadFromTape()
     return false;
 }
 
-void TzxPlayerZXTeensy::onTick()
-{
-    if (isBuffering)
-    {
-        bufferTape();
-    }
-    if (isPlaying)
-    {
-        isPlaying = runTape();
-    }
-}
-
 void TzxPlayerZXTeensy::begin(volatile uint8_t* buffer, size_t size)
 {
     // Store the tape buffer
