@@ -338,10 +338,10 @@ volatile divmmc_spi_t divMmcDrive = DIVMMC_NONE;
 volatile divmmc_spi_t divMmcDriveSlot[2];
 
 // MB03+ UART
-static const size_t UART_BUFFER_SIZE = 4096;
+static const size_t UART_BUFFER_SIZE = RAM_PAGE_SIZE;
 volatile bool uartPresent = false;
 volatile bool uartEnabled = false;
-UartZXTeensy espUart;
+DMAMEM UartZXTeensy espUart;
 DMAMEM uint8_t uartBuffer[UART_BUFFER_SIZE];
 
 // VTX5000
@@ -1798,10 +1798,14 @@ FASTRUN void loop()
                 // Enable the UART, now time is updated
                 if (modemPresent)
                 {
+                    // Do not enable the modem inside the menu
                     espUart.end();
-                    espUart.begin(0, menuGetModemUrl());
-                    modemOnReset = true;
-                    modemEnabled = true;
+                    if (!menuPaged)
+                    {
+                        espUart.begin(0, menuGetModemUrl());
+                        modemOnReset = true;
+                        modemEnabled = true;
+                    }
                 } else {
                     espUart.flush();
                     uartEnabled = true;

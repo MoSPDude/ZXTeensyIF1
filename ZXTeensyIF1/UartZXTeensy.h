@@ -52,11 +52,11 @@ class UartZXTeensy
         } uart_action_t;
 
     protected :
-        static const size_t UART_RX_BUFFER_SIZE = 2048;
-        static const size_t UART_TX_BUFFER_SIZE = 64;
-        RingBuffer<UART_RX_BUFFER_SIZE> uartReadBuffer;
-        RingBuffer<UART_TX_BUFFER_SIZE> uartWriteBuffer;
-        RingBuffer<UART_TX_BUFFER_SIZE> uartFlagsBuffer;
+        static const size_t RX_BUFFER_SIZE = 64;
+        static const size_t TX_BUFFER_SIZE = 64;
+        RingBuffer<RX_BUFFER_SIZE> uartReadBuffer;
+        RingBuffer<TX_BUFFER_SIZE> uartWriteBuffer;
+        RingBuffer<TX_BUFFER_SIZE> uartFlagsBuffer;
         bool enabled;
         bool isPassthrough;
 
@@ -110,10 +110,10 @@ class UartZXTeensy
             {
                 status |= 0x02;
             }
-            if (count >= (UART_RX_BUFFER_SIZE - 1))
+            if (count >= (RX_BUFFER_SIZE - 1))
             {
                 status |= 0x1C;
-            } else if (count >= (UART_RX_BUFFER_SIZE / 2))
+            } else if (count >= (RX_BUFFER_SIZE / 2))
             {
                 status |= 0x18;
             } else if (count >= 256)

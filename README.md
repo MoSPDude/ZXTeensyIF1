@@ -239,6 +239,23 @@ Freerouting (https://github.com/freerouting/freerouting) was used to perform the
 especially with getting the address and data lines out to the level shifters and the Interface 1
 ULA.
 
+### Prism VTX5000 support
+
+The VTX5000 over ESP-01S uses the ESP8266 in UART-WiFi passthrough mode after establishing
+a connection to a URL over TCP. If the VTX.ROM is provided, then it will load after reset.
+The default URL is the TELSTAR Viewdata service at https://glasstty.com/telstar/ .
+
+To access TELSTAR,
+ * Press CAPS SHIFT + ENTER to open the menu
+ * Press 0 to "Log ON or OFF"
+ * Press 1 for "Manual Log ON"
+ * Enter the ID "\*\*\*\*\*\*\*\*\*\*" ie. 10 asterixes
+ * Read the welcome message, and press ENTER as the "#" key
+
+To navigate, either press numbers to select items, or enter pages in the form of "*800#" :-
+ * SYMBOL SHIFT is the "*" key
+ * ENTER is the "#" key
+
 ## DivMMC and ZX Interface 1 support
 
 Technically, the DivMMC and ZX Interface 1 cannot be active simultaneously. The DivMMC ports and
@@ -249,19 +266,6 @@ To overcome this, the Teensy drives the nIORQ of the Interface 1 ULA high when t
 active. Also, only A3 and A4 have been wired to the Interface 1 ULA, as required for the port
 decoding - which helped with the PCB routing. The Teensy provides all the ROM facilities for
 the Interface 1 behaviour.
-
-### Early prototype
-
-The veroboard prototype used the edge connector A4 (as N/C on the Spectrum 48K) to signal back
-into the Interface 1,
-
-* Disconnect the base of Q11 from the Interface 1 ULA IC1 pin 10
-    * It will probably be soldered directly onto the ULA pin!
-* Cut the nIORQ trace near the Interface 1 ULA IC1 pin 10 - be very careful!
-* Add a 1N4148 diode from edge connector A4 with cathode to IC1 pin 10
-* Add a 1N4148 diode from edge connector A17 with cathode to IC1 pin 10
-* Add a 6.8K resistor from IC1 pin 10 to ground (eg. IC1 pin 20)
-* Connect the base of Q11 back to the edge connector A17 with wire
 
 ## +2A/+3 soft ROM on Spectrum 128K/+2 (Grey) machines
 
