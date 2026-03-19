@@ -341,8 +341,8 @@ volatile divmmc_spi_t divMmcDriveSlot[2];
 static const size_t UART_BUFFER_SIZE = RAM_PAGE_SIZE;
 volatile bool uartPresent = false;
 volatile bool uartEnabled = false;
-DMAMEM UartZXTeensy espUart;
-DMAMEM uint8_t uartBuffer[UART_BUFFER_SIZE];
+UartZXTeensy espUart;
+uint8_t uartBuffer[UART_BUFFER_SIZE] __attribute__((aligned(16)));
 
 // VTX5000
 volatile bool modemPresent = false;

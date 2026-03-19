@@ -52,6 +52,7 @@ class UartZXTeensy
         } uart_action_t;
 
     protected :
+        // NOTE: TX_BUFFER_SIZE needs to be large enough for EspNtpZXTeensy
         static const size_t RX_BUFFER_SIZE = 64;
         static const size_t TX_BUFFER_SIZE = 64;
         RingBuffer<RX_BUFFER_SIZE> uartReadBuffer;

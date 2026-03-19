@@ -239,7 +239,7 @@ Freerouting (https://github.com/freerouting/freerouting) was used to perform the
 especially with getting the address and data lines out to the level shifters and the Interface 1
 ULA.
 
-### Prism VTX5000 support
+## Prism VTX5000 support
 
 The VTX5000 over ESP-01S uses the ESP8266 in UART-WiFi passthrough mode after establishing
 a connection to a URL over TCP. If the VTX.ROM is provided, then it will load after reset.

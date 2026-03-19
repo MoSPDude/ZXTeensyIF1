@@ -57,19 +57,21 @@ void UartZXTeensy::begin(uint8_t baudRate, const char* modemUrl)
         {
             isPassthrough = true;
             Serial8.println("ATE0");
-            espWaitFor("OK");
-            Serial8.println("AT+CIPMUX=0");
-            espWaitFor("OK");
-            Serial8.println("AT+CIPMODE=1");
-            espWaitFor("OK");
-            Serial8.print("AT+CIPSTART=\"TCP\",");
-            Serial8.println(modemUrl);
             if (espWaitFor("OK"))
             {
-                Serial8.println("AT+CIPSEND");
-                if (espWaitFor(">"))
+                Serial8.println("AT+CIPMUX=0");
+                espWaitFor("OK");
+                Serial8.println("AT+CIPMODE=1");
+                espWaitFor("OK");
+                Serial8.print("AT+CIPSTART=\"TCP\",");
+                Serial8.println(modemUrl);
+                if (espWaitFor("OK"))
                 {
-                    enabled = true;
+                    Serial8.println("AT+CIPSEND");
+                    if (espWaitFor(">"))
+                    {
+                        enabled = true;
+                    }
                 }
             }
         } else {
@@ -85,12 +87,14 @@ void UartZXTeensy::end(void)
     {
         if (isPassthrough)
         {
-            Serial8.println("+++");
+            Serial8.print("+++");
             delay(1000);
             Serial8.println("AT+CIPCLOSE");
-            espWaitFor("OK");
-            Serial8.println("AT+CIPMODE=0");
-            espWaitFor("OK");
+            if (espWaitFor("OK"))
+            {
+                Serial8.println("AT+CIPMODE=0");
+                espWaitFor("OK");
+            }
         }
         Serial8.end();
         flush();
