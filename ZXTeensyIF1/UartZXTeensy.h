@@ -1,36 +1,3 @@
-//
-// Modified from the Teensyduino Core Library
-// Fixed to UART5, 8N1 format, and integrated RingBuffer for ZXTeensyIF1
-//
-/* Teensyduino Core Library
- * http://www.pjrc.com/teensy/
- * Copyright (c) 2019 PJRC.COM, LLC.
- *
- * Permission is hereby granted, free of charge, to any person obtaining
- * a copy of this software and associated documentation files (the
- * "Software"), to deal in the Software without restriction, including
- * without limitation the rights to use, copy, modify, merge, publish,
- * distribute, sublicense, and/or sell copies of the Software, and to
- * permit persons to whom the Software is furnished to do so, subject to
- * the following conditions:
- *
- * 1. The above copyright notice and this permission notice shall be
- * included in all copies or substantial portions of the Software.
- *
- * 2. If the Software is incorporated into a build system that allows
- * selection among a list of target devices, then similar target
- * devices manufactured by PJRC.COM must be included in the list of
- * target devices and selectable in the same manner.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
- * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
- * BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
- * ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
- * SOFTWARE.
- */
 
 #ifndef UART_ZX_TEENSY_H
 #define UART_ZX_TEENSY_H
@@ -40,8 +7,6 @@
 #include "RingBuffer.h"
 #include "usb_serial.h"
 #include <HardwareSerial.h>
-
-#define UART_CLOCK 24000000
 
 class UartZXTeensy
 {
@@ -60,6 +25,7 @@ class UartZXTeensy
         RingBuffer<TX_BUFFER_SIZE> uartFlagsBuffer;
         bool enabled;
         bool isPassthrough;
+        volatile size_t readBytesAvailable;
 
         inline __attribute__((always_inline)) uart_action_t readWriteData(uint8_t* data)
         {
@@ -74,7 +40,8 @@ class UartZXTeensy
         }
 
     public :
-        constexpr UartZXTeensy() : enabled(false), isPassthrough(false)
+        constexpr UartZXTeensy() : enabled(false), isPassthrough(false),
+            readBytesAvailable(0)
         {
         }
 
@@ -105,19 +72,18 @@ class UartZXTeensy
 
         inline uint8_t getUartStatusByte() __attribute__((always_inline, hot, optimize("O3")))
         {
-            size_t count = uartReadBuffer.getSize();
-            uint8_t status = (count != 0) ? 0x01 : 0x00;
+            uint8_t status = (hasReadData() ? 0x01 : 0x00);
             if (hasWriteData())
             {
                 status |= 0x02;
             }
-            if (count >= (RX_BUFFER_SIZE - 1))
+            if (readBytesAvailable >= 2048)
             {
                 status |= 0x1C;
-            } else if (count >= (RX_BUFFER_SIZE / 2))
+            } else if (readBytesAvailable >= 1024)
             {
                 status |= 0x18;
-            } else if (count >= 256)
+            } else if (readBytesAvailable >= 256)
             {
                 status |= 0x08;
             }
@@ -153,10 +119,13 @@ class UartZXTeensy
                             break;
                     }
                 }
-                while (Serial8.available() && uartReadBuffer.canWrite())
+                size_t count = Serial8.available();
+                while ((count > 0) && uartReadBuffer.canWrite())
                 {
                     uartReadBuffer.write(Serial8.read());
+                    --count;
                 }
+                readBytesAvailable = count;
             }
         }
 
