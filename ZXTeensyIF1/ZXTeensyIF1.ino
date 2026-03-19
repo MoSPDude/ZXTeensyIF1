@@ -1,5 +1,5 @@
 
-#define ZXTEENSY_VERSION "20260318"
+#define ZXTEENSY_VERSION "20260319"
 #define ENABLE_BUILTIN_ROM_IF1
 //define DEBUG_OUTPUT
 
@@ -353,7 +353,7 @@ volatile bool modemOnReset = true;
 // RTC module
 volatile bool wifiNtpPresent = false;
 volatile bool wifiNtpEnabled = false;
-volatile bool wifiNtpHasTime = false;
+volatile bool rtcHasTime = false;
 volatile uint8_t wifiNtpTz = 48;
 RtcZXTeensy rtcTeensy;
 EspNtpZXTeensy wifiNtp;
@@ -1697,6 +1697,12 @@ void handleStateReset()
             break;
     }
 
+    // Detect if RTC is set
+    if (!rtcHasTime && (year() >= 2026))
+    {
+        rtcHasTime = true;
+    }
+
     // If UART is required, then initialise
     if (uartPresent)
     {
@@ -1707,16 +1713,11 @@ void handleStateReset()
         if (!wifiNtpPresent)
         {
             wifiNtp.end();
-        } else if (!wifiNtpHasTime)
+        } else if (!rtcHasTime)
         {
             // Start to get time over WiFi, when not already sync'd
-            if (year() >= 2026)
-            {
-                wifiNtpHasTime = true;
-            } else {
-                wifiNtp.begin(&espUart);
-                wifiNtpEnabled = true;
-            }
+            wifiNtp.begin(&espUart);
+            wifiNtpEnabled = true;
         }
     }
 
@@ -1885,7 +1886,7 @@ FASTRUN void loop()
             {
                 wifiNtpEnabled = false;
                 rtcTeensy.setAscTime(wifiNtp.getAscTime(), wifiNtpTz);
-                wifiNtpHasTime = true;
+                rtcHasTime = true;
 
                 // Enable the UART, now time is updated
                 if (modemPresent)

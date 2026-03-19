@@ -155,6 +155,20 @@ inline __attribute__((always_inline)) char* menuInsertSpacer(char* ptr)
         ptr, "", 0);
 }
 
+char* menuInsertClockTime(char* ptr)
+{
+    struct tm buf;
+    time_t timeNow = now();
+    char timeStr[36];
+    timeStr[0] = ' ';
+    timeStr[1] = '>';
+    timeStr[2] = ' ';
+    strftime(&(timeStr[3]), 32, "%a %b %e %H:%M:%S %Y",
+        gmtime_r(&timeNow, &buf));
+    return menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_NO_OP,
+        ptr, timeStr, 0);
+}
+
 char* menuInsertFile(menu_action_t action, icon_type_t icon, uint8_t index, char* ptr,
     const char* filename)
 {
@@ -566,6 +580,10 @@ char* menuGenerateMain(char* ptr)
         ptr, MENU_STRINGS[STRING_OPEN_SETTINGS], 0);
     ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_OPEN_SERVER,
         ptr, MENU_STRINGS[STRING_OPEN_HTTP_SERVER], 0);
+    if (rtcHasTime)
+    {
+        ptr = menuInsertClockTime(ptr);
+    }
     return ptr;
 }
 
@@ -693,19 +711,11 @@ char* menuGenerateSettings(char* ptr)
             ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_OPEN_NTP_TZ,
                 ptr, MENU_STRINGS[STRING_SET_NTP_TZ], 0);
         }
-        if (wifiNtpHasTime)
+        if (rtcHasTime)
         {
-            struct tm buf;
-            time_t timeNow = now();
-            char timeStr[36];
-            timeStr[0] = ' ';
-            timeStr[1] = '>';
-            timeStr[2] = ' ';
-            strftime(&(timeStr[3]), 32, "%a %b %e %H:%M:%S %Y",
-                gmtime_r(&timeNow, &buf));
-            ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_NO_OP,
-                ptr, timeStr, 0);
-        } else {
+            ptr = menuInsertClockTime(ptr);
+        } else if (wifiNtpPresent)
+        {
             ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_NO_OP,
                 ptr, MENU_STRINGS[STRING_WIFI_NTP_NOT_READY], 0);
         }
@@ -1125,12 +1135,14 @@ void menuPerformAction()
         case MENU_ACTION_BROWSER_LOAD_CART :
         case MENU_ACTION_BROWSER_LOAD_ZXC2 :
         case MENU_ACTION_BROWSER_LOAD_Z80 :
-            // Load new cartridge, with DivMMC disabled
+            // Load new cartridge, with DivMMC and modem disabled
+            modemPresent = false;
             divMmcPresent = false;
             break;
         case MENU_ACTION_BROWSER_LOAD_ZXC3 :
-            // Load new flash cartridge, with DivMMC disabled
+            // Load new flash cartridge, with DivMMC and modem disabled
             zxC3Present = true;
+            modemPresent = false;
             divMmcPresent = false;
             break;
         case MENU_ACTION_BROWSER_LOAD_TZX :
@@ -1149,6 +1161,7 @@ void menuPerformAction()
             // Load tools, with DivMMC and UART enabled
             uartPresent = true;
             divMmcPresent = true;
+            modemPresent = false;
             wifiNtpPresent = false;
             break;
         default :
