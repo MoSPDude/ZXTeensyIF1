@@ -5,6 +5,7 @@
 
 #define ESXMMC_BIN_PATH ((const char*)F("/ZXTEENSY/esxmmc.bin"))
 #define MF128_ROM_PATH ((const char*)F("/ZXTEENSY/mf128.rom"))
+#define MODEM_ROM_PATH ((const char*)F("/ZXTEENSY/vtx.rom"))
 #define IF1_ROM_PATH ((const char*)F("/ZXTEENSY/if1.rom"))
 #define MENU_ROM_PATH ((const char*)F("/ZXTEENSY/menu.rom"))
 #define MDR_EMULATOR_ROM_PATH ((const char*)F("/ZXTEENSY/SPECTRA_IF1_ED2_ME_ROM_Formatted.bin"))
@@ -120,6 +121,7 @@ typedef enum {
     // 8KB ROMs
     ROM_DIVMMC,
     // "Dynamic ROMs" that use DivMMC RAM
+    ROM_MODEM,
     ROM_ZXC2,
     ROM_SNA,
     ROM_MENU
@@ -341,6 +343,12 @@ volatile bool uartPresent = false;
 volatile bool uartEnabled = false;
 UartZXTeensy espUart;
 DMAMEM uint8_t uartBuffer[UART_BUFFER_SIZE];
+
+// VTX5000
+volatile bool modemPresent = false;
+volatile bool modemEnabled = false;
+volatile bool modemPaged = false;
+volatile bool modemOnReset = true;
 
 // RTC module
 volatile bool wifiNtpPresent = false;
@@ -657,6 +665,10 @@ inline __attribute__((always_inline)) void updateRomIndex(bool pageNow)
     {
         romSelected = ROM_SNA;
         romArraySelected = BANK_RAM;
+    } else if (modemPaged)
+    {
+        romSelected = ROM_MODEM;
+        romArraySelected = BANK_RAM;
     } else if (mf128Paged)
     {
         romSelected = ROM_MF128;
@@ -699,9 +711,11 @@ inline __attribute__((always_inline)) void updateRomIndex(bool pageNow)
                     romPtr = divMmcRamArray[3];
                 } else {
                     // 8KB ROM
+                    //romPtr = romArray[ROM_PAGE_DIVMMC + (romSelected - ROM_PAGE_DIVMMC)];
                     romPtr = romArray[ROM_PAGE_DIVMMC];
                 }
                 break;
+            case ROM_MODEM :
             case ROM_ZXC2 :
             case ROM_SNA :
                 romPtr = divMmcExtRamArray[zxC2BankPtr];
@@ -1524,7 +1538,7 @@ void handleStateReset()
 
     // Reset the UART state, and clear buffers of any idle data
     httpStopServer();
-    if (uartEnabled)
+    if (uartEnabled || modemEnabled)
     {
         espUart.end();
     }
@@ -1572,6 +1586,8 @@ void handleStateReset()
     uartEnabled = false;
     tzxEnabled = false;
     dskEnabled = false;
+    modemEnabled = false;
+    modemPaged = false;
     romSelected = ROM_ROM0;
     romArraySelected = BANK_ROM0;
 
@@ -1594,7 +1610,7 @@ void handleStateReset()
     if (uartPresent)
     {
         // Start the UART
-        espUart.begin(0);
+        espUart.begin(0, 0);
 
         // Disable time over WiFi, in case already started
         if (!wifiNtpPresent)
@@ -1696,11 +1712,32 @@ void handleStateReset()
             interface1Enabled = true;
         }
 
+        // Load the modem ROM, if possible
+        if (modemPresent)
+        {
+            divMmcExtRamEnabled = false;
+            if (((romArrayPresent & BANK_RAM) == 0) &&
+                (loadRomImage(MODEM_ROM_PATH, (char*)divMmcExtRamArray[0],
+                    RAM_PAGE_SIZE) >= RAM_PAGE_SIZE))
+            {
+                romArrayPresent |= BANK_RAM;
+                modemPaged = true;
+            }
+        }
+
         // If UART is present and ready, then enable
         if (uartPresent && !wifiNtpEnabled)
         {
-            espUart.flush();
-            uartEnabled = true;
+            if (modemPresent)
+            {
+                espUart.end();
+                espUart.begin(0, menuGetModemUrl());
+                modemOnReset = true;
+                modemEnabled = true;
+            } else {
+                espUart.flush();
+                uartEnabled = true;
+            }
         }
 
         // If USB mouse/gamepad is present, then enable
@@ -1759,8 +1796,16 @@ FASTRUN void loop()
                 wifiNtpHasTime = true;
 
                 // Enable the UART, now time is updated
-                espUart.flush();
-                uartEnabled = true;
+                if (modemPresent)
+                {
+                    espUart.end();
+                    espUart.begin(0, menuGetModemUrl());
+                    modemOnReset = true;
+                    modemEnabled = true;
+                } else {
+                    espUart.flush();
+                    uartEnabled = true;
+                }
 
                 // Trigger NMI in menu to redraw
                 if (menuPaged && !nmiPending)
@@ -2383,6 +2428,26 @@ FASTRUN void isrWrEvent()
                             }
                         }
                         break;
+                    case 0x7f :
+                        if (modemEnabled)
+                        {
+                            espUart.writeData(UartZXTeensy::UART_WRITE, readData());
+                        }
+                        break;
+                    case 0xff :
+                        if (modemEnabled)
+                        {
+                            if (modemOnReset)
+                            {
+                                modemOnReset = false;
+                            } else {
+                                uint8_t data = readData();
+                                modemPaged = ((data & 0x20) == 0);
+                                modemOnReset = ((data & 0x40) != 0);
+                                updateRomIndex(true);
+                            }
+                        }
+                        break;
                     case 0xbf :
                         mf128ActiveNMI = false;
                         break;
@@ -2726,7 +2791,7 @@ FASTRUN void isrRdEvent()
                             switch (highPort)
                             {
                                 case 0x13 :
-                                    writeData(espUart.getStatusByte());
+                                    writeData(espUart.getUartStatusByte());
                                     break;
                                 case 0x14 :
                                     writeData(espUart.hasReadData() ? espUart.readData() : 0x00);
@@ -2744,6 +2809,18 @@ FASTRUN void isrRdEvent()
                     if (mf128Enabled)
                     {
                         writeData(mf128VideoRam ? 0x80 : 0x00);
+                    }
+                    break;
+                case 0x7f :
+                    if (modemEnabled)
+                    {
+                        writeData(espUart.hasReadData() ? espUart.readData() : 0x00);
+                    }
+                    break;
+                case 0xff :
+                    if (modemEnabled)
+                    {
+                        writeData(modemOnReset ? 0x00 : espUart.getModemStatusByte());
                     }
                     break;
                 case 0xbf :

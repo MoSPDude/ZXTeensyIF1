@@ -38,6 +38,7 @@
 #include "imxrt.h"
 #include "core_pins.h"
 #include "RingBuffer.h"
+#include "usb_serial.h"
 #include <HardwareSerial.h>
 
 #define UART_CLOCK 24000000
@@ -56,8 +57,8 @@ class UartZXTeensy
         RingBuffer<UART_RX_BUFFER_SIZE> uartReadBuffer;
         RingBuffer<UART_TX_BUFFER_SIZE> uartWriteBuffer;
         RingBuffer<UART_TX_BUFFER_SIZE> uartFlagsBuffer;
-        RingBuffer<UART_TX_BUFFER_SIZE> uartTxDataBuffer;
         bool enabled;
+        bool isPassthrough;
 
         inline __attribute__((always_inline)) uart_action_t readWriteData(uint8_t* data)
         {
@@ -72,15 +73,18 @@ class UartZXTeensy
         }
 
     public :
-        constexpr UartZXTeensy() : enabled(false)
+        constexpr UartZXTeensy() : enabled(false), isPassthrough(false)
         {
         }
 
         // Open Serial8, and start the port
-        void begin(uint8_t baud);
+        void begin(uint8_t baud, const char* modemUrl);
 
         // Flush and close the port
         void end(void);
+
+        // Wait for response
+        bool espWaitFor(const char *token, uint32_t timeout);
 
         inline __attribute__((always_inline)) uint8_t readData()
         {
@@ -98,7 +102,7 @@ class UartZXTeensy
             uartWriteBuffer.write(data);
         }
 
-        inline __attribute__((always_inline)) uint8_t getStatusByte()
+        inline uint8_t getUartStatusByte() __attribute__((always_inline, hot, optimize("O3")))
         {
             size_t count = uartReadBuffer.getSize();
             uint8_t status = (count != 0) ? 0x01 : 0x00;
@@ -119,19 +123,29 @@ class UartZXTeensy
             return status;
         }
 
+        inline uint8_t getModemStatusByte() __attribute__((always_inline, hot, optimize("O3")))
+        {
+            uint8_t status = (hasReadData() ? 0x82 : 0x80);
+            if (!hasWriteData())
+            {
+                status |= 0x05;
+            }
+            return status;
+        }
+
         // NOTE: onTick is main loop, so optimize
         inline void onTick() __attribute__((always_inline, hot, optimize("O3")))
         {
             if (enabled)
             {
-                if (hasWriteData() && uartTxDataBuffer.canWrite())
+                if (hasWriteData() && Serial8.availableForWrite())
                 {
                     uint8_t data;
                     switch (readWriteData(&data))
                     {
                         case UART_SET_BAUD :
                             end();
-                            begin(data);
+                            begin(data, 0);
                             break;
                         case UART_WRITE :
                             Serial8.write(data);
@@ -150,7 +164,6 @@ class UartZXTeensy
             uartReadBuffer.clear();
             uartWriteBuffer.clear();
             uartFlagsBuffer.clear();
-            uartTxDataBuffer.clear();
         }
 };
 

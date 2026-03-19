@@ -39,6 +39,9 @@ A Teensy 4.1 powered DivMMC and ZX Interface 1 clone for the ZX Spectrum 48K/128
 * Spectrum +3 uPD765a FDC emulation
     * Integrated lib765 v0.4.2 with additional bug fixes for "EXTENDED" disk loading
     * Requires Spectrum +2A/+3 soft ROM support (see below), or other compatible DOS
+* Prism VTX5000 over ESP-01S
+    * Creates a serial tunnel over WiFi to given URL
+    * Default URL is '"glasstty.com",6502' - https://glasstty.com/telstar/
 * Soft ROM emulation
     * Override the internal Spectrum ROM with ROMs from SD card
     * Supports 16KB (Spectrum 48K), 32KB (Spectrum 128K/+2 (Grey)) and 64KB (Spectrum +2A/+3) ROMs
@@ -139,6 +142,7 @@ the DivMMC and enable the Interface 1.
         * ESXMMC.BIN (MD5SUM: fa50b0258e52b8d72bd83cc2fb6e1013)
         * SPECTRA_IF1_ED2_ME_ROM_Formatted.bin (MD5SUM: 052ad91ee822604960e8ca8d32a3ddb9)
         * IF1.ROM (Optional, MD5SUM: 31b704ae925305e74f50699271fddd9a)
+        * VTX.ROM (MD5SUM: 12a62cb7ea7383f109c2711dfca99f5e)
         * netman.z80 (WiFi Network Manager snapshot)
         * rtc_setup.z80 (RTC Setup snapshot)
         * ZXTEENSY.CFG (Current configuration from Menu ROM)

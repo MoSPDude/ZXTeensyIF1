@@ -4,6 +4,8 @@
 #define NETMAN_Z80_PATH ((const char*)F("/ZXTEENSY/netman.z80"))
 #define RTC_SETUP_Z80_PATH ((const char*)F("/ZXTEENSY/rtc_setup.z80"))
 
+#define MODEM_URL_PATH ((const char*)F("\"glasstty.com\",6502"))
+
 #include "StringsZXTeensy.h"
 
 static const uint8_t CHAR_BORDER = 20;
@@ -41,22 +43,13 @@ typedef struct {
 } menu_entry_t;
 
 typedef struct {
-    char divMmcPresent;
-    char divMmcRomEnabled;
-    char interface1Present;
-    char mf128Present;
-    char uartPresent;
-    char usbPresent;
-    char dskPresent;
-    char wifiNtpPresent;
-    char wifiNtpTz;
-    char bootIntoMenu;
     char cfgName[MAX_PATH];
     char romName[MAX_PATH];
     char divMmcSdaPath[MAX_PATH];
     char divMmcSdbPath[MAX_PATH];
     char dskFdaPath[MAX_PATH];
     char dskFdbPath[MAX_PATH];
+    char modemUrl[MAX_PATH];
 } cfg_data_t;
 
 typedef enum {
@@ -70,8 +63,9 @@ typedef enum {
     SETTING_ACTION_TOGGLE_MF128,
     SETTING_ACTION_TOGGLE_USB,
     SETTING_ACTION_TOGGLE_UART,
-    SETTING_ACTION_TOGGLE_FDC,
+    SETTING_ACTION_TOGGLE_MODEM,
     SETTING_ACTION_TOGGLE_NTP,
+    SETTING_ACTION_TOGGLE_FDC,
     SETTING_ACTION_UNMOUNT_SDA,
     SETTING_ACTION_UNMOUNT_SDB,
     SETTING_ACTION_UNMOUNT_FDA,
@@ -683,6 +677,15 @@ char* menuGenerateSettings(char* ptr)
         MENU_STRINGS[STRING_ENABLE_UART], uartPresent);
     if (uartPresent)
     {
+        ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_MODEM,
+            ptr, MENU_STRINGS[STRING_ENABLE_MODEM], modemPresent);
+        if (modemPresent)
+        {
+            char label[38];
+            snprintf(label, 38, " > %s", cfgData.modemUrl);
+            ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_NO_OP,
+                ptr, label, 0);
+        }
         ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_NTP,
             ptr, MENU_STRINGS[STRING_UPDATE_RTC_WIFI_NTP], wifiNtpPresent);
         if (wifiNtpPresent)
@@ -890,12 +893,16 @@ bool menuPerformSelection(uint8_t index)
                     uartPresent = !uartPresent;
                     menuConfigChanged = true;
                     break;
-                case SETTING_ACTION_TOGGLE_FDC :
-                    dskPresent = !dskPresent;
+                case SETTING_ACTION_TOGGLE_MODEM :
+                    modemPresent = !modemPresent;
                     menuConfigChanged = true;
                     break;
                 case SETTING_ACTION_TOGGLE_NTP :
                     wifiNtpPresent = !wifiNtpPresent;
+                    menuConfigChanged = true;
+                    break;
+                case SETTING_ACTION_TOGGLE_FDC :
+                    dskPresent = !dskPresent;
                     menuConfigChanged = true;
                     break;
                 case SETTING_ACTION_UNMOUNT_SDA :
@@ -1357,13 +1364,17 @@ char* menuGetFdcFdbPath()
     return ((strlen(cfgData.dskFdbPath) > 0) ? cfgData.dskFdbPath : 0);
 }
 
+char* menuGetModemUrl()
+{
+    return ((strlen(cfgData.modemUrl) > 0) ? cfgData.modemUrl : 0);
+}
+
 File menuGetMenuRomFile(const char* cfgRomName, rom_type_t* romType)
 {
     if (cfgRomName[0] != 0)
     {
         char romPath[MAX_PATH];
-        strcpy(romPath, "/ROMS/");
-        strcat(romPath, cfgRomName);
+        snprintf(romPath, MAX_PATH, "/ROMS/%s", cfgRomName);
         File entry = SD.open(romPath, FILE_READ);
         if (entry)
         {
@@ -1441,7 +1452,6 @@ File menuGetSpectrumRomFile()
 
 void menuClearConfiguration()
 {
-    memset(&cfgData, 0, sizeof(cfgData));
     divMmcPresent = false;
     divMmcRomEnabled = false;
     interface1Present = false;
@@ -1450,16 +1460,10 @@ void menuClearConfiguration()
     usbPresent = false;
     dskPresent = false;
     bootIntoMenu = true;
-    cfgData.bootIntoMenu = bootIntoMenu;
     wifiNtpPresent = false;
     wifiNtpTz = 48;
-    cfgData.wifiNtpTz = bootIntoMenu;
-    cfgData.cfgName[0] = 0;
-    cfgData.romName[0] = 0;
-    cfgData.divMmcSdaPath[0] = 0;
-    cfgData.divMmcSdbPath[0] = 0;
-    cfgData.dskFdaPath[0] = 0;
-    cfgData.dskFdbPath[0] = 0;
+    memset(&cfgData, 0, sizeof(cfgData));
+    strcpy(cfgData.modemUrl, MODEM_URL_PATH);
 }
 
 void menuLoadConfiguration(const char* cfgCfgName)
@@ -1469,8 +1473,7 @@ void menuLoadConfiguration(const char* cfgCfgName)
     char cfgPath[MAX_PATH];
     if (cfgCfgName != 0)
     {
-        strcpy(cfgPath, "/ZXTEENSY/CONFIGS/");
-        strcat(cfgPath, cfgCfgName);
+        snprintf(cfgPath, MAX_PATH, "/ZXTEENSY/CONFIGS/%s", cfgCfgName);
     } else {
         menuClearConfiguration();
         strncpy(cfgPath, ZXTEENSY_CFG_PATH, MAX_PATH);
@@ -1492,11 +1495,11 @@ void menuLoadConfiguration(const char* cfgCfgName)
                 case 'd' :
                     if (strncmp("divMmcPresent = ", cfgPtr, 16) == 0)
                     {
-                        cfgData.divMmcPresent = ((cfgPtr[16] == '1') ? true : false);
+                        divMmcPresent = ((cfgPtr[16] == '1') ? true : false);
                         ++count;
                     } else if (strncmp("divMmcRomEnabled = ", cfgPtr, 19) == 0)
                     {
-                        cfgData.divMmcRomEnabled = ((cfgPtr[19] == '1') ? true : false);
+                        divMmcRomEnabled = ((cfgPtr[19] == '1') ? true : false);
                         ++count;
                     } else if (strncmp("divMmcSdaPath = ", cfgPtr, 16) == 0)
                     {
@@ -1510,7 +1513,7 @@ void menuLoadConfiguration(const char* cfgCfgName)
                         ++count;
                     } else if (strncmp("dskPresent = ", cfgPtr, 13) == 0)
                     {
-                        cfgData.dskPresent = ((cfgPtr[13] == '1') ? true : false);
+                        dskPresent = ((cfgPtr[13] == '1') ? true : false);
                         ++count;
                     } else if (strncmp("dskFdaPath = ", cfgPtr, 13) == 0)
                     {
@@ -1524,40 +1527,52 @@ void menuLoadConfiguration(const char* cfgCfgName)
                         ++count;
                     }
                     break;
+                case 'm' :
+                    if (strncmp("mf128Present = ", cfgPtr, 15) == 0)
+                    {
+                        mf128Present = ((cfgPtr[15] == '1') ? true : false);
+                        ++count;
+                    } else if (strncmp("modemPresent = ", cfgPtr, 15) == 0)
+                    {
+                        modemPresent = ((cfgPtr[15] == '1') ? true : false);
+                        ++count;
+                    } else if (strncmp("modemUrl = ", cfgPtr, 11) == 0)
+                    {
+                        strncpy(cfgData.modemUrl, &(cfgPtr[11]), MAX_PATH);
+                        cfgData.modemUrl[(MAX_PATH - 1)] = 0;
+                        ++count;
+                    }
+                    break;
                 case 'u' :
                     if (strncmp("uartPresent = ", cfgPtr, 14) == 0)
                     {
-                        cfgData.uartPresent = ((cfgPtr[14] == '1') ? true : false);
+                        uartPresent = ((cfgPtr[14] == '1') ? true : false);
                         ++count;
                     } else if (strncmp("usbPresent = ", cfgPtr, 13) == 0)
                     {
-                        cfgData.usbPresent = ((cfgPtr[13] == '1') ? true : false);
+                        usbPresent = ((cfgPtr[13] == '1') ? true : false);
                         ++count;
                     }
                     break;
                 case 'w' :
                     if (strncmp("wifiNtpPresent = ", cfgPtr, 17) == 0)
                     {
-                        cfgData.wifiNtpPresent = ((cfgPtr[17] == '1') ? true : false);
+                        wifiNtpPresent = ((cfgPtr[17] == '1') ? true : false);
                         ++count;
                     } else if (strncmp("wifiNtpTz = ", cfgPtr, 12) == 0)
                     {
-                        cfgData.wifiNtpTz = atol(&(cfgPtr[12]));
+                        wifiNtpTz = atol(&(cfgPtr[12]));
                         ++count;
                     }
                     break;
                 default :
-                    if (strncmp("interface1Present = ", cfgPtr, 20) == 0)
+                    if (strncmp("bootIntoMenu = ", cfgPtr, 15) == 0)
                     {
-                        cfgData.interface1Present = ((cfgPtr[20] == '1') ? true : false);
+                        bootIntoMenu = ((cfgPtr[15] == '1') ? true : false);
                         ++count;
-                    } else if (strncmp("mf128Present = ", cfgPtr, 15) == 0)
+                    } else if (strncmp("interface1Present = ", cfgPtr, 20) == 0)
                     {
-                        cfgData.mf128Present = ((cfgPtr[15] == '1') ? true : false);
-                        ++count;
-                    } else if (strncmp("bootIntoMenu = ", cfgPtr, 15) == 0)
-                    {
-                        cfgData.bootIntoMenu = ((cfgPtr[15] == '1') ? true : false);
+                        interface1Present = ((cfgPtr[20] == '1') ? true : false);
                         ++count;
                     } else if (strncmp("romName = ", cfgPtr, 10) == 0)
                     {
@@ -1575,18 +1590,6 @@ void menuLoadConfiguration(const char* cfgCfgName)
             }
         }
         cfgFile.close();
-
-        // Update the configuration
-        divMmcPresent = cfgData.divMmcPresent;
-        divMmcRomEnabled = cfgData.divMmcRomEnabled;
-        interface1Present = cfgData.interface1Present;
-        mf128Present = cfgData.mf128Present;
-        uartPresent = cfgData.uartPresent;
-        usbPresent = cfgData.usbPresent;
-        dskPresent = cfgData.dskPresent;
-        wifiNtpPresent = cfgData.wifiNtpPresent;
-        wifiNtpTz = cfgData.wifiNtpTz;
-        bootIntoMenu = cfgData.bootIntoMenu;
     }
     if (count > 0)
     {
@@ -1607,22 +1610,13 @@ void menuSaveConfiguration()
         if (cfgFile)
         {
             // Update the configuration
-            cfgData.divMmcPresent = divMmcPresent;
-            cfgData.divMmcRomEnabled = divMmcRomEnabled;
-            cfgData.interface1Present = interface1Present;
-            cfgData.mf128Present = mf128Present;
-            cfgData.uartPresent = uartPresent;
-            cfgData.usbPresent = usbPresent;
-            cfgData.dskPresent = dskPresent;
-            cfgData.wifiNtpPresent = wifiNtpPresent;
-            cfgData.wifiNtpTz = wifiNtpTz;
-            cfgData.bootIntoMenu = bootIntoMenu;
             cfgData.romName[(MAX_PATH - 1)] = 0;
             cfgData.cfgName[(MAX_PATH - 1)] = 0;
             cfgData.divMmcSdaPath[(MAX_PATH - 1)] = 0;
             cfgData.divMmcSdbPath[(MAX_PATH - 1)] = 0;
             cfgData.dskFdaPath[(MAX_PATH - 1)] = 0;
             cfgData.dskFdbPath[(MAX_PATH - 1)] = 0;
+            cfgData.modemUrl[(MAX_PATH - 1)] = 0;
 
             // Write configuration to file
             cfgFile.truncate();
@@ -1630,11 +1624,12 @@ void menuSaveConfiguration()
             cfgFile.printf("divMmcRomEnabled = %0d\n", divMmcRomEnabled);
             cfgFile.printf("interface1Present = %0d\n", interface1Present);
             cfgFile.printf("mf128Present = %0d\n", mf128Present);
-            cfgFile.printf("uartPresent = %0d\n", uartPresent);
             cfgFile.printf("usbPresent = %0d\n", usbPresent);
-            cfgFile.printf("dskPresent = %0d\n", dskPresent);
+            cfgFile.printf("uartPresent = %0d\n", uartPresent);
+            cfgFile.printf("modemPresent = %0d\n", modemPresent);
             cfgFile.printf("wifiNtpPresent = %0d\n", wifiNtpPresent);
             cfgFile.printf("wifiNtpTz = %0d\n", wifiNtpTz);
+            cfgFile.printf("dskPresent = %0d\n", dskPresent);
             cfgFile.printf("bootIntoMenu = %0d\n", bootIntoMenu);
             cfgFile.printf("cfgName = %s\n", cfgData.cfgName);
             cfgFile.printf("romName = %s\n", cfgData.romName);
@@ -1642,6 +1637,7 @@ void menuSaveConfiguration()
             cfgFile.printf("divMmcSdbPath = %s\n", cfgData.divMmcSdbPath);
             cfgFile.printf("dskFdaPath = %s\n", cfgData.dskFdaPath);
             cfgFile.printf("dskFdbPath = %s\n", cfgData.dskFdbPath);
+            cfgFile.printf("modemUrl = %s\n", cfgData.modemUrl);
             cfgFile.close();
         }
     }
