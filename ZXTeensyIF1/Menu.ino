@@ -1,12 +1,6 @@
 
-#define FWUPDATE_HEX_PATH "ZXTEENSY.HEX"
-#define ZXTEENSY_CFG_PATH ((const char*)F("/ZXTEENSY/ZXTEENSY.CFG"))
-#define NETMAN_Z80_PATH ((const char*)F("/ZXTEENSY/netman.z80"))
-#define RTC_SETUP_Z80_PATH ((const char*)F("/ZXTEENSY/rtc_setup.z80"))
-
-#define MODEM_URL_PATH ((const char*)F("\"glasstty.com\",6502"))
-
 #include "StringsZXTeensy.h"
+#include "DefinesZXTeensy.h"
 
 static const uint8_t CHAR_BORDER = 20;
 static const uint8_t CHAR_DIR = 21;

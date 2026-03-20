@@ -3,13 +3,6 @@
 #define ENABLE_BUILTIN_ROM_IF1
 //define DEBUG_OUTPUT
 
-#define ESXMMC_BIN_PATH ((const char*)F("/ZXTEENSY/esxmmc.bin"))
-#define MF128_ROM_PATH ((const char*)F("/ZXTEENSY/mf128.rom"))
-#define MODEM_ROM_PATH ((const char*)F("/ZXTEENSY/vtx.rom"))
-#define IF1_ROM_PATH ((const char*)F("/ZXTEENSY/if1.rom"))
-#define MENU_ROM_PATH ((const char*)F("/ZXTEENSY/menu.rom"))
-#define MDR_EMULATOR_ROM_PATH ((const char*)F("/ZXTEENSY/SPECTRA_IF1_ED2_ME_ROM_Formatted.bin"))
-
 #include <SD.h>
 #include <SdFat.h>
 #include "USBHost_t36.h"
@@ -22,24 +15,7 @@
 #include "EspNtpZXTeensy.h"
 #include "TzxPlayerZXTeensy.h"
 #include "Dsk765ZXTeensy.h"
-
-// Run the Teensy 4.1 with slight overclock at 816MHz
-// Tick the SD and Serial at 14MHz
-#define TEENSY_CLK_FREQ 816000000ULL
-#define TICK_FREQ 7000000ULL
-#define TICK_CYCCNT (TEENSY_CLK_FREQ / TICK_FREQ)
-
-// Allow ~500ms for reset/button to debounce
-#define TRIGGER_DELAY_MS 500
-#define TRIGGER_DELAY_CNT ((TRIGGER_DELAY_MS * TEENSY_CLK_FREQ) / (TICK_CYCCNT * 1000))
-
-// If reset is held for an additional 2 seconds, then perform a hard reset
-#define HARD_RESET_DELAY_MS 2000
-#define HARD_RESET_DELAY_CNT ((HARD_RESET_DELAY_MS * TEENSY_CLK_FREQ) / (TICK_CYCCNT * 1000))
-
-// ZXC3 flash erasure delay
-#define ZXC3_ERASE_DELAY_MS 100
-#define ZXC3_ERASE_DELAY_CNT ((ZXC3_ERASE_DELAY_MS * TEENSY_CLK_FREQ) / (TICK_CYCCNT * 1000))
+#include "DefinesZXTeensy.h"
 
 extern "C" volatile uint32_t systick_millis_count;
 extern "C" uint32_t set_arm_clock(uint32_t frequency);

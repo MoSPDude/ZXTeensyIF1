@@ -5,8 +5,7 @@
 #include "imxrt.h"
 #include "core_pins.h"
 #include "RingBuffer.h"
-
-#define TICK_DELAY_CNT (816000000ULL / 3500000ULL)
+#include "DefinesZXTeensy.h"
 
 //#define DEBUG_TAPE_OUTPUT
 

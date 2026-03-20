@@ -169,7 +169,7 @@ bool TzxPlayerZXTeensy::runTape()
         }
         elapsed -= pulseDuration;
         uint32_t newDuration = (((pulseData & 0x80) != 0) ?
-            oneDuration : zeroDuration) * TICK_DELAY_CNT;
+            oneDuration : zeroDuration) * TAPE_DELAY_CNT;
         pulseDuration = newDuration;
     }
     return true;
@@ -180,7 +180,7 @@ bool TzxPlayerZXTeensy::startTape()
     if (runTapeNextBlock())
     {
         uint32_t newDuration = (((pulseData & 0x80) != 0) ?
-            oneDuration : zeroDuration) * TICK_DELAY_CNT;
+            oneDuration : zeroDuration) * TAPE_DELAY_CNT;
         pulseDuration = newDuration;
     } else {
         return false;
