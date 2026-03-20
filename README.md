@@ -188,6 +188,7 @@ select the option from the Menu ROM - then wait for the Spectrum to reset
 In "Load ROMS", from the "ROMS/" directory,
 
 | File extension | File type |
+|----------------|-----------|
 | .rom | System Soft ROM |
 | .bin | ZXC2 cartridge |
 | Other | ZX Interface 2 cartridge |
@@ -195,6 +196,7 @@ In "Load ROMS", from the "ROMS/" directory,
 In "Browse SD card", in other directories,
 
 | File extension | File type |
+|----------------|-----------|
 | .rom | ZX Interface 2 cartridge |
 | .bin | ZXC2 or ZXC3 flash cartridge |
 | .z80, .sna | Z80 snapshot |
