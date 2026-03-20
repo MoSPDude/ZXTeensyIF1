@@ -17,6 +17,8 @@ static const uint8_t CHAR_TZX_R = 31;
 
 static const size_t ROM_NAME_LEN = 32;
 
+extern float tempmonGetTemp(void);
+
 typedef enum {
     MENU_TYPE_MAIN,
     MENU_TYPE_SETTINGS,
@@ -153,14 +155,26 @@ char* menuInsertClockTime(char* ptr)
 {
     struct tm buf;
     time_t timeNow = now();
-    char timeStr[36];
-    timeStr[0] = ' ';
-    timeStr[1] = '>';
-    timeStr[2] = ' ';
-    strftime(&(timeStr[3]), 32, "%a %b %e %H:%M:%S %Y",
+    char label[38];
+    label[0] = ' ';
+    label[1] = '>';
+    label[2] = ' ';
+    strftime(&(label[3]), 32, "%a %b %e %H:%M:%S %Y",
         gmtime_r(&timeNow, &buf));
     return menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_NO_OP,
-        ptr, timeStr, 0);
+        ptr, label, 0);
+}
+
+char* menuInsertStatus(char* ptr)
+{
+    char label[38];
+    double temp = tempmonGetTemp();
+    int a = temp;
+    temp *= 100;
+    int b = (int)(temp) % 100;
+    snprintf(label, 38, " > %d.%02d degC", a, b);
+    return menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_NO_OP,
+        ptr, label, 0);
 }
 
 char* menuInsertFile(menu_action_t action, icon_type_t icon, uint8_t index, char* ptr,
@@ -574,9 +588,15 @@ char* menuGenerateMain(char* ptr)
         ptr, MENU_STRINGS[STRING_OPEN_SETTINGS], 0);
     ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_OPEN_SERVER,
         ptr, MENU_STRINGS[STRING_OPEN_HTTP_SERVER], 0);
+    ptr = menuInsertSpacer(ptr);
+    ptr = menuInsertStatus(ptr);
     if (rtcHasTime)
     {
         ptr = menuInsertClockTime(ptr);
+    } else {
+        ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_NO_OP,
+            ptr, (wifiNtpPresent ? MENU_STRINGS[STRING_WIFI_NTP_NOT_READY] :
+                MENU_STRINGS[STRING_RTC_NOT_SET]), 0);
     }
     return ptr;
 }
