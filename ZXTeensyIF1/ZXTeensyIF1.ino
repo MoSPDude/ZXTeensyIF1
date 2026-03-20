@@ -1367,6 +1367,7 @@ void performHardReset()
 
     // Clear the UART
     espUart.end();
+    wifiNtpEnabled = false;
 
     // Perform reset into menu
     afterFirstReset = false;
@@ -1603,7 +1604,8 @@ void handleStateReset()
         handleWarmStateReset();
     }
 
-    // Reset the UART state, and clear buffers of any idle data
+    // Reset the UART state, and clear buffers
+    // NOTE: wifiNtpEnabled persists UART across reset
     httpStopServer();
     if (uartEnabled || modemEnabled)
     {
@@ -1679,22 +1681,21 @@ void handleStateReset()
         rtcHasTime = true;
     }
 
-    // If UART is required, then initialise
-    if (uartPresent)
+    // Start to get time over WiFi, when not already sync'd
+    // NOTE: wifiNtpEnabled persists UART across reset
+    if (wifiNtpPresent)
     {
-        // Start the UART
-        espUart.begin(0, 0);
-
-        // Disable time over WiFi, in case already started
-        if (!wifiNtpPresent)
+        if (!rtcHasTime && !wifiNtpEnabled)
         {
-            wifiNtp.end();
-        } else if (!rtcHasTime)
-        {
-            // Start to get time over WiFi, when not already sync'd
+            espUart.begin(0, 0);
             wifiNtp.begin(&espUart);
             wifiNtpEnabled = true;
         }
+    } else if (wifiNtpEnabled)
+    {
+        wifiNtp.end();
+        espUart.end();
+        wifiNtpEnabled = false;
     }
 
     // Flag that reset has occurred
@@ -1794,16 +1795,15 @@ void handleStateReset()
         }
 
         // If UART is present and ready, then enable
-        if (uartPresent && !wifiNtpEnabled)
+        if (!wifiNtpEnabled && uartPresent)
         {
             if (modemPresent)
             {
-                espUart.end();
                 espUart.begin(0, menuGetModemUrl());
                 modemOnReset = true;
                 modemEnabled = true;
             } else {
-                espUart.flush();
+                espUart.begin(0, 0);
                 uartEnabled = true;
             }
         }
@@ -1863,29 +1863,29 @@ FASTRUN void loop()
                 wifiNtpEnabled = false;
                 rtcTeensy.setAscTime(wifiNtp.getAscTime(), wifiNtpTz);
                 rtcHasTime = true;
+                espUart.end();
 
-                // Enable the UART, now time is updated
-                if (modemPresent)
+                // Trigger NMI in menu to redraw
+                if (menuPaged)
                 {
-                    // Do not enable the modem inside the menu
-                    espUart.end();
-                    if (!menuPaged)
+                    if (!nmiPending)
+                    {
+                        menuGenerate();
+                        nmiPending = true;
+                        digitalWriteFast(NMI_PIN, 1);
+                    }
+                } else if (uartPresent)
+                {
+                    // Enable the UART, now time is updated
+                    if (modemPresent)
                     {
                         espUart.begin(0, menuGetModemUrl());
                         modemOnReset = true;
                         modemEnabled = true;
+                    } else {
+                        espUart.begin(0, 0);
+                        uartEnabled = true;
                     }
-                } else {
-                    espUart.flush();
-                    uartEnabled = true;
-                }
-
-                // Trigger NMI in menu to redraw
-                if (menuPaged && !nmiPending)
-                {
-                    menuGenerate();
-                    nmiPending = true;
-                    digitalWriteFast(NMI_PIN, 1);
                 }
             }
         }

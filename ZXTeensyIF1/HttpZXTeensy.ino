@@ -357,18 +357,17 @@ void httpStartServer()
     httpStopServer();
     if (!httpEnabled)
     {
-        if (uartPresent)
+        // Wait for WiFi NTP to complete
+        if (wifiNtpEnabled)
         {
-            if (wifiNtpEnabled)
-            {
-                httpServerStatus = " > Waiting for WiFi NTP";
-                return;
-            }
-
-            // Close the UART, and open the port exclusively
-            espUart.end();
+            httpServerStatus = " > Waiting for WiFi NTP";
+            return;
         }
 
+        // Close the UART, and open the port exclusively
+        espUart.end();
+
+        // Open the UART, and start the server
         Serial8.begin(115200);
         Serial8.println("ATE0");
         httpWaitFor("OK");

@@ -595,7 +595,7 @@ char* menuGenerateMain(char* ptr)
         ptr = menuInsertClockTime(ptr);
     } else {
         ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_NO_OP,
-            ptr, (wifiNtpPresent ? MENU_STRINGS[STRING_WIFI_NTP_NOT_READY] :
+            ptr, (wifiNtpEnabled ? MENU_STRINGS[STRING_WIFI_NTP_WAITING] :
                 MENU_STRINGS[STRING_RTC_NOT_SET]), 0);
     }
     return ptr;
@@ -718,21 +718,22 @@ char* menuGenerateSettings(char* ptr)
             ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_NO_OP,
                 ptr, label, 0);
         }
-        ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_NTP,
-            ptr, MENU_STRINGS[STRING_UPDATE_RTC_WIFI_NTP], wifiNtpPresent);
-        if (wifiNtpPresent)
-        {
-            ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_OPEN_NTP_TZ,
-                ptr, MENU_STRINGS[STRING_SET_NTP_TZ], 0);
-        }
-        if (rtcHasTime)
-        {
-            ptr = menuInsertClockTime(ptr);
-        } else if (wifiNtpPresent)
-        {
-            ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_NO_OP,
-                ptr, MENU_STRINGS[STRING_WIFI_NTP_NOT_READY], 0);
-        }
+    }
+    ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_NTP,
+        ptr, MENU_STRINGS[STRING_UPDATE_RTC_WIFI_NTP], wifiNtpPresent);
+    if (wifiNtpPresent)
+    {
+        ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_OPEN_NTP_TZ,
+            ptr, MENU_STRINGS[STRING_SET_NTP_TZ], 0);
+    }
+    if (rtcHasTime)
+    {
+        ptr = menuInsertClockTime(ptr);
+    } else if (wifiNtpPresent)
+    {
+        ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_NO_OP,
+            ptr, (wifiNtpEnabled ? MENU_STRINGS[STRING_WIFI_NTP_WAITING] : 
+                MENU_STRINGS[STRING_RTC_NOT_SET]), 0);
     }
 
     // Add tools
