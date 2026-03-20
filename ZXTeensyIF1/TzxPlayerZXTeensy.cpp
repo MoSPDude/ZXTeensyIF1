@@ -136,8 +136,6 @@ void TzxPlayerZXTeensy::insertPauseBlock(uint16_t durationMs)
         {
             sendPauseCommand(durationMs - 1);
         }
-    } else {
-        sendStopCommand();
     }
 }
 
@@ -384,7 +382,13 @@ bool TzxPlayerZXTeensy::loadFromTape()
                     // Load Insert Pause Block
                     if (truncateTapeLength(2) >= 2)
                     {
-                        insertPauseBlock(readTapeWord());
+                        uint16_t durationMs = readTapeWord();
+                        if (durationMs > 0)
+                        {
+                            insertPauseBlock(durationMs);
+                        } else {
+                            sendStopCommand();
+                        }
                         return true;
                     }
                     break;

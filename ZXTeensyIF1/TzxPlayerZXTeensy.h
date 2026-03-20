@@ -93,9 +93,18 @@ class TzxPlayerZXTeensy
                 case BLOCK_PULSES :
                     if (dataBuffer.canRead())
                     {
+                        pulseData = 0x40;
                         zeroDuration = dataBuffer.readRaw();
                         zeroDuration |= (dataBuffer.readRaw() << 8);
-                        pulseData = 0x00;
+                        if (dataBuffer.canRead() && (numBytes > 1))
+                        {
+                            pulseShiftCount = 6;
+                            oneDuration = dataBuffer.readRaw();
+                            oneDuration |= (dataBuffer.readRaw() << 8);
+                            --numBytes;
+                        } else {
+                            pulseShiftCount = 7;
+                        }
                     } else {
                         return false;
                     }
@@ -111,14 +120,14 @@ class TzxPlayerZXTeensy
                     break;
             }
             --numBytes;
-            if (currentBlock == BLOCK_PULSES)
+            if (currentBlock != BLOCK_PULSES)
             {
-                pulseShiftCount = 7;
-            } else if (numBytes > 0)
-            {
-                pulseShiftCount = 0;
-            } else {
-                pulseShiftCount = (8 - numFinalBits);
+                if (numBytes > 0)
+                {
+                    pulseShiftCount = 0;
+                } else {
+                    pulseShiftCount = (8 - numFinalBits);
+                }
             }
             return true;
         }
