@@ -10,8 +10,7 @@ A Teensy 4.1 powered DivMMC and ZX Interface 1 clone for the ZX Spectrum 48K/128
     * Uses a MAX232 for the RS232 level shifting, so no +12V or -12V required
     * Supports 16KB shadow soft ROM
 * DivMMC with 512KB RAM
-    * Shares the Teensy main SD card
-    * Supports HDF and IMG images
+    * Supports accessing the main SD card, HDF and IMG images
 * Multiface 128 emulation
     * NMI button and soft ROM
 * ZX Interface 2 emulation
@@ -19,11 +18,12 @@ A Teensy 4.1 powered DivMMC and ZX Interface 1 clone for the ZX Spectrum 48K/128
     * Implements ZXC2 ROM banking
     * Implements ZXC3 ROM banking with 128KB Flash ROM
     * Implements SPECTRA shadow ROM support
+        * The ROM file needs to be named as "SPECTRA_\*.bin"
 * ESP-01S module via TX8/RX8
     * Requires the 9V power rail for the 3.3V regulator
     * Available on ports 0x143B (5179) for RX and 0x133B (4923) for TX
     * https://www.specnext.com/the-next-on-the-network/
-* Kempston USB mouse and gamepad
+* USB mouse and gamepad Kempston interface
     * Not wired to the board - use a small lead that exits the case
     * eg. StarTech.com "6in USB 2.0 Cable - USB A Female to USB Motherboard 4 Pin Header F/F"
 * RTC module from the Teensy
@@ -55,7 +55,7 @@ A Teensy 4.1 powered DivMMC and ZX Interface 1 clone for the ZX Spectrum 48K/128
     * Supports MDR images with up to 90KB of data
 * Small HTTP server for WiFi file access over ESP-01S
     * Use HTTP PUT to send files eg. "curl -T FILENAME.ROM http://192.168.0.254/FILENAME.ROM"
-    * Use web browser to list file, and download
+    * Use web browser to list files, and download
 * Nihirash's Network Manager for WiFi configuration
     * Small bugfix to clear the BASIC keypress on load
 * Velesoft's RTC_SETUP for RTC configuration
@@ -133,39 +133,76 @@ the DivMMC and enable the Interface 1.
 
 ## SD Card Setup
 
-* ROOT/
-    * ZXTEENSY/
-        * CONFIGS/
-            * <NAME>.CFG (Configurations that appear as "NAME" in the Menu ROM for quick selection)
-        * MENU.ROM
-        * MF128.ROM (MD5SUM: ca8c9d97c8aedd718d1081fad2e3af8d)
-        * ESXMMC.BIN (MD5SUM: fa50b0258e52b8d72bd83cc2fb6e1013)
-        * SPECTRA_IF1_ED2_ME_ROM_Formatted.bin (MD5SUM: 052ad91ee822604960e8ca8d32a3ddb9)
-        * IF1.ROM (Optional, MD5SUM: 31b704ae925305e74f50699271fddd9a)
-        * VTX.ROM (MD5SUM: 12a62cb7ea7383f109c2711dfca99f5e)
-        * netman.z80 (WiFi Network Manager snapshot)
-        * rtc_setup.z80 (RTC Setup snapshot)
-        * ZXTEENSY.CFG (Current configuration from Menu ROM)
-    * ROMS/
-        * (ZX Spectrum ROMs ending ".rom")
-        * (Interface 2 and ZXC2 ROMs ending ".bin")
+* ZXTEENSY/
+    * CONFIGS/
+        * <NAME>.CFG (Saved configurations that appear as "NAME" in the Menu ROM for quick selection)
+    * MENU.ROM
+    * MF128.ROM (MD5SUM: ca8c9d97c8aedd718d1081fad2e3af8d)
+    * ESXMMC.BIN (MD5SUM: fa50b0258e52b8d72bd83cc2fb6e1013)
+    * SPECTRA_IF1_ED2_ME_ROM_Formatted.bin (MD5SUM: 052ad91ee822604960e8ca8d32a3ddb9)
+    * IF1.ROM (Optional, MD5SUM: 31b704ae925305e74f50699271fddd9a)
+    * VTX.ROM (MD5SUM: 12a62cb7ea7383f109c2711dfca99f5e)
+    * netman.z80 (WiFi Network Manager snapshot)
+    * rtc_setup.z80 (RTC Setup snapshot)
+    * ZXTEENSY.CFG (Current configuration from Menu ROM)
+* ROMS/
+    * (ZX Spectrum ROMs ending ".rom")
+    * (ZXC2 ROMs ending ".bin")
+    * (Other ROM files)
+* (Other ESXDOS files)
+* SYS/
+    * RTC.SYS (Optional, for RTC access)
     * (Other ESXDOS files)
-    * SYS/
-        * RTC.SYS (Optional, for RTC access)
-        * (Other ESXDOS files)
-    * ZXTEENSY.HEX (Optional, firmware update)
+* ZXTEENSY.HEX (Optional, firmware update)
+
+## Using the Menu ROM
 
 To load the Menu ROM, either,
-    * Use "Boot into Menu" to load on initial power on
-    * or, Hold the button, and Reset
-    * or, Hold Reset for longer than 5 seconds
 
-Inside the Menu ROM, you can toggle the available Devices and settings - or choose
-a ROM to load, or browse the SD card to load and mount files.
+* Use "Boot into Menu" to load on initial power on
+* or, Hold the button, and Reset
+* or, Hold Reset for longer than 5 seconds
+
+Inside the Menu ROM you can,
+
+* Restart with either the ZXTeensyIF1 enabled or disabled
+    * Pressing Reset will also reset with the ZXTeensyIF1 enabled
+* Browse the SD card to select files to load, or mount
+    * Selecting known file extensions will either load or ask to mount
+    * Selecting unknown file extensions will ask for an action
+* Browse the system Soft ROMs in the "ROMS/" directory to load, or set as Soft ROM
+    * Double selecting a system Soft ROM will immediately reset into it
+* Select a saved configuration to load
+    * Double selecting a saved configuration will immediately reset into it
+* Edit the configuration
+    * Enable or disable the peripherals
+    * Eject mounted disks by selecting them
+    * Set to fetch time over the WiFI, and set the timezone
+    * Load the RTC Setup or WiFi Network Manager snapshots
+* Start or stop the HTTP server to transfer files over WiFi
 
 To firmware update, place the ZXTEENSY.HEX file on the root of the SD card and
-select the option from the Menu ROM - then wait for the Spectrum to restart
+select the option from the Menu ROM - then wait for the Spectrum to reset
 (!! It will take a minute !!).
+
+In "Load ROMS", from the "ROMS/" directory,
+
+| File extension | File type |
+| .rom | System Soft ROM |
+| .bin | ZXC2 cartridge |
+| Other | ZX Interface 2 cartridge |
+
+In "Browse SD card", in other directories,
+
+| File extension | File type |
+| .rom | ZX Interface 2 cartridge |
+| .bin | ZXC2 or ZXC3 flash cartridge |
+| .z80, .sna | Z80 snapshot |
+| .hdf, .img | DivMMC SD card |
+| .dsk | Spectrum +3 disk |
+| .mdr | ZX Microdrive cartridge |
+| .tap, .tzx | Audio cassette |
+| Other | The menu will ask for an action |
 
 ### Preparing the SD Card
 
@@ -173,8 +210,8 @@ ESXDOS has trouble loading if it is not "early" on the SD card,
 
 * Format the SD card with FAT32
 * Extract ESXDOS on computer, and transfer all directories and ESXMMC.BIN to the SD card
-* Transfer the MF128.ROM, MENU.ROM and ZXTEENSY.CFG
-* Create ROMS directory, and add other ROMs
+* Transfer the "/ZXTEENSY" directory, with ROMs and CONFIGS
+* Create system "/ROMS" directory, and add other ROMs
 * Add any other files
 
 ## Version History
@@ -182,7 +219,7 @@ ESXDOS has trouble loading if it is not "early" on the SD card,
 ### Hardware
 
 * v0.7 PCB prototype
-    * PCBs have been sent for manufacturing
+    * PCBs have been returned from PCBWay
     * Moved the ROMCS and DataDir output to pins 36 and 37, to free up pins 34 and 35
     * Added an ESP-01S header, and header for 3.3V regulator (eg. Pololu D24V5F3)
         * The ESP-01S can take over 300mA, so requires a separate regulator
@@ -203,6 +240,9 @@ ESXDOS has trouble loading if it is not "early" on the SD card,
 
 ### Firmware
 
+* 20260319
+    * Added Prism VTX5000 through the ESP-01S UART-WiFi passthrough mode
+    * Added configuration selection to the menu
 * 20260316
     * Added lib765 and +3 DSK support
 * 20260312
