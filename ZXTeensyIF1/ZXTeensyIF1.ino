@@ -1,8 +1,4 @@
 
-#define ZXTEENSY_VERSION "20260320"
-#define ENABLE_BUILTIN_ROM_IF1
-//define DEBUG_OUTPUT
-
 #include <SD.h>
 #include <SdFat.h>
 #include "USBHost_t36.h"
@@ -49,7 +45,7 @@ typedef enum {
     MENU_ACTION_BROWSER_MOUNT_FDA,
     MENU_ACTION_BROWSER_MOUNT_FDB,
     MENU_ACTION_START_SERVER,
-    MENU_ACTION_STOP_SERVER
+    MENU_ACTION_STOP_SERVER,
 } menu_action_t;
 
 typedef enum {
@@ -299,6 +295,7 @@ volatile uint8_t snaLoaderBanks = 0;
 volatile bool menuEnterOnReset = false;
 volatile bool menuPaged = false;
 volatile bool menuSelected = false;
+volatile bool menuRedraw = false;
 volatile uint8_t menuSelectedIndex = 0;
 
 // DivMMC SPI/SD
@@ -1863,20 +1860,12 @@ FASTRUN void loop()
                 wifiNtpEnabled = false;
                 rtcTeensy.setAscTime(wifiNtp.getAscTime(), wifiNtpTz);
                 rtcHasTime = true;
+                menuRedraw = true;
                 espUart.end();
 
-                // Trigger NMI in menu to redraw
-                if (menuPaged)
+                // Enable the UART, now time is updated
+                if (uartPresent)
                 {
-                    if (!nmiPending)
-                    {
-                        menuGenerate();
-                        nmiPending = true;
-                        digitalWriteFast(NMI_PIN, 1);
-                    }
-                } else if (uartPresent)
-                {
-                    // Enable the UART, now time is updated
                     if (modemPresent)
                     {
                         espUart.begin(0, menuGetModemUrl());
@@ -1887,6 +1876,18 @@ FASTRUN void loop()
                         uartEnabled = true;
                     }
                 }
+            }
+        }
+
+        // Re-draw the menu, when requested
+        if (menuRedraw)
+        {
+            menuRedraw = false;
+            if (menuPaged && !nmiPending)
+            {
+                menuGenerate();
+                nmiPending = true;
+                digitalWriteFast(NMI_PIN, 1);
             }
         }
 
@@ -1991,6 +1992,7 @@ FASTRUN void loop()
         {
             uint8_t data = 0;
             uint32_t buttons = usbJoystick.getButtons();
+            menuRedraw = menuPrintDebug(true, "usbJoystick.buttons %0d", buttons);
             switch (usbJoystick.joystickType())
             {
                 case JoystickController::PS4 :

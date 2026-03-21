@@ -29,7 +29,8 @@ typedef enum {
     MENU_TYPE_BROWSER_OPEN_ZXC2,
     MENU_TYPE_BROWSER_MOUNT_HDF,
     MENU_TYPE_BROWSER_MOUNT_DSK,
-    MENU_TYPE_HTTP_SERVER
+    MENU_TYPE_HTTP_SERVER,
+    MENU_TYPE_DEBUG
 } menu_type_t;
 
 typedef struct {
@@ -66,6 +67,7 @@ typedef enum {
     SETTING_ACTION_UNMOUNT_SDB,
     SETTING_ACTION_UNMOUNT_FDA,
     SETTING_ACTION_UNMOUNT_FDB,
+    SETTING_ACTION_OPEN_DEBUG = 0xF9,
     SETTING_ACTION_OPEN_SERVER = 0xFA,
     SETTING_ACTION_OPEN_ROMS = 0xFB,
     SETTING_ACTION_OPEN_NTP_TZ = 0xFC,
@@ -95,6 +97,11 @@ DMAMEM char browserPath[MAX_PATH];
 // Menu page creation
 DMAMEM uint8_t menuPage;
 DMAMEM uint8_t menuPageLine;
+
+// Debug menu text
+static const size_t MENU_DEBUG_SIZE = (21 * (ROM_NAME_LEN + 3) * 2);
+DMAMEM char menuDebugBuffer[MENU_DEBUG_SIZE];
+volatile size_t menuDebugIndex = 0;
 
 void menuInsertEntry(menu_action_t action, uint8_t index, const char* ptr)
 {
@@ -363,6 +370,50 @@ char* menuAddBrowserFile(uint8_t index, char* ptr, File entry)
     return menuInsertFile(action, icon, index, ptr, filename);
 }
 
+char* menuGenerateDebug(char* ptr)
+{
+    size_t i = 0;
+    menuDebugBuffer[(MENU_DEBUG_SIZE - 1)] = 0;
+    while ((i < MENU_DEBUG_SIZE) && (menuDebugBuffer[i] < ' '))
+    {
+        ++i;
+    }
+    while ((menuEntries < 255) && (i < MENU_DEBUG_SIZE))
+    {
+        menuInsertEntry(MENU_ACTION_TOP_MENU, 0, 0);
+        *ptr++ = CHAR_BORDER;
+        for (size_t j = 0; j < (ROM_NAME_LEN + 3); ++j)
+        {
+            if (menuDebugBuffer[i] >= ' ')
+            {
+                *ptr++ = menuDebugBuffer[i++];
+            } else {
+                ++i;
+                break;
+            }
+        }
+        while ((i < MENU_DEBUG_SIZE) && (menuDebugBuffer[i] < ' '))
+        {
+            ++i;
+        }
+        if (menuPageLine < 20)
+        {
+            *ptr++ = 10;
+            ++menuPageLine;
+        } else {
+            *ptr = 0;
+            menuPageLine = 0;
+            ++menuPage;
+        }
+    }
+    if (menuEntries == 0)
+    {
+        ptr = menuInsertSetting(MENU_ACTION_TOP_MENU, 0, ptr,
+            MENU_STRINGS[STRING_CANCEL], 0);
+    }
+    return ptr;
+}
+
 char* menuGenerateHttpServer(char* ptr)
 {
     ptr = menuInsertSetting(MENU_ACTION_TOP_MENU, 0, ptr, MENU_STRINGS[STRING_CANCEL], 0);
@@ -534,73 +585,6 @@ char* menuGenerateLoadRom(char* ptr)
     return ptr;
 }
 
-char* menuGenerateMain(char* ptr)
-{
-    ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_RESTART,
-        ptr, MENU_STRINGS[STRING_RESTART], 0);
-    ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_DISABLE,
-        ptr, MENU_STRINGS[STRING_DISABLE], 0);
-    ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_OPEN_BROWSER,
-        ptr, MENU_STRINGS[STRING_OPEN_BROWSER], 0);
-    ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_OPEN_ROMS,
-        ptr, MENU_STRINGS[STRING_OPEN_ROMS], 0);
-    ptr = menuInsertSpacer(ptr);
-
-    // List stored configurations for quick selection
-    File cfgDirectory = SD.open("/ZXTEENSY/CONFIGS", FILE_READ);
-    if (cfgDirectory)
-    {
-        if (cfgDirectory.isDirectory())
-        {
-            uint8_t index = 0;
-            while (true)
-            {
-                File entry = cfgDirectory.openNextFile();
-                if (entry)
-                {
-                    if (!entry.isDirectory())
-                    {
-                        ptr = menuAddMainFile(index, ptr, entry.name());
-                    }
-                    entry.close();
-                    ++index;
-                } else {
-                    // End of listing
-                    break;
-                }
-
-                // End of menu check
-                if ((ptr > menuEndPtr) || (menuEntries == 252))
-                {
-                    break;
-                }
-            }
-            if (index > 0)
-            {
-                ptr = menuInsertSpacer(ptr);
-            }
-        }
-        cfgDirectory.close();
-    }
-
-    // Add settings and HTTP server
-    ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_OPEN_SETTINGS,
-        ptr, MENU_STRINGS[STRING_OPEN_SETTINGS], 0);
-    ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_OPEN_SERVER,
-        ptr, MENU_STRINGS[STRING_OPEN_HTTP_SERVER], 0);
-    ptr = menuInsertSpacer(ptr);
-    ptr = menuInsertStatus(ptr);
-    if (rtcHasTime)
-    {
-        ptr = menuInsertClockTime(ptr);
-    } else {
-        ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_NO_OP,
-            ptr, (wifiNtpEnabled ? MENU_STRINGS[STRING_WIFI_NTP_WAITING] :
-                MENU_STRINGS[STRING_RTC_NOT_SET]), 0);
-    }
-    return ptr;
-}
-
 char* menuGenerateSettings(char* ptr)
 {
     ptr = menuInsertSetting(MENU_ACTION_TOP_MENU, 0, ptr, MENU_STRINGS[STRING_CANCEL], 0);
@@ -732,7 +716,7 @@ char* menuGenerateSettings(char* ptr)
     } else if (wifiNtpPresent)
     {
         ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_NO_OP,
-            ptr, (wifiNtpEnabled ? MENU_STRINGS[STRING_WIFI_NTP_WAITING] : 
+            ptr, (wifiNtpEnabled ? MENU_STRINGS[STRING_WIFI_NTP_WAITING] :
                 MENU_STRINGS[STRING_RTC_NOT_SET]), 0);
     }
 
@@ -758,6 +742,77 @@ char* menuGenerateSettings(char* ptr)
             MENU_STRINGS[STRING_LOAD_NETMAN], 0);
         tmpFile.close();
     }
+    return ptr;
+}
+
+char* menuGenerateMain(char* ptr)
+{
+    ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_RESTART,
+        ptr, MENU_STRINGS[STRING_RESTART], 0);
+    ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_DISABLE,
+        ptr, MENU_STRINGS[STRING_DISABLE], 0);
+    ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_OPEN_BROWSER,
+        ptr, MENU_STRINGS[STRING_OPEN_BROWSER], 0);
+    ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_OPEN_ROMS,
+        ptr, MENU_STRINGS[STRING_OPEN_ROMS], 0);
+    ptr = menuInsertSpacer(ptr);
+
+    // List stored configurations for quick selection
+    File cfgDirectory = SD.open("/ZXTEENSY/CONFIGS", FILE_READ);
+    if (cfgDirectory)
+    {
+        if (cfgDirectory.isDirectory())
+        {
+            uint8_t index = 0;
+            while (true)
+            {
+                File entry = cfgDirectory.openNextFile();
+                if (entry)
+                {
+                    if (!entry.isDirectory())
+                    {
+                        ptr = menuAddMainFile(index, ptr, entry.name());
+                    }
+                    entry.close();
+                    ++index;
+                } else {
+                    // End of listing
+                    break;
+                }
+
+                // End of menu check
+                if ((ptr > menuEndPtr) || (menuEntries == 252))
+                {
+                    break;
+                }
+            }
+            if (index > 0)
+            {
+                ptr = menuInsertSpacer(ptr);
+            }
+        }
+        cfgDirectory.close();
+    }
+
+    // Add settings and HTTP server
+    ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_OPEN_SETTINGS,
+        ptr, MENU_STRINGS[STRING_OPEN_SETTINGS], 0);
+    ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_OPEN_SERVER,
+        ptr, MENU_STRINGS[STRING_OPEN_HTTP_SERVER], 0);
+    ptr = menuInsertSpacer(ptr);
+    ptr = menuInsertStatus(ptr);
+    if (rtcHasTime)
+    {
+        ptr = menuInsertClockTime(ptr);
+    } else {
+        ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_NO_OP,
+            ptr, (wifiNtpEnabled ? MENU_STRINGS[STRING_WIFI_NTP_WAITING] :
+                MENU_STRINGS[STRING_RTC_NOT_SET]), 0);
+    }
+#ifdef ENABLE_DEBUG_MENU
+    ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_OPEN_DEBUG,
+        ptr, MENU_STRINGS[STRING_OPEN_DEBUG], 0);
+#endif
     return ptr;
 }
 
@@ -802,6 +857,9 @@ void menuGenerate()
         case MENU_TYPE_HTTP_SERVER :
             textPtr = menuGenerateHttpServer(textPtr);
             break;
+        case MENU_TYPE_DEBUG :
+            textPtr = menuGenerateDebug(textPtr);
+            break;
     }
 
     // End of menu
@@ -819,6 +877,10 @@ void menuResetAction()
     // Reset the menu actions
     menuCurrent = MENU_TYPE_MAIN;
     menuAction = MENU_ACTION_LOAD_ROM;
+
+    // Clear debug buffer
+    menuDebugIndex = 0;
+    memset(menuDebugBuffer, 0, MENU_DEBUG_SIZE);
 }
 
 void menuInitialise(volatile uint8_t* romPtr)
@@ -946,7 +1008,12 @@ bool menuPerformSelection(uint8_t index)
                     cfgData.dskFdbPath[0] = 0;
                     menuConfigChanged = true;
                     break;
+                case SETTING_ACTION_OPEN_DEBUG :
+                    // Open debug menu
+                    menuCurrent = MENU_TYPE_DEBUG;
+                    break;
                 case SETTING_ACTION_OPEN_SERVER :
+                    // Configure HTTP server
                     menuCurrent = MENU_TYPE_HTTP_SERVER;
                     break;
                 case SETTING_ACTION_OPEN_ROMS :
@@ -1607,7 +1674,7 @@ void menuLoadConfiguration(const char* cfgCfgName)
                         strncpy(cfgData.romName, &(cfgPtr[10]), MAX_PATH);
                         cfgData.romName[(MAX_PATH - 1)] = 0;
                         ++count;
-                    } else if ((cfgCfgName == 0) && 
+                    } else if ((cfgCfgName == 0) &&
                         (strncmp("cfgName = ", cfgPtr, 10) == 0))
                     {
                         strncpy(cfgData.cfgName, &(cfgPtr[10]), MAX_PATH);
@@ -1669,4 +1736,33 @@ void menuSaveConfiguration()
             cfgFile.close();
         }
     }
+}
+
+bool menuPrintDebug(bool clearDebug, const char *fmt, ...)
+{
+#ifdef ENABLE_DEBUG_MENU
+    if (clearDebug)
+    {
+        menuDebugIndex = 0;
+        memset(menuDebugBuffer, 0, MENU_DEBUG_SIZE);
+    }
+    if (menuDebugIndex < MENU_DEBUG_SIZE)
+    {
+        va_list ap;
+        va_start(ap, fmt);
+        char* ptr = &(menuDebugBuffer[menuDebugIndex]);
+        size_t count = vsnprintf(ptr, (MENU_DEBUG_SIZE - menuDebugIndex), fmt, ap);
+        if ((menuDebugIndex + count + 1) >= MENU_DEBUG_SIZE)
+        {
+            menuDebugBuffer[(MENU_DEBUG_SIZE - 1)] = 0;
+            menuDebugIndex = MENU_DEBUG_SIZE;
+        } else {
+            menuDebugIndex += (strlen(ptr) + 1);
+        }
+        va_end(ap);
+    }
+    return (menuCurrent == MENU_TYPE_DEBUG);
+#else
+    return false;
+#endif
 }

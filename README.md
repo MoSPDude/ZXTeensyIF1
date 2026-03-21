@@ -346,3 +346,18 @@ https://github.com/DonSuperfo/ZX-Max-128/blob/main/Issue%203/Modify%20for%20%2B3
 * Replace R12 with a 1N4148 diode, with cathode to U9 pin 4
 * Add a 1N4148 diode from U6 pin 12 with cathode to U9 pin 4
 * Add a 10K resistor from U9 pin 4 to ground (eg. U8 pin 24)
+
+## 3rd party Xbox One USB gamepads
+
+You will need to find and add the USB PID:VID code for the controller to the USBHost_t36
+library.
+
+In the case of my "8BitDo M30 Wired Controller for Xbox One", under Windows 11
+Device Manager, it was the "Xbox Peripherals > Xbox Gaming Device" *NOT* the
+(virtual) HID device. Right click the device, select Properties, then Details and
+select "Hardware IDs" to find it listed as "USB\VID_2DC8&PID_200A&..."
+
+Once found, add the USB PID:VID code to %LOCALAPPDATA%\Arduino15\packages\teensy\hardware\avr\1.60.0\libraries\USBHost_t36\joystick.cpp,
+under JoystickController::pid_vid_mapping ,
+
+* 8BitDo M30 Wired Controller for Xbox One :- \{ 0x2dc8, 0x200a, XBOXONE, false \}
