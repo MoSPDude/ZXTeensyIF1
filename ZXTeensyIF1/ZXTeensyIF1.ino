@@ -11,6 +11,7 @@
 #include "EspNtpZXTeensy.h"
 #include "TzxPlayerZXTeensy.h"
 #include "Dsk765ZXTeensy.h"
+#include "PrinterZXTeensy.h"
 #include "DefinesZXTeensy.h"
 
 extern "C" volatile uint32_t systick_millis_count;
@@ -358,6 +359,13 @@ volatile bool tzxEnabled = false;
 Dsk765ZXTeensy dskController;
 volatile bool dskPresent = false;
 volatile bool dskEnabled = false;
+
+// Centronics printer port
+PrinterZXTeensy printerPort;
+volatile bool printerPresent = true;
+volatile bool printerEnabled = false;
+volatile bool printerStrobe = false;
+volatile uint8_t printerByte = 0x00;
 
 // SPI and UART tick cycle counter
 volatile uint32_t globalCycleCount;
@@ -775,7 +783,7 @@ inline __attribute__((always_inline)) void updateRomIndex(bool pageNow)
                     romPtr = divMmcRamArray[3];
                 } else {
                     // 8KB ROM
-                    //romPtr = romArray[ROM_PAGE_DIVMMC + (romSelected - ROM_PAGE_DIVMMC)];
+                    //romPtr = romArray[ROM_PAGE_DIVMMC + (romSelected - ROM_DIVMMC)];
                     romPtr = romArray[ROM_PAGE_DIVMMC];
                 }
                 break;
@@ -1621,6 +1629,12 @@ void handleStateReset()
         dskController.end();
     }
 
+    // Stop the printer
+    if (printerEnabled)
+    {
+        printerPort.end();
+    }
+
     // Reset the banking state
     menuPaged = false;
     menuSelected = false;
@@ -1654,6 +1668,7 @@ void handleStateReset()
     dskEnabled = false;
     modemEnabled = false;
     modemPaged = false;
+    printerEnabled = false;
     romSelected = ROM_ROM0;
     romArraySelected = BANK_ROM0;
 
@@ -1805,6 +1820,13 @@ void handleStateReset()
             }
         }
 
+        // If printer port is present, then enable
+        if (printerPresent)
+        {
+            printerPort.begin();
+            printerEnabled = true;
+        }
+
         // If USB mouse/gamepad is present, then enable
         if (usbPresent)
         {
@@ -1853,6 +1875,7 @@ FASTRUN void loop()
         espUart.onTick();
         tzxPlayer.onTick();
         zxC3OnTick();
+        printerPort.onTick();
         if (wifiNtpEnabled)
         {
             if (wifiNtp.onTick())
@@ -2382,6 +2405,23 @@ FASTRUN void isrWrEvent()
                         {
                             dskController.setMotor((data & 0x08) != 0);
                         }
+                        if (printerEnabled)
+                        {
+                            if ((data & 0x10) == 0)
+                            {
+                                if (!printerStrobe)
+                                {
+                                    printerPort.writeData(printerByte);
+                                    printerStrobe = true;
+                                }
+                            } else {
+                                printerStrobe = false;
+                            }
+                        }
+                    } else if (printerEnabled)
+                    {
+                        // Detect 0x0ffd write access for Centronics printer
+                        printerByte = data;
                     }
                 }
             } else {
@@ -2811,12 +2851,6 @@ FASTRUN void isrRdEvent()
                         writeData(espUart.hasReadData() ? espUart.readData() : 0x00);
                     }
                     break;
-                case 0xff :
-                    if (modemEnabled)
-                    {
-                        writeData(modemOnReset ? 0x00 : espUart.getModemStatusByte());
-                    }
-                    break;
                 case 0xbf :
                     if (mf128Enabled)
                     {
@@ -2863,22 +2897,36 @@ FASTRUN void isrRdEvent()
                     }
                     break;
                 case 0xfd :
-                    if (dskEnabled)
+                    switch (decodeHighAddress(gpioSix))
                     {
-                        switch (decodeHighAddress(gpioSix))
-                        {
-                            case 0x2f :
+                        case 0x0f :
+                            if (printerEnabled)
+                            {
+                                writeData(printerPort.getBusy() ? 0x01 : 0x00);
+                            }
+                        case 0x2f :
+                            if (dskEnabled)
+                            {
                                 writeData(dskController.getStatusByte());
-                                break;
-                            case 0x3f :
+                            }
+                            break;
+                        case 0x3f :
+                            if (dskEnabled)
+                            {
                                 writeData(dskController.readData());
-                                break;
-                        }
+                            }
+                            break;
                     }
                 case 0xfe :
                     if (tzxEnabled && tzxPlayer.isTapePlaying())
                     {
                         writeData(tzxPlayer.getTapeByte());
+                    }
+                    break;
+                case 0xff :
+                    if (modemEnabled)
+                    {
+                        writeData(modemOnReset ? 0x00 : espUart.getModemStatusByte());
                     }
                     break;
             }
