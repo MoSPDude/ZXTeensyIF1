@@ -76,6 +76,13 @@ ZX Interface 1 attached to my ZX Max 128 - as I own a ZX Microdrive as well as a
 (https://github.com/TomDDG/ZXPicoMD) ... and didn't want to keep disconnecting the ZX
 Interface 1.
 
+> [!WARNING]
+> I created this for myself, and it is distributed in the hope that it will be useful,
+> but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+> FITNESS FOR A PARTICULAR PURPOSE.
+>
+> I take ZERO responsibility if it damages your hardware!
+
 ## Credits
 
 Full credits to the following projects - this project gathers and integrates from
