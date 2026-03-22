@@ -63,6 +63,9 @@ typedef enum {
     SETTING_ACTION_TOGGLE_MODEM,
     SETTING_ACTION_TOGGLE_NTP,
     SETTING_ACTION_TOGGLE_FDC,
+    SETTING_ACTION_TOGGLE_PRINTER,
+    SETTING_ACTION_TOGGLE_LPRINT,
+    SETTING_ACTION_CLEAR_PRINTER,
     SETTING_ACTION_UNMOUNT_SDA,
     SETTING_ACTION_UNMOUNT_SDB,
     SETTING_ACTION_UNMOUNT_FDA,
@@ -687,6 +690,18 @@ char* menuGenerateSettings(char* ptr)
         ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_MF128,
             ptr, MENU_STRINGS[STRING_ENABLE_MF128], mf128Present);
     }
+    ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_PRINTER, 
+        ptr, MENU_STRINGS[STRING_ENABLE_PRINTER], printerPresent);
+    if (printerPresent)
+    {
+        if ((romArrayPresent & BANK_LPRINT) != 0)
+        {
+            ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_LPRINT, 
+                ptr, MENU_STRINGS[STRING_ENABLE_LPRINT], lprintPresent);
+        }
+        ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_CLEAR_PRINTER, 
+            ptr, MENU_STRINGS[STRING_CLEAR_PRINTER], 0);
+    }
     ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_USB, ptr,
         MENU_STRINGS[STRING_ENABLE_USB], usbPresent);
     ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_UART, ptr,
@@ -991,6 +1006,20 @@ bool menuPerformSelection(uint8_t index)
                 case SETTING_ACTION_TOGGLE_FDC :
                     dskPresent = !dskPresent;
                     menuConfigChanged = true;
+                    break;
+                case SETTING_ACTION_TOGGLE_PRINTER :
+                    printerPresent = !printerPresent;
+                    menuConfigChanged = true;
+                    break;
+                case SETTING_ACTION_TOGGLE_LPRINT :
+                    if ((romArrayPresent & BANK_LPRINT) != 0)
+                    {
+                        lprintPresent = !lprintPresent;
+                        menuConfigChanged = true;
+                    }
+                    break;
+                case SETTING_ACTION_CLEAR_PRINTER :
+                    menuClearPrinterFile();
                     break;
                 case SETTING_ACTION_UNMOUNT_SDA :
                     cfgData.divMmcSdaPath[0] = 0;
@@ -1554,6 +1583,8 @@ void menuClearConfiguration()
     uartPresent = false;
     usbPresent = false;
     dskPresent = false;
+    printerPresent = false;
+    lprintPresent = false;
     bootIntoMenu = true;
     wifiNtpPresent = false;
     wifiNtpTz = 48;
@@ -1669,6 +1700,14 @@ void menuLoadConfiguration(const char* cfgCfgName)
                     {
                         interface1Present = ((cfgPtr[20] == '1') ? true : false);
                         ++count;
+                    } else if (strncmp("printerPresent = ", cfgPtr, 17) == 0)
+                    {
+                        printerPresent = ((cfgPtr[17] == '1') ? true : false);
+                        ++count;
+                    } else if (strncmp("lprintPresent = ", cfgPtr, 16) == 0)
+                    {
+                        lprintPresent = ((cfgPtr[16] == '1') ? true : false);
+                        ++count;
                     } else if (strncmp("romName = ", cfgPtr, 10) == 0)
                     {
                         strncpy(cfgData.romName, &(cfgPtr[10]), MAX_PATH);
@@ -1725,6 +1764,8 @@ void menuSaveConfiguration()
             cfgFile.printf("wifiNtpPresent = %0d\n", wifiNtpPresent);
             cfgFile.printf("wifiNtpTz = %0d\n", wifiNtpTz);
             cfgFile.printf("dskPresent = %0d\n", dskPresent);
+            cfgFile.printf("printerPresent = %0d\n", printerPresent);
+            cfgFile.printf("lprintPresent = %0d\n", lprintPresent);
             cfgFile.printf("bootIntoMenu = %0d\n", bootIntoMenu);
             cfgFile.printf("cfgName = %s\n", cfgData.cfgName);
             cfgFile.printf("romName = %s\n", cfgData.romName);
@@ -1735,6 +1776,17 @@ void menuSaveConfiguration()
             cfgFile.printf("modemUrl = %s\n", cfgData.modemUrl);
             cfgFile.close();
         }
+    }
+}
+
+void menuClearPrinterFile()
+{
+    File outFile = SD.open(PRINTER_OUT_PATH, FILE_WRITE_BEGIN);
+    if (outFile)
+    {
+        outFile.seek(0, SeekSet);
+        outFile.truncate();
+        outFile.close();
     }
 }
 

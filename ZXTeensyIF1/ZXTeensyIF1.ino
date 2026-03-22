@@ -78,9 +78,10 @@ typedef enum {
     BANK_ROM2   = 0x0004,
     BANK_ROM3   = 0x0008,
     BANK_IF1    = 0x0010,
-    BANK_DIVMMC = 0x0020,
-    BANK_MF128  = 0x0040,
-    BANK_RAM    = 0x0080
+    BANK_MF128  = 0x0020,
+    BANK_DIVMMC = 0x0040,
+    BANK_LPRINT = 0x0080,
+    BANK_RAM    = 0x0100
 } bank_select_t;
 
 typedef enum {
@@ -93,6 +94,7 @@ typedef enum {
     ROM_MF128, // Upper ROM_MF128 is MF128 RAM
     // 8KB ROMs
     ROM_DIVMMC,
+    ROM_LPRINT,
     // "Dynamic ROMs" that use DivMMC RAM
     ROM_MODEM,
     ROM_ZXC2,
@@ -108,6 +110,7 @@ typedef enum {
     ROM_PAGE_IF1       = 8,
     ROM_PAGE_MF128     = 10,
     ROM_PAGE_DIVMMC    = 12,
+    ROM_PAGE_LPRINT    = 13,
     ROM_PAGE_COUNT
 } rom_page_t;
 
@@ -362,8 +365,11 @@ volatile bool dskEnabled = false;
 
 // Centronics printer port
 PrinterZXTeensy printerPort;
-volatile bool printerPresent = true;
+volatile bool printerPresent = false;
 volatile bool printerEnabled = false;
+volatile bool lprintPresent = false;
+volatile bool lprintEnabled = false;
+volatile bool lprintPaged = false;
 volatile bool printerStrobe = false;
 volatile uint8_t printerByte = 0x00;
 
@@ -741,6 +747,10 @@ inline __attribute__((always_inline)) void updateRomIndex(bool pageNow)
     {
         romSelected = ROM_MODEM;
         romArraySelected = BANK_RAM;
+    } else if (lprintPaged)
+    {
+        romSelected = ROM_LPRINT;
+        romArraySelected = BANK_LPRINT;
     } else if (mf128Paged)
     {
         romSelected = ROM_MF128;
@@ -782,8 +792,6 @@ inline __attribute__((always_inline)) void updateRomIndex(bool pageNow)
                 {
                     romPtr = divMmcRamArray[3];
                 } else {
-                    // 8KB ROM
-                    //romPtr = romArray[ROM_PAGE_DIVMMC + (romSelected - ROM_DIVMMC)];
                     romPtr = romArray[ROM_PAGE_DIVMMC];
                 }
                 break;
@@ -794,6 +802,11 @@ inline __attribute__((always_inline)) void updateRomIndex(bool pageNow)
                 break;
             case ROM_MENU :
                 romPtr = divMmcRamArray[0];
+                break;
+            case ROM_LPRINT :
+                // 8KB ROMs are after ROM_PAGE_DIVMMC
+                //romPtr = romArray[ROM_PAGE_DIVMMC + (romSelected - ROM_DIVMMC)];
+                romPtr = romArray[ROM_PAGE_LPRINT];
                 break;
             default :
                 // 16KB ROMs are two ROM pages
@@ -1500,11 +1513,20 @@ void handleStateResetEntry()
             loadRomSets = false;
             if (beginSdfsSd())
             {
+                // Load initial configuration
+                if (!afterFirstReset)
+                {
+                    menuLoadConfiguration(0);
+                }
+
                 // Load DivMMC Esxdos ROM
                 if (loadRomImage(ESXMMC_BIN_PATH, (char *)romArray[ROM_PAGE_DIVMMC],
                     RAM_PAGE_SIZE) > 0)
                 {
                     romArrayPresent |= BANK_DIVMMC;
+                } else if ((romArrayPresent & BANK_DIVMMC) == 0) 
+                {
+                    divMmcPresent = false;
                 }
 
                 // Load Multiface 128 ROM
@@ -1512,6 +1534,19 @@ void handleStateResetEntry()
                     RAM_PAGE_SIZE) > 0)
                 {
                     romArrayPresent |= BANK_MF128;
+                } else if ((romArrayPresent & BANK_MF128) == 0) 
+                {
+                    mf128Present = false;
+                }
+
+                // Load ZX LPrint III ROM
+                if (loadRomImage(LPRINT_ROM_PATH, (char *)romArray[ROM_PAGE_LPRINT],
+                    0x0800) > 0)
+                {
+                    romArrayPresent |= BANK_LPRINT;
+                } else if ((romArrayPresent & BANK_LPRINT) == 0)
+                {
+                    lprintPresent = false;
                 }
 
                 // Load Interface 1 ROM
@@ -1519,12 +1554,9 @@ void handleStateResetEntry()
                     ROM_PAGE_SIZE) > 0)
                 {
                     romArrayPresent |= BANK_IF1;
-                }
-
-                // Load configuration
-                if (!afterFirstReset)
+                } else if ((romArrayPresent & BANK_IF1) == 0)
                 {
-                    menuLoadConfiguration(0);
+                    interface1Present = false;
                 }
 
                 // Load Spectrum ROM
@@ -1630,7 +1662,7 @@ void handleStateReset()
     }
 
     // Stop the printer
-    if (printerEnabled)
+    if (printerEnabled || lprintEnabled)
     {
         printerPort.end();
     }
@@ -1669,6 +1701,8 @@ void handleStateReset()
     modemEnabled = false;
     modemPaged = false;
     printerEnabled = false;
+    lprintEnabled = false;
+    lprintPaged = false;
     romSelected = ROM_ROM0;
     romArraySelected = BANK_ROM0;
 
@@ -1824,7 +1858,12 @@ void handleStateReset()
         if (printerPresent)
         {
             printerPort.begin();
-            printerEnabled = true;
+            if (lprintPresent)
+            {
+                lprintEnabled = true;
+            } else {
+                printerEnabled = true;
+            }
         }
 
         // If USB mouse/gamepad is present, then enable
@@ -2121,19 +2160,6 @@ void usbKeyboardReleased(int key)
     joystickPresent = true;
 }
 
-inline __attribute__((always_inline)) void writeRomData(uint16_t address)
-{
-    if ((romSelected == ROM_DIVMMC) && (address >= RAM_PAGE_SIZE))
-    {
-        // Tranfer DivMMC RAM data to the bus
-        writeData(divMmcRamPtr[address & (RAM_PAGE_SIZE - 1)]);
-    } else if (romEnabled)
-    {
-        // Transfer soft ROM data to the bus
-        writeData(romPtr[address]);
-    }
-}
-
 inline __attribute__((always_inline)) void writePagedRomData(uint16_t address)
 {
     if (romEnabled)
@@ -2152,6 +2178,28 @@ inline __attribute__((always_inline)) void writeDivMmcRomData(uint16_t address)
     } else {
         // Transfer soft ROM data to the bus
         writeData(romPtr[address]);
+    }
+}
+
+inline __attribute__((always_inline)) void writeLprintRomData(uint16_t address)
+{
+    // Transfer soft ROM data to the bus
+    writeData(romPtr[address & 0x07FF]);
+}
+
+inline __attribute__((always_inline)) void writeRomData(uint16_t address)
+{
+    switch (romSelected)
+    {
+        case ROM_DIVMMC :
+            writeDivMmcRomData(address);
+            break;
+        case ROM_LPRINT :
+            writeLprintRomData(address);
+            break;
+        default :
+            writePagedRomData(address);
+            break;
     }
 }
 
@@ -2456,24 +2504,17 @@ FASTRUN void isrWrEvent()
                             }
                         }
                         break;
+                    case 0x7b :
+                        if (lprintEnabled)
+                        {
+                            printerByte = readData();
+                            printerPort.writeData(printerByte);
+                        }
+                        break;
                     case 0x7f :
                         if (modemEnabled)
                         {
                             espUart.writeData(UartZXTeensy::UART_WRITE, readData());
-                        }
-                        break;
-                    case 0xff :
-                        if (modemEnabled)
-                        {
-                            if (modemOnReset)
-                            {
-                                modemOnReset = false;
-                            } else {
-                                uint8_t data = readData();
-                                modemPaged = ((data & 0x20) == 0);
-                                modemOnReset = ((data & 0x40) != 0);
-                                updateRomIndex(true);
-                            }
                         }
                         break;
                     case 0xbf :
@@ -2539,6 +2580,26 @@ FASTRUN void isrWrEvent()
                         {
                             // DivMMC write
                             writeSdSpiWriteBuffer(SD_SPI_WRITE, readData());
+                        }
+                        break;
+                    case 0xfb :
+                        if (lprintEnabled)
+                        {
+                            printerByte = readData();
+                        }
+                        break;
+                    case 0xff :
+                        if (modemEnabled)
+                        {
+                            if (modemOnReset)
+                            {
+                                modemOnReset = false;
+                            } else {
+                                uint8_t data = readData();
+                                modemPaged = ((data & 0x20) == 0);
+                                modemOnReset = ((data & 0x40) != 0);
+                                updateRomIndex(true);
+                            }
                         }
                         break;
                 }
@@ -2758,6 +2819,10 @@ FASTRUN void isrRdEvent()
                                 }
                             }
                             break;
+                        case ROM_LPRINT :
+                            // Write ROM data to bus
+                            writeLprintRomData(address);
+                            break;
                         case ROM_ZXC2 :
                             // Write ROM data to bus
                             writePagedRomData(address);
@@ -2845,6 +2910,14 @@ FASTRUN void isrRdEvent()
                         writeData(mf128VideoRam ? 0x80 : 0x00);
                     }
                     break;
+                case 0x7b :
+                    if (lprintEnabled)
+                    {
+                        writeData(printerPort.getBusy() ? 0xC0 : 0x40);
+                        lprintPaged = false;
+                        updateRomIndex(true);
+                    }
+                    break;
                 case 0x7f :
                     if (modemEnabled)
                     {
@@ -2894,6 +2967,14 @@ FASTRUN void isrRdEvent()
                             writeData(0xff);
                             writeSdSpiWriteBuffer(SD_SPI_READ, 0xff);
                         }
+                    }
+                    break;
+                case 0xfb :
+                    if (lprintEnabled)
+                    {
+                        writeData(printerPort.getBusy() ? 0xC0 : 0x40);
+                        lprintPaged = true;
+                        updateRomIndex(true);
                     }
                     break;
                 case 0xfd :

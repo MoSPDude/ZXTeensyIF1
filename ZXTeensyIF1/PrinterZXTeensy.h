@@ -20,7 +20,7 @@ class PrinterZXTeensy
         {
             if (!outFile)
             {
-                outFile = SD.open("printer.txt", FILE_WRITE);
+                outFile = SD.open(PRINTER_OUT_PATH, FILE_WRITE);
                 if (outFile)
                 {
                     outFile.seek(0, SeekEnd);

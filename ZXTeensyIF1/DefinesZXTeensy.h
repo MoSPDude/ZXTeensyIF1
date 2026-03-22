@@ -2,13 +2,14 @@
 #ifndef DEFINES_ZX_TEENSY_H
 #define DEFINES_ZX_TEENSY_H
 
-#define ZXTEENSY_VERSION "20260321"
+#define ZXTEENSY_VERSION "20260322"
 #define ENABLE_BUILTIN_ROM_IF1
 //define DEBUG_OUTPUT
 //define ENABLE_DEBUG_MENU
 
 #define ESXMMC_BIN_PATH ((const char*)F("/ZXTEENSY/esxmmc.bin"))
 #define MF128_ROM_PATH ((const char*)F("/ZXTEENSY/mf128.rom"))
+#define LPRINT_ROM_PATH ((const char*)F("/ZXTEENSY/lprint32.rom"))
 #define MODEM_ROM_PATH ((const char*)F("/ZXTEENSY/vtx.rom"))
 #define IF1_ROM_PATH ((const char*)F("/ZXTEENSY/if1.rom"))
 #define MENU_ROM_PATH ((const char*)F("/ZXTEENSY/menu.rom"))
@@ -16,6 +17,7 @@
 #define ZXTEENSY_CFG_PATH ((const char*)F("/ZXTEENSY/ZXTEENSY.CFG"))
 #define NETMAN_Z80_PATH ((const char*)F("/ZXTEENSY/netman.z80"))
 #define RTC_SETUP_Z80_PATH ((const char*)F("/ZXTEENSY/rtc_setup.z80"))
+#define PRINTER_OUT_PATH ((const char*)F("/printer.txt"))
 
 #define FWUPDATE_HEX_PATH "ZXTEENSY.HEX"
 #define MODEM_URL_PATH ((const char*)F("\"glasstty.com\",6502"))

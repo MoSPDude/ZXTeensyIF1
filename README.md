@@ -42,6 +42,8 @@ A Teensy 4.1 powered DivMMC and ZX Interface 1 clone for the ZX Spectrum 48K/128
 * Prism VTX5000 over ESP-01S
     * Creates a serial tunnel over WiFi to given URL
     * Default URL is '"glasstty.com",6502' - https://glasstty.com/telstar/
+* Spectrum +3 and ZX LPRINT III Centronics printer
+    * Writes output into a "printer.txt" file on SD card
 * Soft ROM emulation
     * Override the internal Spectrum ROM with ROMs from SD card
     * Supports 16KB (Spectrum 48K), 32KB (Spectrum 128K/+2 (Grey)) and 64KB (Spectrum +2A/+3) ROMs
@@ -104,6 +106,8 @@ It borrows content, ideas and inspiration from,
     * ZX Interface 1 v2 ROM disassembly
 * https://spectrumcomputing.co.uk/pub/sinclair/technical-docs/ZXInterface1_Schematics.gif
     * ZX Interface 1 schematic
+* https://zxpress.ru/chapters_images/periferiya/periferiya-33.png
+    * ZX LPRINT III schematic
 * https://divide.speccy.cz/files/pgm_model.txt
     * DivIDE programming model
 * https://www.thingiverse.com/thing:6500064
@@ -142,6 +146,7 @@ the DivMMC and enable the Interface 1.
     * SPECTRA_IF1_ED2_ME_ROM_Formatted.bin (MD5SUM: 052ad91ee822604960e8ca8d32a3ddb9)
     * IF1.ROM (Optional, MD5SUM: 31b704ae925305e74f50699271fddd9a)
     * VTX.ROM (MD5SUM: 12a62cb7ea7383f109c2711dfca99f5e)
+    * LPRINT32.ROM (MD5SUM: e85f4ccb4cc80aaa81cceffb3e064bf7)
     * netman.z80 (WiFi Network Manager snapshot)
     * rtc_setup.z80 (RTC Setup snapshot)
     * ZXTEENSY.CFG (Current configuration from Menu ROM)
