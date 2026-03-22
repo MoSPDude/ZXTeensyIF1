@@ -1,7 +1,7 @@
 
 # ZXTeensyIF1
 
-![image](./Images/pcb-v0.2.JPG "Prototype PCB")
+![image](./Images/pcb-v0.7.JPG "Working PCB")
 
 A Teensy 4.1 powered DivMMC and ZX Interface 1 clone for the ZX Spectrum 48K/128K/+2 (Grey) machines,
 
@@ -13,7 +13,8 @@ A Teensy 4.1 powered DivMMC and ZX Interface 1 clone for the ZX Spectrum 48K/128
     * Supports accessing the main SD card, HDF and IMG images
 * Multiface 128 emulation
     * NMI button and soft ROM
-* ZX Interface 2 emulation
+* ZX Interface 2 ROM cartridge emulation
+    * It does not emulate the Joystick ports
 * ZXC2 and ZXC3 with Flash ROM cartridge emulation
     * Implements ZXC2 ROM banking
     * Implements ZXC3 ROM banking with 128KB Flash ROM
@@ -117,7 +118,8 @@ Without the above projects, this would not have been possible!
 
 ## Current Status
 
-Updated v0.7 PCBs have come back from PCBWay, and now being tested.
+Updated v0.7 PCBs have come back from PCBWay, and appear to be working. Now, spending time
+on implementing the firmware features...
 
 The first v0.2 PCBs had come back from PCBWay, and been tested with my 48K Spectrum, and my
 ZX Max 128 Issue 3. Some parts have come from a donor ZX Interface 1 that needed a new old-stock
@@ -161,6 +163,8 @@ the DivMMC and enable the Interface 1.
 * ZXTEENSY.HEX (Optional, firmware update)
 
 ## Using the Menu ROM
+
+![image](./Images/menu-260322.JPG "Menu 20260322")
 
 To load the Menu ROM, either,
 
@@ -247,6 +251,8 @@ ESXDOS has trouble loading if it is not "early" on the SD card,
 
 ### Firmware
 
+* 20260322
+    * ZX LPRINT III and +3 Centronics support
 * 20260319
     * Added Prism VTX5000 through the ESP-01S UART-WiFi passthrough mode
     * Added configuration selection to the menu
