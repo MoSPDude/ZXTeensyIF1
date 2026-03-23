@@ -2187,22 +2187,6 @@ inline __attribute__((always_inline)) void writeLprintRomData(uint16_t address)
     writeData(romPtr[address & (LPRINT_ROM_SIZE - 1)]);
 }
 
-inline __attribute__((always_inline)) void writeRomData(uint16_t address)
-{
-    switch (romSelected)
-    {
-        case ROM_DIVMMC :
-            writeDivMmcRomData(address);
-            break;
-        case ROM_LPRINT :
-            writeLprintRomData(address);
-            break;
-        default :
-            writePagedRomData(address);
-            break;
-    }
-}
-
 FASTRUN void isrFastGpios()
 {
     uint32_t status = GPIO6_ISR & GPIO6_IMR;
@@ -2646,28 +2630,40 @@ FASTRUN void isrRdEvent()
             busRdActive = true;
             uint16_t address = decodeAddress(gpioSix);
 
-            // Perform ZXC2 address based paging
-            if (zxC2Present && !zxC2Lock &&
-                (!zxC2ShadowRom || zxC2Paged) &&
-                ((address & 0xffc0) == 0x3fc0))
-            {
-                if (zxC3Present)
-                {
-                    zxC3Write = ((address & 0x08) != 0);
-                    zxC2BankPtr = ((address & 0x07) << 1);
-                } else {
-                    zxC2BankPtr = ((address & 0x0f) << 1);
-                }
-                zxC2Paged = ((address & 0x10) == 0);
-                zxC2Lock = ((address & 0x20) != 0);
-                updateRomIndex(true);
-            }
-
             // Detect M1 cycle for ROM paging
             if ((gpioNine & M1_PIN_BITMASK) != 0)
             {
                 // Non-M1 cycle - write ROM data to bus
-                writeRomData(address);
+                switch (romSelected)
+                {
+                    case ROM_DIVMMC :
+                        writeDivMmcRomData(address);
+                        break;
+                    case ROM_LPRINT :
+                        writeLprintRomData(address);
+                        break;
+                    default :
+                        // Perform ZXC2 address based paging
+                        if (zxC2Present && !zxC2Lock &&
+                            (!zxC2ShadowRom || zxC2Paged) &&
+                            ((address & 0xffc0) == 0x3fc0))
+                        {
+                            if (zxC3Present)
+                            {
+                                zxC3Write = ((address & 0x08) != 0);
+                                zxC2BankPtr = ((address & 0x07) << 1);
+                            } else {
+                                zxC2BankPtr = ((address & 0x0f) << 1);
+                            }
+                            zxC2Paged = ((address & 0x10) == 0);
+                            zxC2Lock = ((address & 0x20) != 0);
+                            updateRomIndex(true);
+                        }
+
+                        // Write ROM data to bus
+                        writePagedRomData(address);
+                        break;
+                }
             } else if (address == 0x66)
             {
                 // Send the NMI to the Multiface 128
@@ -2683,7 +2679,18 @@ FASTRUN void isrRdEvent()
                 }
 
                 // Write ROM data to bus
-                writeRomData(address);
+                switch (romSelected)
+                {
+                    case ROM_DIVMMC :
+                        writeDivMmcRomData(address);
+                        break;
+                    case ROM_LPRINT :
+                        writeLprintRomData(address);
+                        break;
+                    default :
+                        writePagedRomData(address);
+                        break;
+                }
 
                 // Send the NMI to the DivMMC, if not Multiface 128
                 if (divMmcEnabled && divMmcRomEnabled && !mf128ActiveNMI &&
@@ -2733,6 +2740,23 @@ FASTRUN void isrRdEvent()
                                 updateRomIndex(false);
                             }
                         } else {
+                            // Perform ZXC2 address based paging
+                            if (zxC2Present && !zxC2Lock &&
+                                (!zxC2ShadowRom || zxC2Paged) &&
+                                ((address & 0xffc0) == 0x3fc0))
+                            {
+                                if (zxC3Present)
+                                {
+                                    zxC3Write = ((address & 0x08) != 0);
+                                    zxC2BankPtr = ((address & 0x07) << 1);
+                                } else {
+                                    zxC2BankPtr = ((address & 0x0f) << 1);
+                                }
+                                zxC2Paged = ((address & 0x10) == 0);
+                                zxC2Lock = ((address & 0x20) != 0);
+                                updateRomIndex(true);
+                            }
+
                             // Write ROM data to bus
                             writePagedRomData(address);
 
@@ -2815,6 +2839,22 @@ FASTRUN void isrRdEvent()
                         writeLprintRomData(address);
                         break;
                     case ROM_ZXC2 :
+                        // Perform ZXC2 address based paging
+                        if (!zxC2Lock && (!zxC2ShadowRom || zxC2Paged) &&
+                            ((address & 0xffc0) == 0x3fc0))
+                        {
+                            if (zxC3Present)
+                            {
+                                zxC3Write = ((address & 0x08) != 0);
+                                zxC2BankPtr = ((address & 0x07) << 1);
+                            } else {
+                                zxC2BankPtr = ((address & 0x0f) << 1);
+                            }
+                            zxC2Paged = ((address & 0x10) == 0);
+                            zxC2Lock = ((address & 0x20) != 0);
+                            updateRomIndex(true);
+                        }
+
                         // Write ROM data to bus
                         writePagedRomData(address);
 
@@ -2826,6 +2866,23 @@ FASTRUN void isrRdEvent()
                         }
                         break;
                     default :
+                        // Perform ZXC2 address based paging
+                        if (zxC2Present && !zxC2Lock &&
+                            (!zxC2ShadowRom || zxC2Paged) &&
+                            ((address & 0xffc0) == 0x3fc0))
+                        {
+                            if (zxC3Present)
+                            {
+                                zxC3Write = ((address & 0x08) != 0);
+                                zxC2BankPtr = ((address & 0x07) << 1);
+                            } else {
+                                zxC2BankPtr = ((address & 0x0f) << 1);
+                            }
+                            zxC2Paged = ((address & 0x10) == 0);
+                            zxC2Lock = ((address & 0x20) != 0);
+                            updateRomIndex(true);
+                        }
+
                         // Write ROM data to bus
                         writePagedRomData(address);
                         break;
@@ -2846,7 +2903,7 @@ FASTRUN void isrRdEvent()
                 } else {
                     snaLoaderPaged = false;
                 }
-                updateRomIndex(true);
+                updateRomIndex(false);
             }
 
 #ifdef DEBUG_OUTPUT
