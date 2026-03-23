@@ -7,6 +7,7 @@
 #include "RingBuffer.h"
 #include "usb_serial.h"
 #include <HardwareSerial.h>
+#include "DefinesZXTeensy.h"
 
 class UartZXTeensy
 {
@@ -27,8 +28,9 @@ class UartZXTeensy
         RingBuffer<RX_BUFFER_SIZE> uartReadBuffer __attribute__((aligned(16)));
 
         bool enabled;
-        bool isPassthrough;
+        bool isModemPassthrough;
         volatile size_t readBytesAvailable;
+        volatile uint32_t readByteCycle;
 
         inline __attribute__((always_inline)) uart_action_t readWriteData(uint8_t* data)
         {
@@ -43,8 +45,8 @@ class UartZXTeensy
         }
 
     public :
-        constexpr UartZXTeensy() : enabled(false), isPassthrough(false),
-            readBytesAvailable(0)
+        constexpr UartZXTeensy() : enabled(false), isModemPassthrough(false),
+            readBytesAvailable(0), readByteCycle(0)
         {
         }
 
@@ -123,10 +125,24 @@ class UartZXTeensy
                     }
                 }
                 size_t count = Serial8.available();
-                while ((count > 0) && uartReadBuffer.canWrite())
+                if (isModemPassthrough)
                 {
-                    uartReadBuffer.write(Serial8.read());
-                    --count;
+                    // Restrict data rate to byte per MODEM_DELAY_CNT
+                    if ((ARM_DWT_CYCCNT - readByteCycle) >= MODEM_DELAY_CNT)
+                    {
+                        readByteCycle = ARM_DWT_CYCCNT;
+                        if (count > 0)
+                        {
+                            uartReadBuffer.write(Serial8.read());
+                            --count;
+                        }
+                    }
+                } else {
+                    while ((count > 0) && uartReadBuffer.canWrite())
+                    {
+                        uartReadBuffer.write(Serial8.read());
+                        --count;
+                    }
                 }
                 readBytesAvailable = count;
             }

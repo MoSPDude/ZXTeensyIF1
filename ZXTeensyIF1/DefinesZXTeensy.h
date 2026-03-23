@@ -44,4 +44,7 @@
 // Tape T-state delay
 #define TAPE_DELAY_CNT (TEENSY_CLK_FREQ / 3500000ULL)
 
+// VTX5000 read data rate to 120 bps (~1200 baud)
+#define MODEM_DELAY_CNT (TEENSY_CLK_FREQ / 120ULL)
+
 #endif

@@ -53,9 +53,10 @@ void UartZXTeensy::begin(uint8_t baudRate, const char* modemUrl)
                 break;
         }
         Serial8.begin(baud);
+        readByteCycle = ARM_DWT_CYCCNT;
         if (modemUrl != 0)
         {
-            isPassthrough = true;
+            isModemPassthrough = true;
             Serial8.println("ATE0");
             if (espWaitFor("OK"))
             {
@@ -76,7 +77,7 @@ void UartZXTeensy::begin(uint8_t baudRate, const char* modemUrl)
             }
         } else {
             enabled = true;
-            isPassthrough = false;
+            isModemPassthrough = false;
         }
     }
 };
@@ -85,7 +86,7 @@ void UartZXTeensy::end(void)
 {
     if (enabled)
     {
-        if (isPassthrough)
+        if (isModemPassthrough)
         {
             Serial8.print("+++");
             delay(1000);
