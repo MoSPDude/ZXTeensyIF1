@@ -1490,7 +1490,7 @@ void handleStateResetEntry()
 
     // Initialise the device soft ROMs
     delay(250);
-    if (!isDeviceDisabled && loadRomSets)
+    if (loadRomSets)
     {
         // Reset the soft ROM state
         romArrayPresent = 0;
@@ -1504,86 +1504,90 @@ void handleStateResetEntry()
         zxC2ShadowRom = false;
         snaLoaderPresent = false;
 
-        // Load the built-in Interface 1 soft ROM
+        // Load configuration and soft ROMs
+        if (!isDeviceDisabled)
+        {
+            // Load the built-in Interface 1 soft ROM
 #ifdef ENABLE_BUILTIN_ROM_IF1
-        memcpy((void *)romArray[ROM_PAGE_IF1], BUILTIN_ROM_IF1, BUILTIN_ROM_IF1_SIZE);
-        romArrayPresent |= BANK_IF1;
+            memcpy((void *)romArray[ROM_PAGE_IF1], BUILTIN_ROM_IF1, BUILTIN_ROM_IF1_SIZE);
+            romArrayPresent |= BANK_IF1;
 #endif
 
-        // Load ROMs from the SD card
-        if (beginSdfsSd())
-        {
-            // Load initial configuration
-            if (!afterFirstReset)
+            // Load ROMs from the SD card
+            if (beginSdfsSd())
             {
-                menuLoadConfiguration(0);
-            }
-
-            // Load Interface 1 ROM
-            if (loadRomImage(IF1_ROM_PATH, (char *)romArray[ROM_PAGE_IF1],
-                ROM_PAGE_SIZE) > 0)
-            {
-                romArrayPresent |= BANK_IF1;
-            } else if ((romArrayPresent & BANK_IF1) == 0)
-            {
-                interface1Present = false;
-            }
-
-            // Load DivMMC Esxdos ROM
-            if (loadRomImage(ESXMMC_BIN_PATH, (char *)romArray[ROM_PAGE_DIVMMC],
-                RAM_PAGE_SIZE) > 0)
-            {
-                romArrayPresent |= BANK_DIVMMC;
-            } else {
-                divMmcPresent = false;
-            }
-
-            // Load Multiface 128 ROM
-            if (loadRomImage(MF128_ROM_PATH, (char *)romArray[ROM_PAGE_MF128],
-                RAM_PAGE_SIZE) > 0)
-            {
-                romArrayPresent |= BANK_MF128;
-            } else {
-                mf128Present = false;
-            }
-
-            // Load ZX LPrint III ROM
-            if (loadRomImage(LPRINT_ROM_PATH, (char *)lprintRom,
-                LPRINT_ROM_SIZE) > 0)
-            {
-                romArrayPresent |= BANK_LPRINT;
-            } else {
-                lprintPresent = false;
-            }
-
-            // Load Spectrum ROM
-            loadSpectrumRomFile();
-
-            // Load foreground ROM
-            if (!loadForegroundRom())
-            {
-                if (afterFirstReset)
+                // Load initial configuration
+                if (!afterFirstReset)
                 {
-                    afterFirstReset = false;
-                    handleStateResetEntry();
-                    return;
+                    menuLoadConfiguration(0);
                 }
-            }
 
-            // Load menu ROM into the DivMMC RAM area
-            if ((menuEnterOnReset || (!afterFirstReset && bootIntoMenu)) &&
-                !digitalReadFast(ROMCS_IN_PIN) &&
-                (loadRomImage(MENU_ROM_PATH, (char *)divMmcExtRamArray[0],
-                    RAM_PAGE_SIZE) > 0))
+                // Load Interface 1 ROM
+                if (loadRomImage(IF1_ROM_PATH, (char *)romArray[ROM_PAGE_IF1],
+                    ROM_PAGE_SIZE) > 0)
+                {
+                    romArrayPresent |= BANK_IF1;
+                } else if ((romArrayPresent & BANK_IF1) == 0)
+                {
+                    interface1Present = false;
+                }
+
+                // Load DivMMC Esxdos ROM
+                if (loadRomImage(ESXMMC_BIN_PATH, (char *)romArray[ROM_PAGE_DIVMMC],
+                    RAM_PAGE_SIZE) > 0)
+                {
+                    romArrayPresent |= BANK_DIVMMC;
+                } else {
+                    divMmcPresent = false;
+                }
+
+                // Load Multiface 128 ROM
+                if (loadRomImage(MF128_ROM_PATH, (char *)romArray[ROM_PAGE_MF128],
+                    RAM_PAGE_SIZE) > 0)
+                {
+                    romArrayPresent |= BANK_MF128;
+                } else {
+                    mf128Present = false;
+                }
+
+                // Load ZX LPrint III ROM
+                if (loadRomImage(LPRINT_ROM_PATH, (char *)lprintRom,
+                    LPRINT_ROM_SIZE) > 0)
+                {
+                    romArrayPresent |= BANK_LPRINT;
+                } else {
+                    lprintPresent = false;
+                }
+
+                // Load Spectrum ROM
+                loadSpectrumRomFile();
+
+                // Load foreground ROM
+                if (!loadForegroundRom())
+                {
+                    if (afterFirstReset)
+                    {
+                        afterFirstReset = false;
+                        handleStateResetEntry();
+                        return;
+                    }
+                }
+
+                // Load menu ROM into the DivMMC RAM area
+                if ((menuEnterOnReset || (!afterFirstReset && bootIntoMenu)) &&
+                    !digitalReadFast(ROMCS_IN_PIN) &&
+                    (loadRomImage(MENU_ROM_PATH, (char *)divMmcExtRamArray[0],
+                        RAM_PAGE_SIZE) > 0))
+                {
+                    menuPaged = true;
+                    divMmcExtRamEnabled = false;
+                    romArrayPresent |= BANK_RAM;
+                }
+            } else if (!isButtonHeld)
             {
-                menuPaged = true;
-                divMmcExtRamEnabled = false;
-                romArrayPresent |= BANK_RAM;
+                // Button without SD card disables the built-in Interface 1 soft ROM
+                interface1Present = ((romArrayPresent & BANK_IF1) != 0);
             }
-        } else if (!isButtonHeld)
-        {
-            // Button without SD card disables the built-in Interface 1 soft ROM
-            interface1Present = ((romArrayPresent & BANK_IF1) != 0);
         }
     }
 }
@@ -2211,6 +2215,9 @@ FASTRUN void isrFastGpios()
         } else {
             isrRdEvent();
         }
+
+        // Re-sync regular ticks after ISR
+        globalCycleCount = (ARM_DWT_CYCCNT - TICK_CYCCNT);
     }
     status = GPIO9_ISR & GPIO9_IMR;
     if (status)
@@ -2259,351 +2266,345 @@ FASTRUN void isrPinButton()
 
 FASTRUN void isrWrEvent()
 {
-    if (globalState == STATE_ROM_ENABLE)
+    // Start of write access
+    uint32_t gpioSix = (*(volatile uint32_t *)IMXRT_GPIO6_ADDRESS);
+    if ((gpioSix & ROM_ADDRESS_MASK) == 0x00000000)
     {
-        // Start of write access
-        uint32_t gpioSix = (*(volatile uint32_t *)IMXRT_GPIO6_ADDRESS);
-        if ((gpioSix & ROM_ADDRESS_MASK) == 0x00000000)
+        uint16_t address = decodeAddress(gpioSix);
+
+        // Perform ZXC2 address based paging
+        if (zxC2Present && !zxC2Lock &&
+            (!zxC2ShadowRom || zxC2Paged) &&
+            ((address & 0xffc0) == 0x3fc0))
         {
-            uint16_t address = decodeAddress(gpioSix);
-
-            // Perform ZXC2 address based paging
-            if (zxC2Present && !zxC2Lock &&
-                (!zxC2ShadowRom || zxC2Paged) &&
-                ((address & 0xffc0) == 0x3fc0))
+            if (zxC3Present)
             {
-                if (zxC3Present)
-                {
-                    zxC3Write = ((address & 0x08) != 0);
-                    zxC2BankPtr = ((address & 0x07) << 1);
-                } else {
-                    zxC2BankPtr = ((address & 0x0f) << 1);
-                }
-                zxC2Paged = ((address & 0x10) == 0);
-                zxC2Lock = ((address & 0x20) != 0);
-                updateRomIndex(true);
+                zxC3Write = ((address & 0x08) != 0);
+                zxC2BankPtr = ((address & 0x07) << 1);
+            } else {
+                zxC2BankPtr = ((address & 0x0f) << 1);
             }
+            zxC2Paged = ((address & 0x10) == 0);
+            zxC2Lock = ((address & 0x20) != 0);
+            updateRomIndex(true);
+        }
 
-            switch (romSelected)
-            {
-                case ROM_MF128 :
-                    // Perform Multiface 128 RAM write
-                    if (address >= RAM_PAGE_SIZE)
+        switch (romSelected)
+        {
+            case ROM_MF128 :
+                // Perform Multiface 128 RAM write
+                if (address >= RAM_PAGE_SIZE)
+                {
+                    romPtr[address] = readData();
+                }
+                break;
+            case ROM_DIVMMC :
+                // Perform DivMMC RAM write
+                if ((address >= RAM_PAGE_SIZE) &&
+                    (!divMmcMapRam || divMmcConMem || !divMmcRamBankThree))
+                {
+                    divMmcRamPtr[address & (RAM_PAGE_SIZE - 1)] = readData();
+                }
+                break;
+            case ROM_ZXC2 :
+                if (zxC3Write)
+                {
+                    uint8_t data = readData();
+                    switch (zxC3FlashState)
                     {
-                        romPtr[address] = readData();
-                    }
-                    break;
-                case ROM_DIVMMC :
-                    // Perform DivMMC RAM write
-                    if ((address >= RAM_PAGE_SIZE) &&
-                        (!divMmcMapRam || divMmcConMem || !divMmcRamBankThree))
-                    {
-                        divMmcRamPtr[address & (RAM_PAGE_SIZE - 1)] = readData();
-                    }
-                    break;
-                case ROM_ZXC2 :
-                    if (zxC3Write)
-                    {
-                        uint8_t data = readData();
-                        switch (zxC3FlashState)
-                        {
-                            case ZXC3_FLASH_UNLOCK :
-                                if ((zxC2BankPtr == 0) && (address == 0x2AAA) && (data == 0x55))
-                                {
-                                    zxC3FlashState = ZXC3_FLASH_CMD;
-                                } else {
-                                    zxC3FlashState = ZXC3_FLASH_IDLE;
-                                    zxC3FlashSetup = false;
-                                }
-                                break;
-                            case ZXC3_FLASH_CMD :
-                                zxC3FlashState = ZXC3_FLASH_IDLE;
-                                switch (data)
-                                {
-                                    case 0x10 :
-                                        // Chip erase
-                                        if ((zxC2BankPtr == 2) && (address == 0x1555) &&
-                                            zxC3FlashSetup)
-                                        {
-                                            for (uint8_t i = 0; i < ZXC3_PAGE_COUNT; ++i)
-                                            {
-                                                *divMmcExtRamArray[i] = 0x08;
-                                            }
-                                            zxC3EraseBuffer.write(0xFF);
-                                            zxC3WriteTrigState = TRIGGER_ACTIVE;
-                                        }
-                                        zxC3FlashSetup = false;
-                                        break;
-                                    case 0x30 :
-                                        // Sector erase
-                                        if (zxC3FlashSetup)
-                                        {
-                                            *divMmcExtRamArray[zxC2BankPtr] = 0x08;
-                                            zxC3EraseBuffer.write(zxC2BankPtr);
-                                            zxC3WriteTrigState = TRIGGER_ACTIVE;
-                                        }
-                                        zxC3FlashSetup = false;
-                                        break;
-                                    case 0x80 :
-                                        // Setup command
-                                        if ((zxC2BankPtr == 2) && (address == 0x1555))
-                                        {
-                                            zxC3FlashSetup = true;
-                                        }
-                                        break;
-                                    case 0xA0 :
-                                        // Program byte
-                                        if ((zxC2BankPtr == 2) && (address == 0x1555))
-                                        {
-                                            zxC3FlashState = ZXC3_FLASH_WRITE;
-                                        }
-                                        break;
-                                    default :
-                                        zxC3FlashSetup = false;
-                                        break;
-                                }
-                                break;
-                            case ZXC3_FLASH_WRITE :
-                                // Program byte
-                                romPtr[address] = data;
-                                zxC3FlashState = ZXC3_FLASH_IDLE;
-                                zxC3WriteTrigState = TRIGGER_ACTIVE;
-                                break;
-                            default :
-                                if ((zxC2BankPtr == 2) && (address == 0x1555) && (data == 0xAA))
-                                {
-                                    zxC3FlashState = ZXC3_FLASH_UNLOCK;
-                                }
-                                break;
-                        }
-                    }
-                    break;
-                case ROM_SNA :
-                    // Detect snapshot loader paging
-                    if (address == 0x3FFF)
-                    {
-                        if (snaLoaderBanks > 0)
-                        {
-                            zxC2BankPtr += 2;
-                            if (zxC2BankPtr >= snaLoaderBanks)
+                        case ZXC3_FLASH_UNLOCK :
+                            if ((zxC2BankPtr == 0) && (address == 0x2AAA) && (data == 0x55))
                             {
-                                zxC2BankPtr = 0;
-                                snaLoaderBanks = 0;
+                                zxC3FlashState = ZXC3_FLASH_CMD;
+                            } else {
+                                zxC3FlashState = ZXC3_FLASH_IDLE;
+                                zxC3FlashSetup = false;
+                            }
+                            break;
+                        case ZXC3_FLASH_CMD :
+                            zxC3FlashState = ZXC3_FLASH_IDLE;
+                            switch (data)
+                            {
+                                case 0x10 :
+                                    // Chip erase
+                                    if ((zxC2BankPtr == 2) && (address == 0x1555) &&
+                                        zxC3FlashSetup)
+                                    {
+                                        for (uint8_t i = 0; i < ZXC3_PAGE_COUNT; ++i)
+                                        {
+                                            *divMmcExtRamArray[i] = 0x08;
+                                        }
+                                        zxC3EraseBuffer.write(0xFF);
+                                        zxC3WriteTrigState = TRIGGER_ACTIVE;
+                                    }
+                                    zxC3FlashSetup = false;
+                                    break;
+                                case 0x30 :
+                                    // Sector erase
+                                    if (zxC3FlashSetup)
+                                    {
+                                        *divMmcExtRamArray[zxC2BankPtr] = 0x08;
+                                        zxC3EraseBuffer.write(zxC2BankPtr);
+                                        zxC3WriteTrigState = TRIGGER_ACTIVE;
+                                    }
+                                    zxC3FlashSetup = false;
+                                    break;
+                                case 0x80 :
+                                    // Setup command
+                                    if ((zxC2BankPtr == 2) && (address == 0x1555))
+                                    {
+                                        zxC3FlashSetup = true;
+                                    }
+                                    break;
+                                case 0xA0 :
+                                    // Program byte
+                                    if ((zxC2BankPtr == 2) && (address == 0x1555))
+                                    {
+                                        zxC3FlashState = ZXC3_FLASH_WRITE;
+                                    }
+                                    break;
+                                default :
+                                    zxC3FlashSetup = false;
+                                    break;
+                            }
+                            break;
+                        case ZXC3_FLASH_WRITE :
+                            // Program byte
+                            romPtr[address] = data;
+                            zxC3FlashState = ZXC3_FLASH_IDLE;
+                            zxC3WriteTrigState = TRIGGER_ACTIVE;
+                            break;
+                        default :
+                            if ((zxC2BankPtr == 2) && (address == 0x1555) && (data == 0xAA))
+                            {
+                                zxC3FlashState = ZXC3_FLASH_UNLOCK;
+                            }
+                            break;
+                    }
+                }
+                break;
+            case ROM_SNA :
+                // Detect snapshot loader paging
+                if (address == 0x3FFF)
+                {
+                    if (snaLoaderBanks > 0)
+                    {
+                        zxC2BankPtr += 2;
+                        if (zxC2BankPtr >= snaLoaderBanks)
+                        {
+                            zxC2BankPtr = 0;
+                            snaLoaderBanks = 0;
+                        }
+                    } else {
+                        snaLoaderPaged = false;
+                    }
+                    updateRomIndex(true);
+                }
+                break;
+            default :
+                break;
+        }
+    } else if ((gpioSix & IOREQ_PIN_BITMASK) == 0x00000000)
+    {
+        // Perform I/O write access
+        uint8_t port_ = decodeLowAddress(gpioSix);
+        if ((port_ & 0x02) == 0)
+        {
+            // Perform I/O 0x1ffd, 0x3ffd or 0x7ffd write access
+            if ((gpioSix & A15_PIN_BITMASK) == 0x00000000)
+            {
+                bool isPort7F = ((gpioSix & A14_PIN_BITMASK) != 0x0);
+                uint8_t data = readData();
+                if (rom1Present && (!rom23Present || isPort7F))
+                {
+                    // Detect 0x7ffd write access for 128k ROMs
+                    if ((data & 0x20) != 0)
+                    {
+                        rom1Present = false;
+                    }
+                    rom1Paged = ((data & 0x10) != 0);
+                    mf128VideoRam = ((data & 0x08) != 0);
+                    updateRomIndex(true);
+                }
+                if (isPort7F)
+                {
+                    if (divMmcEnabled && divMmcPaged && ((data & 0x10) == 0x0))
+                    {
+                        // Detect 0x7ffd write access to disable DivMMC
+                        divMmcToggle = true;
+                    }
+                } else if ((gpioSix & A13_PIN_BITMASK) != 0x0)
+                {
+                    if (dskEnabled && ((gpioSix & A12_PIN_BITMASK) != 0x0))
+                    {
+                        // Detect 0x3ffd write access for disk
+                        dskController.writeData(Dsk765ZXTeensy::WRITE_DATA,
+                            data);
+                    }
+                } else if ((gpioSix & A12_PIN_BITMASK) != 0x0)
+                {
+                    // Detect 0x1ffd write access for +3 ROMs
+                    if (rom1Present && rom23Present)
+                    {
+                        rom23Paged = ((data & 0x04) != 0);
+                        updateRomIndex(true);
+                    }
+                    if (dskEnabled)
+                    {
+                        dskController.setMotor((data & 0x08) != 0);
+                    }
+                    if (printerEnabled)
+                    {
+                        if ((data & 0x10) == 0)
+                        {
+                            if (!printerStrobe)
+                            {
+                                printerPort.writeData(printerByte);
+                                printerStrobe = true;
                             }
                         } else {
-                            snaLoaderPaged = false;
+                            printerStrobe = false;
                         }
-                        updateRomIndex(true);
                     }
-                    break;
-                default :
-                    break;
+                } else if (printerEnabled)
+                {
+                    // Detect 0x0ffd write access for Centronics printer
+                    printerByte = data;
+                }
             }
-        } else if ((gpioSix & IOREQ_PIN_BITMASK) == 0x00000000)
-        {
-            // Perform I/O write access
-            uint8_t port_ = decodeLowAddress(gpioSix);
-            if ((port_ & 0x02) == 0)
+        } else {
+            switch (port_)
             {
-                // Perform I/O 0x1ffd, 0x3ffd or 0x7ffd write access
-                if ((gpioSix & A15_PIN_BITMASK) == 0x00000000)
-                {
-                    bool isPort7F = ((gpioSix & A14_PIN_BITMASK) != 0x0);
-                    uint8_t data = readData();
-                    if (rom1Present && (!rom23Present || isPort7F))
+                case 0x3f :
+                    mf128ActiveNMI = false;
+                    if (mf128Enabled)
                     {
-                        // Detect 0x7ffd write access for 128k ROMs
-                        if ((data & 0x20) != 0)
+                        mf128Enabled = false;
+                        divMmcEnabled = divMmcPresent;
+                        interface1Enabled = (interface1Present && !divMmcEnabled);
+                    }
+                    break;
+                case 0x3b :
+                    {
+                        uint8_t highPort = decodeHighAddress(gpioSix);
+                        if (divMmcEnabled && ((highPort & 0xf0) == 0x70))
                         {
-                            rom1Present = false;
+                            rtcTeensy.write((highPort & 0x0f), readData());
+                        } else if (uartEnabled)
+                        {
+                            switch (highPort)
+                            {
+                                case 0x13 :
+                                    espUart.writeData(UartZXTeensy::UART_WRITE, readData());
+                                    break;
+                                case 0x14 :
+                                    espUart.writeData(UartZXTeensy::UART_SET_BAUD, readData());
+                                    break;
+                            }
                         }
-                        rom1Paged = ((data & 0x10) != 0);
-                        mf128VideoRam = ((data & 0x08) != 0);
+                    }
+                    break;
+                case 0x7b :
+                    if (lprintEnabled)
+                    {
+                        printerByte = readData();
+                        printerPort.writeData(printerByte);
+                    }
+                    break;
+                case 0x7f :
+                    if (modemEnabled)
+                    {
+                        espUart.writeData(UartZXTeensy::UART_WRITE, readData());
+                    }
+                    break;
+                case 0xbf :
+                    mf128ActiveNMI = false;
+                    break;
+                case 0xe3 :
+                    if (isDivMmcSelected())
+                    {
+                        // DivMMC control
+                        uint8_t data = readData();
+                        if ((data & 0x80) != 0)
+                        {
+                            divMmcConMem = 1;
+                            divMmcPaged = true;
+                        } else {
+                            divMmcConMem = 0;
+                            if (!divMmcAutoMap)
+                            {
+                                divMmcPaged = false;
+                            }
+                        }
+                        if ((data & 0x40) != 0)
+                        {
+                            divMmcMapRam = true;
+                        }
+
+                        // DivMMC RAM banking
+                        data &= (EXT_RAM_PAGE_COUNT + RAM_PAGE_COUNT - 1);
+                        if (divMmcExtRamEnabled && (data >= RAM_PAGE_COUNT))
+                        {
+                            divMmcRamPtr = divMmcExtRamArray[(data - RAM_PAGE_COUNT)];
+                            divMmcRamBankThree = false;
+                        } else {
+                            divMmcRamPtr = divMmcRamArray[data & (RAM_PAGE_COUNT - 1)];
+                            divMmcRamBankThree = ((data == 0x03) ? 1 : 0);
+                        }
                         updateRomIndex(true);
                     }
-                    if (isPort7F)
+                    break;
+                case 0xe7 :
+                    if (isDivMmcSelected())
                     {
-                        if (divMmcEnabled && divMmcPaged && ((data & 0x10) == 0x0))
+                        // DivMMC card select
+                        uint8_t data = readData();
+                        writeSdSpiWriteBuffer(SD_SPI_SELECT, data);
+                        if ((data & 0x01) != 0)
                         {
-                            // Detect 0x7ffd write access to disable DivMMC
-                            divMmcToggle = true;
+                            digitalWriteFast(LED_PIN, 1);
+                        } else {
+                            digitalWriteFast(LED_PIN, 0);
                         }
-                    } else if ((gpioSix & A13_PIN_BITMASK) != 0x0)
-                    {
-                        if (dskEnabled && ((gpioSix & A12_PIN_BITMASK) != 0x0))
-                        {
-                            // Detect 0x3ffd write access for disk
-                            dskController.writeData(Dsk765ZXTeensy::WRITE_DATA,
-                                data);
-                        }
-                    } else if ((gpioSix & A12_PIN_BITMASK) != 0x0)
-                    {
-                        // Detect 0x1ffd write access for +3 ROMs
-                        if (rom1Present && rom23Present)
-                        {
-                            rom23Paged = ((data & 0x04) != 0);
-                            updateRomIndex(true);
-                        }
-                        if (dskEnabled)
-                        {
-                            dskController.setMotor((data & 0x08) != 0);
-                        }
-                        if (printerEnabled)
-                        {
-                            if ((data & 0x10) == 0)
-                            {
-                                if (!printerStrobe)
-                                {
-                                    printerPort.writeData(printerByte);
-                                    printerStrobe = true;
-                                }
-                            } else {
-                                printerStrobe = false;
-                            }
-                        }
-                    } else if (printerEnabled)
-                    {
-                        // Detect 0x0ffd write access for Centronics printer
-                        printerByte = data;
                     }
-                }
-            } else {
-                switch (port_)
-                {
-                    case 0x3f :
-                        mf128ActiveNMI = false;
-                        if (mf128Enabled)
+                    break;
+                case 0xeb :
+                    if (menuPaged)
+                    {
+                        if (!menuSelected)
                         {
-                            mf128Enabled = false;
-                            divMmcEnabled = divMmcPresent;
-                            interface1Enabled = (interface1Present && !divMmcEnabled);
+                            menuSelected = true;
+                            menuSelectedIndex = readData();
                         }
-                        break;
-                    case 0x3b :
+                    } else if (isDivMmcSelected())
+                    {
+                        // DivMMC write
+                        writeSdSpiWriteBuffer(SD_SPI_WRITE, readData());
+                    }
+                    break;
+                case 0xfb :
+                    if (lprintEnabled)
+                    {
+                        printerByte = readData();
+                    }
+                    break;
+                case 0xff :
+                    if (modemEnabled)
+                    {
+                        if (modemOnReset)
                         {
-                            uint8_t highPort = decodeHighAddress(gpioSix);
-                            if (divMmcEnabled && ((highPort & 0xf0) == 0x70))
-                            {
-                                rtcTeensy.write((highPort & 0x0f), readData());
-                            } else if (uartEnabled)
-                            {
-                                switch (highPort)
-                                {
-                                    case 0x13 :
-                                        espUart.writeData(UartZXTeensy::UART_WRITE, readData());
-                                        break;
-                                    case 0x14 :
-                                        espUart.writeData(UartZXTeensy::UART_SET_BAUD, readData());
-                                        break;
-                                }
-                            }
-                        }
-                        break;
-                    case 0x7b :
-                        if (lprintEnabled)
-                        {
-                            printerByte = readData();
-                            printerPort.writeData(printerByte);
-                        }
-                        break;
-                    case 0x7f :
-                        if (modemEnabled)
-                        {
-                            espUart.writeData(UartZXTeensy::UART_WRITE, readData());
-                        }
-                        break;
-                    case 0xbf :
-                        mf128ActiveNMI = false;
-                        break;
-                    case 0xe3 :
-                        if (isDivMmcSelected())
-                        {
-                            // DivMMC control
+                            modemOnReset = false;
+                        } else {
                             uint8_t data = readData();
-                            if ((data & 0x80) != 0)
-                            {
-                                divMmcConMem = 1;
-                                divMmcPaged = true;
-                            } else {
-                                divMmcConMem = 0;
-                                if (!divMmcAutoMap)
-                                {
-                                    divMmcPaged = false;
-                                }
-                            }
-                            if ((data & 0x40) != 0)
-                            {
-                                divMmcMapRam = true;
-                            }
-
-                            // DivMMC RAM banking
-                            data &= (EXT_RAM_PAGE_COUNT + RAM_PAGE_COUNT - 1);
-                            if (divMmcExtRamEnabled && (data >= RAM_PAGE_COUNT))
-                            {
-                                divMmcRamPtr = divMmcExtRamArray[(data - RAM_PAGE_COUNT)];
-                                divMmcRamBankThree = false;
-                            } else {
-                                divMmcRamPtr = divMmcRamArray[data & (RAM_PAGE_COUNT - 1)];
-                                divMmcRamBankThree = ((data == 0x03) ? 1 : 0);
-                            }
+                            modemPaged = ((data & 0x20) == 0);
+                            modemOnReset = ((data & 0x40) != 0);
                             updateRomIndex(true);
                         }
-                        break;
-                    case 0xe7 :
-                        if (isDivMmcSelected())
-                        {
-                            // DivMMC card select
-                            uint8_t data = readData();
-                            writeSdSpiWriteBuffer(SD_SPI_SELECT, data);
-                            if ((data & 0x01) != 0)
-                            {
-                                digitalWriteFast(LED_PIN, 1);
-                            } else {
-                                digitalWriteFast(LED_PIN, 0);
-                            }
-                        }
-                        break;
-                    case 0xeb :
-                        if (menuPaged)
-                        {
-                            if (!menuSelected)
-                            {
-                                menuSelected = true;
-                                menuSelectedIndex = readData();
-                            }
-                        } else if (isDivMmcSelected())
-                        {
-                            // DivMMC write
-                            writeSdSpiWriteBuffer(SD_SPI_WRITE, readData());
-                        }
-                        break;
-                    case 0xfb :
-                        if (lprintEnabled)
-                        {
-                            printerByte = readData();
-                        }
-                        break;
-                    case 0xff :
-                        if (modemEnabled)
-                        {
-                            if (modemOnReset)
-                            {
-                                modemOnReset = false;
-                            } else {
-                                uint8_t data = readData();
-                                modemPaged = ((data & 0x20) == 0);
-                                modemOnReset = ((data & 0x40) != 0);
-                                updateRomIndex(true);
-                            }
-                        }
-                        break;
-                }
+                    }
+                    break;
             }
         }
     }
-
-    // Re-sync regular ticks
-    globalCycleCount = (ARM_DWT_CYCCNT - TICK_CYCCNT);
 }
 
 FASTRUN void isrRdEvent()
@@ -2632,380 +2633,374 @@ FASTRUN void isrRdEvent()
                 romCsDisable = false;
             }
         }
-
-        // Re-sync regular ticks
-        globalCycleCount = (ARM_DWT_CYCCNT - TICK_CYCCNT);
-    } else if (globalState == STATE_ROM_ENABLE)
+    } else if ((gpioSix & ROM_ADDRESS_MASK) == 0x00000000)
     {
-        if ((gpioSix & ROM_ADDRESS_MASK) == 0x00000000)
+        // Perform ROM read access
+        uint32_t gpioNine = (*(volatile uint32_t *)IMXRT_GPIO9_ADDRESS);
+        if ((gpioNine & ROMCS_IN_PIN_BITMASK) != 0)
         {
-            // Perform ROM read access
-            uint32_t gpioNine = (*(volatile uint32_t *)IMXRT_GPIO9_ADDRESS);
-            if ((gpioNine & ROMCS_IN_PIN_BITMASK) != 0)
-            {
-                // External ROM is active
-                disableData();
-            } else if (!busRdActive)
-            {
-                busRdActive = true;
-                uint16_t address = decodeAddress(gpioSix);
-
-                // Perform ZXC2 address based paging
-                if (zxC2Present && !zxC2Lock &&
-                    (!zxC2ShadowRom || zxC2Paged) &&
-                    ((address & 0xffc0) == 0x3fc0))
-                {
-                    if (zxC3Present)
-                    {
-                        zxC3Write = ((address & 0x08) != 0);
-                        zxC2BankPtr = ((address & 0x07) << 1);
-                    } else {
-                        zxC2BankPtr = ((address & 0x0f) << 1);
-                    }
-                    zxC2Paged = ((address & 0x10) == 0);
-                    zxC2Lock = ((address & 0x20) != 0);
-                    updateRomIndex(true);
-                }
-
-                // Detect M1 cycle for ROM paging
-                if ((gpioNine & M1_PIN_BITMASK) != 0)
-                {
-                    // Non-M1 cycle - write ROM data to bus
-                    writeRomData(address);
-                } else if (address == 0x66)
-                {
-                    // Send the NMI to the Multiface 128
-                    if (mf128Present && nmiPending && !mf128ActiveNMI &&
-                        ((romArraySelected & PAGE_BANK_MF128_IF1) != 0))
-                    {
-                        mf128ActiveNMI = true;
-                        mf128Paged = true;
-                        mf128Enabled = true;
-                        divMmcEnabled = false;
-                        interface1Enabled = interface1Present;
-                        updateRomIndex(true);
-                    }
-
-                    // Write ROM data to bus
-                    writeRomData(address);
-
-                    // Send the NMI to the DivMMC, if not Multiface 128
-                    if (divMmcEnabled && divMmcRomEnabled && !mf128ActiveNMI &&
-                        ((romArraySelected & PAGE_BANK_DIVMMC) != 0))
-                    {
-                        divMmcPaged = true;
-                        divMmcAutoMap = true;
-                        updateRomIndex(false);
-                    }
-
-                    // Release NMI on entry to interrupt handler
-                    nmiPending = false;
-                    digitalWriteFast(NMI_PIN, 0);
-                } else {
-                    switch (romSelected)
-                    {
-                        case ROM_ROM0 :
-                        case ROM_ROM1 :
-                        case ROM_ROM3 :
-                            // Detect M1 cycle for Multiface 128 paging
-                            if (mf128ActiveNMI && (address == 0x67))
-                            {
-                                mf128Paged = true;
-                                updateRomIndex(true);
-                            }
-
-                            if (divMmcEnabled && divMmcRomEnabled && !mf128Paged)
-                            {
-                                // Detect M1 cycle for DivMMC paging
-                                if ((address & 0xff00) == 0x3d00)
-                                {
-                                    divMmcPaged = true;
-                                    divMmcAutoMap = true;
-                                    updateRomIndex(true);
-                                }
-
-                                // Write ROM data to bus
-                                writePagedRomData(address);
-
-                                // Detect post-M1 cycle for DivMMC paging
-                                if ((address == 0x00) || (address == 0x08) ||
-                                    (address == 0x38) || (address == 0x4c6) ||
-                                    (address == 0x562))
-                                {
-                                    divMmcPaged = true;
-                                    divMmcAutoMap = true;
-                                    updateRomIndex(false);
-                                }
-                            } else {
-                                // Write ROM data to bus
-                                writePagedRomData(address);
-
-                                // Detect M1 cycle for Interface 1 paging
-                                if ((interface1Enabled || zxC2ShadowRom) &&
-                                    ((address == 0x08) || (address == 0x1708)))
-                                {
-                                    // M1 cycle for Interface 1 paging
-                                    if (zxC2ShadowRom)
-                                    {
-                                        zxC2Paged = true;
-                                    } else {
-                                        interface1Paged = true;
-                                    }
-                                    updateRomIndex(false);
-                                }
-
-                                // Detect LD-BYTEs to start tape
-                                if (tzxEnabled && (address == 0x56c))
-                                {
-                                    tzxPlayer.play();
-                                }
-                            }
-                            break;
-                        case ROM_IF1 :
-                            // Write ROM data to bus
-                            writePagedRomData(address);
-
-                            // Detect post-M1 cycle for Interface 1 paging
-                            if (address == 0x700)
-                            {
-                                interface1Paged = false;
-                                updateRomIndex(false);
-                            }
-                            break;
-                        case ROM_MF128 :
-                            // Detect M1 cycle for Multiface 128 paging
-                            if (mf128ActiveNMI && (address == 0x67))
-                            {
-                                mf128Paged = true;
-                                updateRomIndex(true);
-                            }
-
-                            // Write ROM data to bus
-                            writePagedRomData(address);
-
-                            // Detect M1 cycle for Interface 1 paging
-                            if (interface1Enabled &&
-                                ((address == 0x08) || (address == 0x1708)))
-                            {
-                                // M1 cycle for Interface 1 paging
-                                interface1Paged = true;
-                                updateRomIndex(false);
-                            }
-                            break;
-                        case ROM_DIVMMC :
-                            // Write ROM data to bus
-                            writeDivMmcRomData(address);
-
-                            // Detect post-M1 cycle for DivMMC paging
-                            // NOTE: Avoid paging out on MAPRAM to allow DivMMC
-                            // loaded ROM images to behave correctly
-                            if (!divMmcMapRam && ((address & 0xfff8) == 0x1ff8))
-                            {
-                                divMmcPaged = false;
-                                divMmcAutoMap = false;
-                                updateRomIndex(false);
-
-                                // Disable the DivMMC, and enable the Interface 1
-                                if (divMmcToggle)
-                                {
-                                    divMmcToggle = false;
-                                    divMmcEnabled = false;
-                                    interface1Enabled = interface1Present;
-                                }
-                            }
-                            break;
-                        case ROM_LPRINT :
-                            // Write ROM data to bus
-                            writeLprintRomData(address);
-                            break;
-                        case ROM_ZXC2 :
-                            // Write ROM data to bus
-                            writePagedRomData(address);
-
-                            // Detect post-M1 cycle for Interface 1 paging
-                            if (zxC2ShadowRom && (address == 0x700))
-                            {
-                                zxC2Paged = false;
-                                updateRomIndex(false);
-                            }
-                            break;
-                        default :
-                            // Write ROM data to bus
-                            writePagedRomData(address);
-                            break;
-                    }
-                }
-
-                // Detect snapshot loader paging
-                if (snaLoaderPaged && (address == 0x3FFF))
-                {
-                    if (snaLoaderBanks > 0)
-                    {
-                        zxC2BankPtr += 2;
-                        if (zxC2BankPtr >= snaLoaderBanks)
-                        {
-                            zxC2BankPtr = 0;
-                            snaLoaderBanks = 0;
-                        }
-                    } else {
-                        snaLoaderPaged = false;
-                    }
-                    updateRomIndex(true);
-                }
-
-#ifdef DEBUG_OUTPUT
-                // Debug instruction tracing
-                if ((gpioNine & M1_PIN_BITMASK) == 0)
-                {
-                    //traceDebug(address);
-                }
-#endif
-            }
-        } else if (!busRdActive && ((gpioSix & IOREQ_PIN_BITMASK) == 0x00000000))
+            // External ROM is active
+            disableData();
+        } else if (!busRdActive)
         {
-            // Perform I/O read access
-            uint8_t port = decodeLowAddress(gpioSix);
             busRdActive = true;
-            switch (port)
+            uint16_t address = decodeAddress(gpioSix);
+
+            // Perform ZXC2 address based paging
+            if (zxC2Present && !zxC2Lock &&
+                (!zxC2ShadowRom || zxC2Paged) &&
+                ((address & 0xffc0) == 0x3fc0))
             {
-                case 0x1f :
-                    if (joystickPresent)
-                    {
-                        writeData(joystickData);
-                    }
-                    break;
-                case 0x3b :
-                    {
-                        uint8_t highPort = decodeHighAddress(gpioSix);
-                        if (divMmcEnabled && ((highPort & 0xf0) == 0x70))
-                        {
-                            writeData(rtcTeensy.read(highPort & 0x0f));
-                        } else if (uartEnabled)
-                        {
-                            switch (highPort)
-                            {
-                                case 0x13 :
-                                    writeData(espUart.getUartStatusByte());
-                                    break;
-                                case 0x14 :
-                                    writeData(espUart.hasReadData() ? espUart.readData() : 0x00);
-                                    break;
-                            }
-                        }
-                    }
-                    break;
-                case 0x3f :
-                    if (mf128Paged)
-                    {
-                        mf128Paged = false;
-                        updateRomIndex(true);
-                    }
-                    if (mf128Enabled)
-                    {
-                        writeData(mf128VideoRam ? 0x80 : 0x00);
-                    }
-                    break;
-                case 0x7b :
-                    if (lprintEnabled)
-                    {
-                        writeData(printerPort.getBusy() ? 0xC0 : 0x40);
-                        lprintPaged = false;
-                        updateRomIndex(true);
-                    }
-                    break;
-                case 0x7f :
-                    if (modemEnabled)
-                    {
-                        writeData(espUart.hasReadData() ? espUart.readData() : 0x00);
-                    }
-                    break;
-                case 0xbf :
-                    if (mf128Enabled)
-                    {
-                        if (!mf128Paged)
+                if (zxC3Present)
+                {
+                    zxC3Write = ((address & 0x08) != 0);
+                    zxC2BankPtr = ((address & 0x07) << 1);
+                } else {
+                    zxC2BankPtr = ((address & 0x0f) << 1);
+                }
+                zxC2Paged = ((address & 0x10) == 0);
+                zxC2Lock = ((address & 0x20) != 0);
+                updateRomIndex(true);
+            }
+
+            // Detect M1 cycle for ROM paging
+            if ((gpioNine & M1_PIN_BITMASK) != 0)
+            {
+                // Non-M1 cycle - write ROM data to bus
+                writeRomData(address);
+            } else if (address == 0x66)
+            {
+                // Send the NMI to the Multiface 128
+                if (mf128Present && nmiPending && !mf128ActiveNMI &&
+                    ((romArraySelected & PAGE_BANK_MF128_IF1) != 0))
+                {
+                    mf128ActiveNMI = true;
+                    mf128Paged = true;
+                    mf128Enabled = true;
+                    divMmcEnabled = false;
+                    interface1Enabled = interface1Present;
+                    updateRomIndex(true);
+                }
+
+                // Write ROM data to bus
+                writeRomData(address);
+
+                // Send the NMI to the DivMMC, if not Multiface 128
+                if (divMmcEnabled && divMmcRomEnabled && !mf128ActiveNMI &&
+                    ((romArraySelected & PAGE_BANK_DIVMMC) != 0))
+                {
+                    divMmcPaged = true;
+                    divMmcAutoMap = true;
+                    updateRomIndex(false);
+                }
+
+                // Release NMI on entry to interrupt handler
+                nmiPending = false;
+                digitalWriteFast(NMI_PIN, 0);
+            } else {
+                switch (romSelected)
+                {
+                    case ROM_ROM0 :
+                    case ROM_ROM1 :
+                    case ROM_ROM3 :
+                        // Detect M1 cycle for Multiface 128 paging
+                        if (mf128ActiveNMI && (address == 0x67))
                         {
                             mf128Paged = true;
                             updateRomIndex(true);
                         }
-                        writeData(mf128VideoRam ? 0x80 : 0x00);
-                    }
-                    break;
-                case 0xdf :
-                    if (mousePresent)
-                    {
-                        switch (decodeHighAddress(gpioSix))
+
+                        if (divMmcEnabled && divMmcRomEnabled && !mf128Paged)
                         {
-                            case 0xfa :
-                                writeData(mouseBtn);
-                                break;
-                            case 0xfb :
-                                writeData(mouseX >> 1);
-                                break;
-                            case 0xff :
-                                writeData(mouseY >> 1);
-                                break;
-                        }
-                    }
-                    break;
-                case 0xeb :
-                    if (isDivMmcSelected())
-                    {
-                        // Transfer SD SPI read data to bus
-                        if (sdSpiReadBuffer.canRead())
-                        {
-                            writeData(sdSpiReadBuffer.readRaw());
-                            if (!sdSpiReadBuffer.canRead())
+                            // Detect M1 cycle for DivMMC paging
+                            if ((address & 0xff00) == 0x3d00)
                             {
-                                writeSdSpiWriteBuffer(SD_SPI_READ, 0xff);
+                                divMmcPaged = true;
+                                divMmcAutoMap = true;
+                                updateRomIndex(true);
+                            }
+
+                            // Write ROM data to bus
+                            writePagedRomData(address);
+
+                            // Detect post-M1 cycle for DivMMC paging
+                            if ((address == 0x00) || (address == 0x08) ||
+                                (address == 0x38) || (address == 0x4c6) ||
+                                (address == 0x562))
+                            {
+                                divMmcPaged = true;
+                                divMmcAutoMap = true;
+                                updateRomIndex(false);
                             }
                         } else {
-                            writeData(0xff);
-                            writeSdSpiWriteBuffer(SD_SPI_READ, 0xff);
+                            // Write ROM data to bus
+                            writePagedRomData(address);
+
+                            // Detect M1 cycle for Interface 1 paging
+                            if ((interface1Enabled || zxC2ShadowRom) &&
+                                ((address == 0x08) || (address == 0x1708)))
+                            {
+                                // M1 cycle for Interface 1 paging
+                                if (zxC2ShadowRom)
+                                {
+                                    zxC2Paged = true;
+                                } else {
+                                    interface1Paged = true;
+                                }
+                                updateRomIndex(false);
+                            }
+
+                            // Detect LD-BYTEs to start tape
+                            if (tzxEnabled && (address == 0x56c))
+                            {
+                                tzxPlayer.play();
+                            }
+                        }
+                        break;
+                    case ROM_IF1 :
+                        // Write ROM data to bus
+                        writePagedRomData(address);
+
+                        // Detect post-M1 cycle for Interface 1 paging
+                        if (address == 0x700)
+                        {
+                            interface1Paged = false;
+                            updateRomIndex(false);
+                        }
+                        break;
+                    case ROM_MF128 :
+                        // Detect M1 cycle for Multiface 128 paging
+                        if (mf128ActiveNMI && (address == 0x67))
+                        {
+                            mf128Paged = true;
+                            updateRomIndex(true);
+                        }
+
+                        // Write ROM data to bus
+                        writePagedRomData(address);
+
+                        // Detect M1 cycle for Interface 1 paging
+                        if (interface1Enabled &&
+                            ((address == 0x08) || (address == 0x1708)))
+                        {
+                            // M1 cycle for Interface 1 paging
+                            interface1Paged = true;
+                            updateRomIndex(false);
+                        }
+                        break;
+                    case ROM_DIVMMC :
+                        // Write ROM data to bus
+                        writeDivMmcRomData(address);
+
+                        // Detect post-M1 cycle for DivMMC paging
+                        // NOTE: Avoid paging out on MAPRAM to allow DivMMC
+                        // loaded ROM images to behave correctly
+                        if (!divMmcMapRam && ((address & 0xfff8) == 0x1ff8))
+                        {
+                            divMmcPaged = false;
+                            divMmcAutoMap = false;
+                            updateRomIndex(false);
+
+                            // Disable the DivMMC, and enable the Interface 1
+                            if (divMmcToggle)
+                            {
+                                divMmcToggle = false;
+                                divMmcEnabled = false;
+                                interface1Enabled = interface1Present;
+                            }
+                        }
+                        break;
+                    case ROM_LPRINT :
+                        // Write ROM data to bus
+                        writeLprintRomData(address);
+                        break;
+                    case ROM_ZXC2 :
+                        // Write ROM data to bus
+                        writePagedRomData(address);
+
+                        // Detect post-M1 cycle for Interface 1 paging
+                        if (zxC2ShadowRom && (address == 0x700))
+                        {
+                            zxC2Paged = false;
+                            updateRomIndex(false);
+                        }
+                        break;
+                    default :
+                        // Write ROM data to bus
+                        writePagedRomData(address);
+                        break;
+                }
+            }
+
+            // Detect snapshot loader paging
+            if (snaLoaderPaged && (address == 0x3FFF))
+            {
+                if (snaLoaderBanks > 0)
+                {
+                    zxC2BankPtr += 2;
+                    if (zxC2BankPtr >= snaLoaderBanks)
+                    {
+                        zxC2BankPtr = 0;
+                        snaLoaderBanks = 0;
+                    }
+                } else {
+                    snaLoaderPaged = false;
+                }
+                updateRomIndex(true);
+            }
+
+#ifdef DEBUG_OUTPUT
+            // Debug instruction tracing
+            if ((gpioNine & M1_PIN_BITMASK) == 0)
+            {
+                //traceDebug(address);
+            }
+#endif
+        }
+    } else if (!busRdActive && ((gpioSix & IOREQ_PIN_BITMASK) == 0x00000000))
+    {
+        // Perform I/O read access
+        uint8_t port = decodeLowAddress(gpioSix);
+        busRdActive = true;
+        switch (port)
+        {
+            case 0x1f :
+                if (joystickPresent)
+                {
+                    writeData(joystickData);
+                }
+                break;
+            case 0x3b :
+                {
+                    uint8_t highPort = decodeHighAddress(gpioSix);
+                    if (divMmcEnabled && ((highPort & 0xf0) == 0x70))
+                    {
+                        writeData(rtcTeensy.read(highPort & 0x0f));
+                    } else if (uartEnabled)
+                    {
+                        switch (highPort)
+                        {
+                            case 0x13 :
+                                writeData(espUart.getUartStatusByte());
+                                break;
+                            case 0x14 :
+                                writeData(espUart.hasReadData() ? espUart.readData() : 0x00);
+                                break;
                         }
                     }
-                    break;
-                case 0xfb :
-                    if (lprintEnabled)
+                }
+                break;
+            case 0x3f :
+                if (mf128Paged)
+                {
+                    mf128Paged = false;
+                    updateRomIndex(true);
+                }
+                if (mf128Enabled)
+                {
+                    writeData(mf128VideoRam ? 0x80 : 0x00);
+                }
+                break;
+            case 0x7b :
+                if (lprintEnabled)
+                {
+                    writeData(printerPort.getBusy() ? 0xC0 : 0x40);
+                    lprintPaged = false;
+                    updateRomIndex(true);
+                }
+                break;
+            case 0x7f :
+                if (modemEnabled)
+                {
+                    writeData(espUart.hasReadData() ? espUart.readData() : 0x00);
+                }
+                break;
+            case 0xbf :
+                if (mf128Enabled)
+                {
+                    if (!mf128Paged)
                     {
-                        writeData(printerPort.getBusy() ? 0xC0 : 0x40);
-                        lprintPaged = true;
+                        mf128Paged = true;
                         updateRomIndex(true);
                     }
-                    break;
-                case 0xfd :
+                    writeData(mf128VideoRam ? 0x80 : 0x00);
+                }
+                break;
+            case 0xdf :
+                if (mousePresent)
+                {
                     switch (decodeHighAddress(gpioSix))
                     {
-                        case 0x0f :
-                            if (printerEnabled)
-                            {
-                                writeData(printerPort.getBusy() ? 0x01 : 0x00);
-                            }
-                        case 0x2f :
-                            if (dskEnabled)
-                            {
-                                writeData(dskController.getStatusByte());
-                            }
+                        case 0xfa :
+                            writeData(mouseBtn);
                             break;
-                        case 0x3f :
-                            if (dskEnabled)
-                            {
-                                writeData(dskController.readData());
-                            }
+                        case 0xfb :
+                            writeData(mouseX >> 1);
+                            break;
+                        case 0xff :
+                            writeData(mouseY >> 1);
                             break;
                     }
-                case 0xfe :
-                    if (tzxEnabled && tzxPlayer.isTapePlaying())
+                }
+                break;
+            case 0xeb :
+                if (isDivMmcSelected())
+                {
+                    // Transfer SD SPI read data to bus
+                    if (sdSpiReadBuffer.canRead())
                     {
-                        writeData(tzxPlayer.getTapeByte());
+                        writeData(sdSpiReadBuffer.readRaw());
+                        if (!sdSpiReadBuffer.canRead())
+                        {
+                            writeSdSpiWriteBuffer(SD_SPI_READ, 0xff);
+                        }
+                    } else {
+                        writeData(0xff);
+                        writeSdSpiWriteBuffer(SD_SPI_READ, 0xff);
                     }
-                    break;
-                case 0xff :
-                    if (modemEnabled)
-                    {
-                        writeData(modemOnReset ? 0x00 : espUart.getModemStatusByte());
-                    }
-                    break;
-            }
+                }
+                break;
+            case 0xfb :
+                if (lprintEnabled)
+                {
+                    writeData(printerPort.getBusy() ? 0xC0 : 0x40);
+                    lprintPaged = true;
+                    updateRomIndex(true);
+                }
+                break;
+            case 0xfd :
+                switch (decodeHighAddress(gpioSix))
+                {
+                    case 0x0f :
+                        if (printerEnabled)
+                        {
+                            writeData(printerPort.getBusy() ? 0x01 : 0x00);
+                        }
+                    case 0x2f :
+                        if (dskEnabled)
+                        {
+                            writeData(dskController.getStatusByte());
+                        }
+                        break;
+                    case 0x3f :
+                        if (dskEnabled)
+                        {
+                            writeData(dskController.readData());
+                        }
+                        break;
+                }
+            case 0xfe :
+                if (tzxEnabled && tzxPlayer.isTapePlaying())
+                {
+                    writeData(tzxPlayer.getTapeByte());
+                }
+                break;
+            case 0xff :
+                if (modemEnabled)
+                {
+                    writeData(modemOnReset ? 0x00 : espUart.getModemStatusByte());
+                }
+                break;
         }
     }
 }
