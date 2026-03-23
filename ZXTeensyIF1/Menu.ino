@@ -690,16 +690,16 @@ char* menuGenerateSettings(char* ptr)
         ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_MF128,
             ptr, MENU_STRINGS[STRING_ENABLE_MF128], mf128Present);
     }
-    ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_PRINTER, 
+    ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_PRINTER,
         ptr, MENU_STRINGS[STRING_ENABLE_PRINTER], printerPresent);
     if (printerPresent)
     {
         if ((romArrayPresent & BANK_LPRINT) != 0)
         {
-            ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_LPRINT, 
+            ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_LPRINT,
                 ptr, MENU_STRINGS[STRING_ENABLE_LPRINT], lprintPresent);
         }
-        ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_CLEAR_PRINTER, 
+        ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_CLEAR_PRINTER,
             ptr, MENU_STRINGS[STRING_CLEAR_PRINTER], 0);
     }
     ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_USB, ptr,
@@ -1245,14 +1245,9 @@ void menuPerformAction()
         case MENU_ACTION_LOAD_CART :
         case MENU_ACTION_BROWSER_LOAD_CART :
         case MENU_ACTION_BROWSER_LOAD_ZXC2 :
+        case MENU_ACTION_BROWSER_LOAD_ZXC3 :
         case MENU_ACTION_BROWSER_LOAD_Z80 :
             // Load new cartridge, with DivMMC and modem disabled
-            modemPresent = false;
-            divMmcPresent = false;
-            break;
-        case MENU_ACTION_BROWSER_LOAD_ZXC3 :
-            // Load new flash cartridge, with DivMMC and modem disabled
-            zxC3Present = true;
             modemPresent = false;
             divMmcPresent = false;
             break;
@@ -1547,8 +1542,10 @@ File menuGetForegroundRomFile(rom_type_t* romType)
     switch (menuAction)
     {
         case MENU_ACTION_BROWSER_LOAD_ZXC2 :
-        case MENU_ACTION_BROWSER_LOAD_ZXC3 :
             *romType = TYPE_ZXC2;
+            return menuGetBrowserRomFile();
+        case MENU_ACTION_BROWSER_LOAD_ZXC3 :
+            *romType = TYPE_ZXC3;
             return menuGetBrowserRomFile();
         case MENU_ACTION_BROWSER_LOAD_CART :
             *romType = TYPE_CART;

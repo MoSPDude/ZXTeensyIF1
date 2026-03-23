@@ -117,6 +117,7 @@ typedef enum {
 typedef enum {
     TYPE_ROM,
     TYPE_ZXC2,
+    TYPE_ZXC3,
     TYPE_CART,
     TYPE_Z80,
     TYPE_SNA
@@ -267,7 +268,7 @@ volatile bool interface1Paged = false;
 volatile bool interface1Removed = false;
 const uint16_t PAGE_BANK_MF128_IF1 = (BANK_ROM0 | BANK_ROM1 | BANK_ROM3 | BANK_MF128);
 
-// ZXC2 cartridge (reuses divMmcExtRamArray)
+// ZXC2 cartridge
 volatile bool zxC2Present = false;
 volatile bool zxC2Paged = false;
 volatile bool zxC2Lock = false;
@@ -297,7 +298,7 @@ volatile bool snaLoaderPresent = false;
 volatile bool snaLoaderPaged = false;
 volatile uint8_t snaLoaderBanks = 0;
 
-// Boot menu ROM (reuses divMmcRamArray)
+// Boot menu ROM
 volatile bool menuEnterOnReset = false;
 volatile bool menuPaged = false;
 volatile bool menuSelected = false;
@@ -798,17 +799,15 @@ inline __attribute__((always_inline)) void updateRomIndex(bool pageNow)
                     romPtr = romArray[ROM_PAGE_DIVMMC];
                 }
                 break;
-            case ROM_MODEM :
-            case ROM_ZXC2 :
-            case ROM_SNA :
-                romPtr = divMmcExtRamArray[zxC2BankPtr];
-                break;
-            case ROM_MENU :
-                romPtr = divMmcRamArray[0];
-                break;
             case ROM_LPRINT :
                 // Special handling for 2KB ROM
                 romPtr = lprintRom;
+                break;
+            case ROM_MODEM :
+            case ROM_ZXC2 :
+            case ROM_SNA :
+            case ROM_MENU :
+                romPtr = divMmcExtRamArray[zxC2BankPtr];
                 break;
             default :
                 // 16KB ROMs are two ROM pages
@@ -992,11 +991,6 @@ uint16_t loadRomImage(const char* filename, char* ptr, const uint16_t size)
 
 void loadSpectrumRomFile()
 {
-    // Reset the Spectrum ROM state
-    romArrayPresent &= ~(BANK_ROM0 | BANK_ROM1 | BANK_ROM2 | BANK_ROM3);
-    rom1Present = false;
-    rom23Present = false;
-
     // Attempt to load four 16KB ROM banks
     File RomFile = menuGetSpectrumRomFile();
     if (RomFile)
@@ -1344,13 +1338,6 @@ void saveMdrEmulatorFile(const char* fileName)
 
 bool loadForegroundRom()
 {
-    // Reset the ZXC2 cartridge state
-    romArrayPresent &= ~(BANK_RAM);
-    zxC2Present = false;
-    zxC3Present = false;
-    zxC2ShadowRom = false;
-    snaLoaderPresent = false;
-
     // Open and load the foreground ROM, if present
     rom_type_t romType;
     File RomFile = menuGetForegroundRomFile(&romType);
@@ -1361,6 +1348,14 @@ bool loadForegroundRom()
             zxC2Lock = true;
         case TYPE_ZXC2 :
             return loadZXC2RomFile(RomFile);
+        case TYPE_ZXC3 :
+            if (loadZXC2RomFile(RomFile))
+            {
+                zxC3Present = true;
+            } else {
+                return false;
+            }
+            break;
         case TYPE_Z80 :
         case TYPE_SNA :
             return loadSnapshotFile(RomFile, (romType != TYPE_Z80));
@@ -1463,9 +1458,6 @@ void handleStateResetEntry()
     }
     if (!afterFirstReset)
     {
-        romArrayPresent = 0;
-        rom1Present = false;
-        rom23Present = false;
         zxC2Present = false;
         zxC3Present = false;
         mdrPresent = false;
@@ -1473,9 +1465,8 @@ void handleStateResetEntry()
         tzxPresent = false;
         menuClearConfiguration();
 
-        // Re-initialise RAM, and load the ROMs
+        // Load the ROMs
         loadRomSets = true;
-        divMmcPreserveRam = false;
 
         // Ensure the DivMMC images are closed
         if (sdCardPresent)
@@ -1489,7 +1480,7 @@ void handleStateResetEntry()
     }
 
     // Initialise the RAM banks
-    if (!divMmcPreserveRam)
+    if (loadRomSets || !divMmcPreserveRam)
     {
         initialiseRamBanks();
     }
@@ -1497,10 +1488,22 @@ void handleStateResetEntry()
     // Update the RTC registers, if necessary
     rtcTeensy.updateRtc();
 
-    // Initialise the device
+    // Initialise the device soft ROMs
     delay(250);
-    if (!isDeviceDisabled)
+    if (!isDeviceDisabled && loadRomSets)
     {
+        // Reset the soft ROM state
+        romArrayPresent = 0;
+        rom1Present = false;
+        rom23Present = false;
+        loadRomSets = false;
+
+        // Reset the "dynamic ROM" state
+        zxC2Present = false;
+        zxC3Present = false;
+        zxC2ShadowRom = false;
+        snaLoaderPresent = false;
+
         // Load the built-in Interface 1 soft ROM
 #ifdef ENABLE_BUILTIN_ROM_IF1
         memcpy((void *)romArray[ROM_PAGE_IF1], BUILTIN_ROM_IF1, BUILTIN_ROM_IF1_SIZE);
@@ -1508,84 +1511,79 @@ void handleStateResetEntry()
 #endif
 
         // Load ROMs from the SD card
-        if (loadRomSets)
+        if (beginSdfsSd())
         {
-            loadRomSets = false;
-            if (beginSdfsSd())
+            // Load initial configuration
+            if (!afterFirstReset)
             {
-                // Load initial configuration
-                if (!afterFirstReset)
-                {
-                    menuLoadConfiguration(0);
-                }
-
-                // Load DivMMC Esxdos ROM
-                if (loadRomImage(ESXMMC_BIN_PATH, (char *)romArray[ROM_PAGE_DIVMMC],
-                    RAM_PAGE_SIZE) > 0)
-                {
-                    romArrayPresent |= BANK_DIVMMC;
-                } else if ((romArrayPresent & BANK_DIVMMC) == 0) 
-                {
-                    divMmcPresent = false;
-                }
-
-                // Load Multiface 128 ROM
-                if (loadRomImage(MF128_ROM_PATH, (char *)romArray[ROM_PAGE_MF128],
-                    RAM_PAGE_SIZE) > 0)
-                {
-                    romArrayPresent |= BANK_MF128;
-                } else if ((romArrayPresent & BANK_MF128) == 0) 
-                {
-                    mf128Present = false;
-                }
-
-                // Load ZX LPrint III ROM
-                if (loadRomImage(LPRINT_ROM_PATH, (char *)lprintRom, 0x0800) > 0)
-                {
-                    romArrayPresent |= BANK_LPRINT;
-                } else if ((romArrayPresent & BANK_LPRINT) == 0)
-                {
-                    lprintPresent = false;
-                }
-
-                // Load Interface 1 ROM
-                if (loadRomImage(IF1_ROM_PATH, (char *)romArray[ROM_PAGE_IF1],
-                    ROM_PAGE_SIZE) > 0)
-                {
-                    romArrayPresent |= BANK_IF1;
-                } else if ((romArrayPresent & BANK_IF1) == 0)
-                {
-                    interface1Present = false;
-                }
-
-                // Load Spectrum ROM
-                loadSpectrumRomFile();
-
-                // Load foreground ROM
-                if (!loadForegroundRom())
-                {
-                    if (afterFirstReset)
-                    {
-                        afterFirstReset = false;
-                        handleStateResetEntry();
-                        return;
-                    }
-                }
-
-                // Load menu ROM into the DivMMC RAM area
-                if ((menuEnterOnReset || (!afterFirstReset && bootIntoMenu)) &&
-                    !digitalReadFast(ROMCS_IN_PIN) &&
-                    (loadRomImage(MENU_ROM_PATH, (char *)divMmcRamArray[0],
-                        RAM_PAGE_SIZE) > 0))
-                {
-                    menuPaged = true;
-                    romArrayPresent |= BANK_RAM;
-                }
-            } else if (!isButtonHeld)
-            {
-                // Button without SD card disables the built-in Interface 1 soft ROM
-                interface1Present = ((romArrayPresent & BANK_IF1) != 0);
+                menuLoadConfiguration(0);
             }
+
+            // Load Interface 1 ROM
+            if (loadRomImage(IF1_ROM_PATH, (char *)romArray[ROM_PAGE_IF1],
+                ROM_PAGE_SIZE) > 0)
+            {
+                romArrayPresent |= BANK_IF1;
+            } else if ((romArrayPresent & BANK_IF1) == 0)
+            {
+                interface1Present = false;
+            }
+
+            // Load DivMMC Esxdos ROM
+            if (loadRomImage(ESXMMC_BIN_PATH, (char *)romArray[ROM_PAGE_DIVMMC],
+                RAM_PAGE_SIZE) > 0)
+            {
+                romArrayPresent |= BANK_DIVMMC;
+            } else {
+                divMmcPresent = false;
+            }
+
+            // Load Multiface 128 ROM
+            if (loadRomImage(MF128_ROM_PATH, (char *)romArray[ROM_PAGE_MF128],
+                RAM_PAGE_SIZE) > 0)
+            {
+                romArrayPresent |= BANK_MF128;
+            } else {
+                mf128Present = false;
+            }
+
+            // Load ZX LPrint III ROM
+            if (loadRomImage(LPRINT_ROM_PATH, (char *)lprintRom,
+                LPRINT_ROM_SIZE) > 0)
+            {
+                romArrayPresent |= BANK_LPRINT;
+            } else {
+                lprintPresent = false;
+            }
+
+            // Load Spectrum ROM
+            loadSpectrumRomFile();
+
+            // Load foreground ROM
+            if (!loadForegroundRom())
+            {
+                if (afterFirstReset)
+                {
+                    afterFirstReset = false;
+                    handleStateResetEntry();
+                    return;
+                }
+            }
+
+            // Load menu ROM into the DivMMC RAM area
+            if ((menuEnterOnReset || (!afterFirstReset && bootIntoMenu)) &&
+                !digitalReadFast(ROMCS_IN_PIN) &&
+                (loadRomImage(MENU_ROM_PATH, (char *)divMmcExtRamArray[0],
+                    RAM_PAGE_SIZE) > 0))
+            {
+                menuPaged = true;
+                divMmcExtRamEnabled = false;
+                romArrayPresent |= BANK_RAM;
+            }
+        } else if (!isButtonHeld)
+        {
+            // Button without SD card disables the built-in Interface 1 soft ROM
+            interface1Present = ((romArrayPresent & BANK_IF1) != 0);
         }
     }
 }
@@ -1750,7 +1748,7 @@ void handleStateReset()
     // Populate the menu when active
     if (menuPaged)
     {
-        menuInitialise(divMmcRamArray[0]);
+        menuInitialise(divMmcExtRamArray[0]);
     } else {
         // Page in the ZXC2 cartridge, or snapshot loader ROM
         if (zxC2Present)
@@ -1882,14 +1880,13 @@ void handleStateReset()
         }
     }
 
-    // Enable the ROM, if present
+    // Enable the soft ROM, if present
     delay(250);
     if (romArrayPresent != 0)
     {
         updateRomIndex(true);
         setState(STATE_ROM_ENABLE);
     } else {
-        // Disable the soft ROM
         setState(STATE_ROM_DISABLE);
     }
 }
