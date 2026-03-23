@@ -607,42 +607,42 @@ char* menuGenerateSettings(char* ptr)
     // Add settings menu
     ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_MENU,
         ptr, MENU_STRINGS[STRING_BOOT_MENU], bootIntoMenu);
-    if ((romArrayPresent & BANK_DIVMMC) != 0)
+    ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_DIVMMC,
+        ptr, MENU_STRINGS[STRING_ENABLE_DIVMMC], divMmcPresent);
+    if (divMmcPresent)
     {
-        char label[38];
-        ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_DIVMMC,
-            ptr, MENU_STRINGS[STRING_ENABLE_DIVMMC], divMmcPresent);
-        if (divMmcPresent)
+        if ((romArrayPresent & BANK_DIVMMC) != 0)
         {
             ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_DIVMMC_ROM,
-                ptr, MENU_STRINGS[STRING_ENABLE_DIVMMC_ROM], divMmcRomEnabled);
-            char* tmpPath = menuGetDivMmcSdaPath();
-            if (tmpPath != 0)
+                ptr, MENU_STRINGS[STRING_ENABLE_DIVMMC_ROM], divMmcRomPresent);
+        }
+        char label[38];
+        char* tmpPath = menuGetDivMmcSdaPath();
+        if (tmpPath != 0)
+        {
+            tmpFile = SD.open(tmpPath, FILE_READ);
+            if (tmpFile)
             {
-                tmpFile = SD.open(tmpPath, FILE_READ);
-                if (tmpFile)
-                {
-                    snprintf(label, 38, " > sda: %s", tmpFile.name());
-                    ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_UNMOUNT_SDA,
-                        ptr, label, 0);
-                    tmpFile.close();
-                } else {
-                    cfgData.divMmcSdaPath[0] = 0;
-                }
+                snprintf(label, 38, " > sda: %s", tmpFile.name());
+                ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_UNMOUNT_SDA,
+                    ptr, label, 0);
+                tmpFile.close();
+            } else {
+                cfgData.divMmcSdaPath[0] = 0;
             }
-            tmpPath = menuGetDivMmcSdbPath();
-            if (tmpPath != 0)
+        }
+        tmpPath = menuGetDivMmcSdbPath();
+        if (tmpPath != 0)
+        {
+            tmpFile = SD.open(tmpPath, FILE_READ);
+            if (tmpFile)
             {
-                tmpFile = SD.open(tmpPath, FILE_READ);
-                if (tmpFile)
-                {
-                    snprintf(label, 38, " > sdb: %s", tmpFile.name());
-                    ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_UNMOUNT_SDB,
-                        ptr, label, 0);
-                    tmpFile.close();
-                } else {
-                    cfgData.divMmcSdbPath[0] = 0;
-                }
+                snprintf(label, 38, " > sdb: %s", tmpFile.name());
+                ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_UNMOUNT_SDB,
+                    ptr, label, 0);
+                tmpFile.close();
+            } else {
+                cfgData.divMmcSdbPath[0] = 0;
             }
         }
     }
@@ -963,15 +963,15 @@ bool menuPerformSelection(uint8_t index)
                     menuConfigChanged = true;
                     break;
                 case SETTING_ACTION_TOGGLE_DIVMMC :
-                    if ((romArrayPresent & BANK_DIVMMC) != 0)
-                    {
-                        divMmcPresent = !divMmcPresent;
-                        menuConfigChanged = true;
-                    }
+                    divMmcPresent = !divMmcPresent;
+                    menuConfigChanged = true;
                     break;
                 case SETTING_ACTION_TOGGLE_DIVMMC_ROM :
-                    divMmcRomEnabled = !divMmcRomEnabled;
-                    menuConfigChanged = true;
+                    if ((romArrayPresent & BANK_DIVMMC) != 0)
+                    {
+                        divMmcRomPresent = !divMmcRomPresent;
+                        menuConfigChanged = true;
+                    }
                     break;
                 case SETTING_ACTION_TOGGLE_IF1 :
                     if ((romArrayPresent & BANK_IF1) != 0)
@@ -1574,7 +1574,7 @@ File menuGetSpectrumRomFile()
 void menuClearConfiguration()
 {
     divMmcPresent = false;
-    divMmcRomEnabled = false;
+    divMmcRomPresent = false;
     interface1Present = false;
     mf128Present = false;
     uartPresent = false;
@@ -1621,9 +1621,9 @@ void menuLoadConfiguration(const char* cfgCfgName)
                     {
                         divMmcPresent = ((cfgPtr[16] == '1') ? true : false);
                         ++count;
-                    } else if (strncmp("divMmcRomEnabled = ", cfgPtr, 19) == 0)
+                    } else if (strncmp("divMmcRomPresent = ", cfgPtr, 19) == 0)
                     {
-                        divMmcRomEnabled = ((cfgPtr[19] == '1') ? true : false);
+                        divMmcRomPresent = ((cfgPtr[19] == '1') ? true : false);
                         ++count;
                     } else if (strncmp("divMmcSdaPath = ", cfgPtr, 16) == 0)
                     {
@@ -1753,7 +1753,7 @@ void menuSaveConfiguration()
             // Write configuration to file
             cfgFile.truncate();
             cfgFile.printf("divMmcPresent = %0d\n", divMmcPresent);
-            cfgFile.printf("divMmcRomEnabled = %0d\n", divMmcRomEnabled);
+            cfgFile.printf("divMmcRomPresent = %0d\n", divMmcRomPresent);
             cfgFile.printf("interface1Present = %0d\n", interface1Present);
             cfgFile.printf("mf128Present = %0d\n", mf128Present);
             cfgFile.printf("uartPresent = %0d\n", uartPresent);

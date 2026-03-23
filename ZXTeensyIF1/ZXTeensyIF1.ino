@@ -241,6 +241,7 @@ static const uint16_t EXT_RAM_PAGE_COUNT = 48;
 volatile uint8_t divMmcRamArray[RAM_PAGE_COUNT][RAM_PAGE_SIZE] __attribute__((aligned(16)));
 volatile DMAMEM uint8_t divMmcExtRamArray[EXT_RAM_PAGE_COUNT][RAM_PAGE_SIZE] __attribute__((aligned(16)));
 volatile bool divMmcPresent = false;
+volatile bool divMmcRomPresent = false;
 volatile bool divMmcEnabled = false;
 volatile bool divMmcRomEnabled = false;
 volatile bool divMmcToggle = false;
@@ -1677,6 +1678,7 @@ void handleStateReset()
     interface1Enabled = false;
     divMmcPaged = false;
     divMmcEnabled = false;
+    divMmcRomEnabled = false;
     divMmcToggle = false;
     divMmcConMem = false;
     divMmcAutoMap = false;
@@ -1793,6 +1795,7 @@ void handleStateReset()
             // The Interface 1 can be enabled by switching back
             // into 128k mode (".128") or enabling the Multiface 128
             divMmcEnabled = true;
+            divMmcRomEnabled = divMmcRomPresent;
             char* sdaPath = menuGetDivMmcSdaPath();
             char* sdbPath = menuGetDivMmcSdbPath();
             if ((sdaPath == 0) && (sdbPath != 0))
@@ -1828,30 +1831,34 @@ void handleStateReset()
             interface1Enabled = true;
         }
 
-        // Load the modem ROM, if possible
-        if (modemPresent)
-        {
-            divMmcExtRamEnabled = false;
-            if (((romArrayPresent & BANK_RAM) == 0) &&
-                (loadRomImage(MODEM_ROM_PATH, (char*)divMmcExtRamArray[0],
-                    RAM_PAGE_SIZE) >= RAM_PAGE_SIZE))
-            {
-                romArrayPresent |= BANK_RAM;
-                modemPaged = true;
-            }
-        }
-
         // If UART is present and ready, then enable
-        if (!wifiNtpEnabled && uartPresent)
+        if (uartPresent)
         {
+            // Load the modem ROM, if possible
             if (modemPresent)
             {
-                espUart.begin(0, menuGetModemUrl());
-                modemOnReset = true;
-                modemEnabled = true;
-            } else {
-                espUart.begin(0, 0);
-                uartEnabled = true;
+                divMmcExtRamEnabled = false;
+                if (((romArrayPresent & BANK_RAM) == 0) &&
+                    (loadRomImage(MODEM_ROM_PATH, (char*)divMmcExtRamArray[0],
+                        RAM_PAGE_SIZE) >= RAM_PAGE_SIZE))
+                {
+                    romArrayPresent |= BANK_RAM;
+                    modemPaged = true;
+                }
+            }
+
+            // Wait for WiFi NTP before enabling UART
+            if (!wifiNtpEnabled)
+            {
+                if (modemPresent)
+                {
+                    espUart.begin(0, menuGetModemUrl());
+                    modemOnReset = true;
+                    modemEnabled = true;
+                } else {
+                    espUart.begin(0, 0);
+                    uartEnabled = true;
+                }
             }
         }
 
@@ -2465,6 +2472,7 @@ FASTRUN void isrWrEvent()
                     {
                         mf128Enabled = false;
                         divMmcEnabled = divMmcPresent;
+                        divMmcRomEnabled = (divMmcEnabled && divMmcRomPresent);
                         interface1Enabled = (interface1Present && !divMmcEnabled);
                     }
                     break;
@@ -2674,6 +2682,7 @@ FASTRUN void isrRdEvent()
                     mf128Paged = true;
                     mf128Enabled = true;
                     divMmcEnabled = false;
+                    divMmcRomEnabled = false;
                     interface1Enabled = interface1Present;
                     updateRomIndex(true);
                 }
@@ -2693,7 +2702,7 @@ FASTRUN void isrRdEvent()
                 }
 
                 // Send the NMI to the DivMMC, if not Multiface 128
-                if (divMmcEnabled && divMmcRomEnabled && !mf128ActiveNMI &&
+                if (divMmcRomEnabled && !mf128ActiveNMI &&
                     ((romArraySelected & PAGE_BANK_DIVMMC) != 0))
                 {
                     divMmcPaged = true;
@@ -2717,7 +2726,7 @@ FASTRUN void isrRdEvent()
                             updateRomIndex(true);
                         }
 
-                        if (divMmcEnabled && divMmcRomEnabled && !mf128Paged)
+                        if (divMmcRomEnabled && !mf128Paged)
                         {
                             // Detect M1 cycle for DivMMC paging
                             if ((address & 0xff00) == 0x3d00)
@@ -2830,6 +2839,7 @@ FASTRUN void isrRdEvent()
                             {
                                 divMmcToggle = false;
                                 divMmcEnabled = false;
+                                divMmcRomEnabled = false;
                                 interface1Enabled = interface1Present;
                             }
                         }
