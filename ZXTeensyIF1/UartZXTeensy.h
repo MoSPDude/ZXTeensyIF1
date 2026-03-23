@@ -18,11 +18,14 @@ class UartZXTeensy
 
     protected :
         // NOTE: TX_BUFFER_SIZE needs to be large enough for EspNtpZXTeensy
-        static const size_t RX_BUFFER_SIZE = 64;
         static const size_t TX_BUFFER_SIZE = 64;
-        RingBuffer<RX_BUFFER_SIZE> uartReadBuffer;
         RingBuffer<TX_BUFFER_SIZE> uartWriteBuffer;
         RingBuffer<TX_BUFFER_SIZE> uartFlagsBuffer;
+
+        // Occasionally, receive 2 x MTU into buffer, so size over (2 * 1500)
+        static const size_t RX_BUFFER_SIZE = 3072;
+        RingBuffer<RX_BUFFER_SIZE> uartReadBuffer __attribute__((aligned(16)));
+
         bool enabled;
         bool isPassthrough;
         volatile size_t readBytesAvailable;
