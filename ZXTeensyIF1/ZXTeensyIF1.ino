@@ -46,7 +46,7 @@ typedef enum {
     MENU_ACTION_BROWSER_MOUNT_FDA,
     MENU_ACTION_BROWSER_MOUNT_FDB,
     MENU_ACTION_START_SERVER,
-    MENU_ACTION_STOP_SERVER,
+    MENU_ACTION_STOP_SERVER
 } menu_action_t;
 
 typedef enum {
@@ -94,6 +94,7 @@ typedef enum {
     ROM_MF128, // Upper ROM_MF128 is MF128 RAM
     // 8KB ROMs
     ROM_DIVMMC,
+    // ROM_LPRINT uses separate 2KB ROM
     ROM_LPRINT,
     // "Dynamic ROMs" that use DivMMC RAM
     ROM_MODEM,
@@ -110,7 +111,6 @@ typedef enum {
     ROM_PAGE_IF1       = 8,
     ROM_PAGE_MF128     = 10,
     ROM_PAGE_DIVMMC    = 12,
-    ROM_PAGE_LPRINT    = 13,
     ROM_PAGE_COUNT
 } rom_page_t;
 
@@ -217,9 +217,11 @@ volatile uint32_t buttonTrigExitCount = 0;
 // ROM banking
 static const uint16_t RAM_PAGE_SIZE = 0x2000;
 static const uint16_t ROM_PAGE_SIZE = (RAM_PAGE_SIZE * 2);
+static const uint16_t LPRINT_ROM_SIZE = 0x800;
 volatile rom_select_t romSelected = ROM_ROM0;
 volatile bank_select_t romArraySelected = BANK_ROM0;
 volatile uint8_t romArray[ROM_PAGE_COUNT][RAM_PAGE_SIZE] __attribute__((aligned(16)));
+volatile DMAMEM uint8_t lprintRom[LPRINT_ROM_SIZE] __attribute__((aligned(16)));
 volatile uint8_t* romPtr = romArray[0];
 volatile uint16_t romArrayPresent = 0;
 volatile bool romEnabled = false;
@@ -358,7 +360,7 @@ TzxPlayerZXTeensy tzxPlayer;
 volatile bool tzxPresent = false;
 volatile bool tzxEnabled = false;
 
-// u765 disk controller
+// uPD765 disk controller
 Dsk765ZXTeensy dskController;
 volatile bool dskPresent = false;
 volatile bool dskEnabled = false;
@@ -792,6 +794,7 @@ inline __attribute__((always_inline)) void updateRomIndex(bool pageNow)
                 {
                     romPtr = divMmcRamArray[3];
                 } else {
+                    //romPtr = romArray[ROM_PAGE_DIVMMC + (romSelected - ROM_DIVMMC)];
                     romPtr = romArray[ROM_PAGE_DIVMMC];
                 }
                 break;
@@ -804,9 +807,8 @@ inline __attribute__((always_inline)) void updateRomIndex(bool pageNow)
                 romPtr = divMmcRamArray[0];
                 break;
             case ROM_LPRINT :
-                // 8KB ROMs are after ROM_PAGE_DIVMMC
-                //romPtr = romArray[ROM_PAGE_DIVMMC + (romSelected - ROM_DIVMMC)];
-                romPtr = romArray[ROM_PAGE_LPRINT];
+                // Special handling for 2KB ROM
+                romPtr = lprintRom;
                 break;
             default :
                 // 16KB ROMs are two ROM pages
@@ -1464,14 +1466,12 @@ void handleStateResetEntry()
         romArrayPresent = 0;
         rom1Present = false;
         rom23Present = false;
-        interface1Present = false;
-        divMmcPresent = false;
-        mf128Present = false;
         zxC2Present = false;
         zxC3Present = false;
+        mdrPresent = false;
         snaLoaderPresent = false;
         tzxPresent = false;
-        mdrPresent = false;
+        menuClearConfiguration();
 
         // Re-initialise RAM, and load the ROMs
         loadRomSets = true;
@@ -1540,8 +1540,7 @@ void handleStateResetEntry()
                 }
 
                 // Load ZX LPrint III ROM
-                if (loadRomImage(LPRINT_ROM_PATH, (char *)romArray[ROM_PAGE_LPRINT],
-                    0x0800) > 0)
+                if (loadRomImage(LPRINT_ROM_PATH, (char *)lprintRom, 0x0800) > 0)
                 {
                     romArrayPresent |= BANK_LPRINT;
                 } else if ((romArrayPresent & BANK_LPRINT) == 0)
@@ -2184,7 +2183,7 @@ inline __attribute__((always_inline)) void writeDivMmcRomData(uint16_t address)
 inline __attribute__((always_inline)) void writeLprintRomData(uint16_t address)
 {
     // Transfer soft ROM data to the bus
-    writeData(romPtr[address & 0x07FF]);
+    writeData(romPtr[address & (LPRINT_ROM_SIZE - 1)]);
 }
 
 inline __attribute__((always_inline)) void writeRomData(uint16_t address)
@@ -2427,8 +2426,7 @@ FASTRUN void isrWrEvent()
                     }
                     if (isPort7F)
                     {
-                        if (interface1Present && divMmcEnabled &&
-                            divMmcPaged && ((data & 0x10) == 0x0))
+                        if (divMmcEnabled && divMmcPaged && ((data & 0x10) == 0x0))
                         {
                             // Detect 0x7ffd write access to disable DivMMC
                             divMmcToggle = true;
@@ -2695,7 +2693,7 @@ FASTRUN void isrRdEvent()
                     writeRomData(address);
 
                     // Send the NMI to the DivMMC, if not Multiface 128
-                    if (divMmcEnabled && !mf128ActiveNMI &&
+                    if (divMmcEnabled && divMmcRomEnabled && !mf128ActiveNMI &&
                         ((romArraySelected & PAGE_BANK_DIVMMC) != 0))
                     {
                         divMmcPaged = true;

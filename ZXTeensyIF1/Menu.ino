@@ -1582,12 +1582,13 @@ void menuClearConfiguration()
     mf128Present = false;
     uartPresent = false;
     usbPresent = false;
+    wifiNtpPresent = false;
+    wifiNtpTz = 48;
     dskPresent = false;
+    modemPresent = false;
     printerPresent = false;
     lprintPresent = false;
     bootIntoMenu = true;
-    wifiNtpPresent = false;
-    wifiNtpTz = 48;
     memset(&cfgData, 0, sizeof(cfgData));
     strcpy(cfgData.modemUrl, MODEM_URL_PATH);
 }
@@ -1758,12 +1759,12 @@ void menuSaveConfiguration()
             cfgFile.printf("divMmcRomEnabled = %0d\n", divMmcRomEnabled);
             cfgFile.printf("interface1Present = %0d\n", interface1Present);
             cfgFile.printf("mf128Present = %0d\n", mf128Present);
-            cfgFile.printf("usbPresent = %0d\n", usbPresent);
             cfgFile.printf("uartPresent = %0d\n", uartPresent);
-            cfgFile.printf("modemPresent = %0d\n", modemPresent);
+            cfgFile.printf("usbPresent = %0d\n", usbPresent);
             cfgFile.printf("wifiNtpPresent = %0d\n", wifiNtpPresent);
             cfgFile.printf("wifiNtpTz = %0d\n", wifiNtpTz);
             cfgFile.printf("dskPresent = %0d\n", dskPresent);
+            cfgFile.printf("modemPresent = %0d\n", modemPresent);
             cfgFile.printf("printerPresent = %0d\n", printerPresent);
             cfgFile.printf("lprintPresent = %0d\n", lprintPresent);
             cfgFile.printf("bootIntoMenu = %0d\n", bootIntoMenu);
