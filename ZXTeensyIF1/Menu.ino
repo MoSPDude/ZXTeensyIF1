@@ -182,7 +182,10 @@ char* menuInsertStatus(char* ptr)
     int a = temp;
     temp *= 100;
     int b = (int)(temp) % 100;
-    snprintf(label, 38, " > %d.%02d degC", a, b);
+    if (snprintf(label, 38, " > %d.%02d degC", a, b) >= 38)
+    {
+        label[37] = 0;
+    }
     return menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_NO_OP,
         ptr, label, 0);
 }
@@ -623,7 +626,10 @@ char* menuGenerateSettings(char* ptr)
             tmpFile = SD.open(tmpPath, FILE_READ);
             if (tmpFile)
             {
-                snprintf(label, 38, " > sda: %s", tmpFile.name());
+                if (snprintf(label, 38, " > sda: %s", tmpFile.name()) >= 38)
+                {
+                    label[37] = 0;
+                }
                 ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_UNMOUNT_SDA,
                     ptr, label, 0);
                 tmpFile.close();
@@ -637,7 +643,10 @@ char* menuGenerateSettings(char* ptr)
             tmpFile = SD.open(tmpPath, FILE_READ);
             if (tmpFile)
             {
-                snprintf(label, 38, " > sdb: %s", tmpFile.name());
+                if (snprintf(label, 38, " > sdb: %s", tmpFile.name()) >= 38)
+                {
+                    label[37] = 0;
+                }
                 ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_UNMOUNT_SDB,
                     ptr, label, 0);
                 tmpFile.close();
@@ -657,7 +666,10 @@ char* menuGenerateSettings(char* ptr)
             tmpFile = SD.open(tmpPath, FILE_READ);
             if (tmpFile)
             {
-                snprintf(label, 38, " > A: %s", tmpFile.name());
+                if (snprintf(label, 38, " > A: %s", tmpFile.name()) >= 38)
+                {
+                    label[37] = 0;
+                }
                 ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_UNMOUNT_FDA,
                     ptr, label, 0);
                 tmpFile.close();
@@ -671,7 +683,10 @@ char* menuGenerateSettings(char* ptr)
             tmpFile = SD.open(tmpPath, FILE_READ);
             if (tmpFile)
             {
-                snprintf(label, 38, " > B: %s", tmpFile.name());
+                if (snprintf(label, 38, " > B: %s", tmpFile.name()) >= 38)
+                {
+                    label[37] = 0;
+                }
                 ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_UNMOUNT_FDB,
                     ptr, label, 0);
                 tmpFile.close();
@@ -713,7 +728,10 @@ char* menuGenerateSettings(char* ptr)
         if (modemPresent)
         {
             char label[38];
-            snprintf(label, 38, " > %s", cfgData.modemUrl);
+            if (snprintf(label, 38, " > %s", cfgData.modemUrl) >= 38)
+            {
+                label[37] = 0;
+            }
             ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_NO_OP,
                 ptr, label, 0);
         }
@@ -1493,7 +1511,10 @@ File menuGetMenuRomFile(const char* cfgRomName, rom_type_t* romType)
     if (cfgRomName[0] != 0)
     {
         char romPath[MAX_PATH];
-        snprintf(romPath, MAX_PATH, "/ROMS/%s", cfgRomName);
+        if (snprintf(romPath, MAX_PATH, "/ROMS/%s", cfgRomName) >= (int)MAX_PATH)
+        {
+            romPath[(MAX_PATH - 1)] = 0;
+        }
         File entry = SD.open(romPath, FILE_READ);
         if (entry)
         {
@@ -1597,7 +1618,10 @@ void menuLoadConfiguration(const char* cfgCfgName)
     char cfgPath[MAX_PATH];
     if (cfgCfgName != 0)
     {
-        snprintf(cfgPath, MAX_PATH, "/ZXTEENSY/CONFIGS/%s", cfgCfgName);
+        if (snprintf(cfgPath, MAX_PATH, "/ZXTEENSY/CONFIGS/%s", cfgCfgName) >= (int)MAX_PATH)
+        {
+            cfgPath[(MAX_PATH - 1)] = 0;
+        }
     } else {
         menuClearConfiguration();
         strncpy(cfgPath, ZXTEENSY_CFG_PATH, MAX_PATH);
