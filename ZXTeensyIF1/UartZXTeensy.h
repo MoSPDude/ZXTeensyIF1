@@ -29,7 +29,6 @@ class UartZXTeensy
 
         bool enabled;
         bool isModemPassthrough;
-        volatile size_t readBytesAvailable;
         volatile uint32_t readByteCycle;
 
         inline __attribute__((always_inline)) uart_action_t readWriteData(uint8_t* data)
@@ -46,7 +45,7 @@ class UartZXTeensy
 
     public :
         constexpr UartZXTeensy() : enabled(false), isModemPassthrough(false),
-            readBytesAvailable(0), readByteCycle(0)
+            readByteCycle(0)
         {
         }
 
@@ -77,18 +76,19 @@ class UartZXTeensy
 
         inline uint8_t getUartStatusByte() __attribute__((always_inline, hot, optimize("O3")))
         {
+            size_t count = uartReadBuffer.getSize();
             uint8_t status = (hasReadData() ? 0x01 : 0x00);
             if (hasWriteData())
             {
                 status |= 0x02;
             }
-            if (readBytesAvailable >= 2048)
+            if (count >= 2048)
             {
                 status |= 0x1C;
-            } else if (readBytesAvailable >= 1024)
+            } else if (count >= 1024)
             {
                 status |= 0x18;
-            } else if (readBytesAvailable >= 256)
+            } else if (count >= 256)
             {
                 status |= 0x08;
             }
@@ -124,35 +124,30 @@ class UartZXTeensy
                             break;
                     }
                 }
-                size_t count = Serial8.available();
                 if (isModemPassthrough)
                 {
                     // Restrict data rate to byte per MODEM_DELAY_CNT
                     if ((ARM_DWT_CYCCNT - readByteCycle) >= MODEM_DELAY_CNT)
                     {
                         readByteCycle = ARM_DWT_CYCCNT;
-                        if (count > 0)
+                        if (Serial8.available() && uartReadBuffer.canWrite())
                         {
                             uartReadBuffer.write(Serial8.read());
-                            --count;
                         }
                     }
-                } else {
-                    while ((count > 0) && uartReadBuffer.canWrite())
-                    {
-                        uartReadBuffer.write(Serial8.read());
-                        --count;
-                    }
+                } else if (Serial8.available() && uartReadBuffer.canWrite())
+                {
+                    uartReadBuffer.write(Serial8.read());
                 }
-                readBytesAvailable = count;
             }
         }
 
-        inline __attribute__((always_inline)) void flush()
+        inline __attribute__((always_inline)) void clear()
         {
             uartReadBuffer.clear();
             uartWriteBuffer.clear();
             uartFlagsBuffer.clear();
+            Serial8.clear();
         }
 };
 

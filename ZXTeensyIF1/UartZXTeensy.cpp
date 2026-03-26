@@ -98,7 +98,7 @@ void UartZXTeensy::end(void)
             }
         }
         Serial8.end();
-        flush();
+        clear();
         enabled = false;
     }
 }
