@@ -1958,17 +1958,60 @@ FASTRUN void loop()
         if (usbJoystick.available())
         {
             uint8_t data = 0;
+            uint32_t dpadButtons;
             uint32_t buttons = usbJoystick.getButtons();
-            menuRedraw = menuPrintDebug(true, "usbJoystick.buttons %0d", buttons);
             switch (usbJoystick.joystickType())
             {
-                case JoystickController::PS4 :
-                    break;
                 case JoystickController::PS3 :
+                    // D-Pad
+                    dpadButtons = (buttons & 0x00F0) >> 4;
+                    if (dpadButtons != 0)
+                    {
+                        const static uint8_t dpadMap[16] = { 0x00,
+                            0x08, 0x01, 0x09, 0x04, 0x0C, 0x05, 0x0D,
+                            0x02, 0x0A, 0x03, 0x0B, 0x06, 0x0E, 0x07, 0x0F };
+                        data |= dpadMap[dpadButtons];
+                    }
+
+                    // X and Squ as Fire 1
+                    if (buttons & 0xc000)
+                    {
+                        data |= 0x10;
+                    }
+
+                    // O and Tri as Fire 2
+                    if (buttons & 0x3000)
+                    {
+                        data |= 0x20;
+                    }
+                    break;
+                case JoystickController::PS4 :
+                    // D-Pad
+                    dpadButtons = (uint8_t)usbJoystick.getAxis(9);
+                    if (dpadButtons < 0x08)
+                    {
+                        // PS4 D-Pad returns as compass points on Axis 9 eg.
+                        // North, NE, East etc.
+                        const static uint8_t dpadMap[8] = { 0x08, 0x09, 0x01,
+                            0x05, 0x04, 0x06, 0x02, 0x0A };
+                        data |= dpadMap[dpadButtons];
+                    }
+
+                    // X and Squ as Fire 1
+                    if (buttons & 0x03)
+                    {
+                        data |= 0x10;
+                    }
+
+                    // O and Tri as Fire 2
+                    if (buttons & 0x0c)
+                    {
+                        data |= 0x20;
+                    }
                     break;
                 default :
                     // D-Pad
-                    uint32_t dpadButtons = (buttons & 0xF00) >> 8;
+                    dpadButtons = (buttons & 0xF00) >> 8;
                     if (dpadButtons != 0)
                     {
                         const static uint8_t dpadMap[16] = { 0x00,
@@ -1990,6 +2033,12 @@ FASTRUN void loop()
                     }
                     break;
             }
+#ifdef ENABLE_DEBUG_MENU
+            if (joystickData != data)
+            {
+                menuRedraw = menuPrintDebug(true, "joystickData %0d", data);
+            }
+#endif
             joystickData = data;
             joystickPresent = true;
             usbJoystick.joystickDataClear();
