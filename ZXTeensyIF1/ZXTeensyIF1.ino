@@ -2856,11 +2856,10 @@ FASTRUN void isrRdEvent()
                             // Write ROM data to bus
                             writePagedRomData(address);
 
-                            // Detect M1 cycle for Interface 1 paging
+                            // Detect post-M1 cycle for Interface 1 paging
                             if ((interface1Enabled || zxC2ShadowRom) &&
                                 ((address == 0x08) || (address == 0x1708)))
                             {
-                                // Detect post-M1 cycle for Interface 1 paging
                                 if (zxC2ShadowRom)
                                 {
                                     // Directly page in the shadow ROM from ROM 0/1/3
@@ -2898,7 +2897,7 @@ FASTRUN void isrRdEvent()
                         // Write ROM data to bus
                         writePagedRomData(address);
 
-                        // Detect M1 cycle for Interface 1 paging
+                        // Detect post-M1 cycle for Interface 1 paging
                         if (interface1Enabled &&
                             ((address == 0x08) || (address == 0x1708)))
                         {
@@ -2939,7 +2938,7 @@ FASTRUN void isrRdEvent()
                         // Write ROM data to bus
                         writePagedRomData(address);
 
-                        // Detect post-M1 cycle for Interface 1 paging
+                        // Detect post-M1 cycle for shadow ROM paging
                         if (zxC2ShadowRom && (address == 0x700))
                         {
                             PAGE_OUT_ROM(ROM_ZXC2);
