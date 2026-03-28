@@ -2,7 +2,7 @@
 #ifndef DEFINES_ZX_TEENSY_H
 #define DEFINES_ZX_TEENSY_H
 
-#define ZXTEENSY_VERSION "20260323"
+#define ZXTEENSY_VERSION "20260328"
 #define ENABLE_BUILTIN_ROM_IF1
 //define DEBUG_OUTPUT
 //define ENABLE_DEBUG_MENU
@@ -46,5 +46,10 @@
 
 // VTX5000 read data rate to 120 bps (~1200 baud)
 #define MODEM_DELAY_CNT (TEENSY_CLK_FREQ / 120ULL)
+
+#define PAGE_IN_ROM(bit) (romPaged |= (1UL << (bit)))
+#define PAGE_OUT_ROM(bit) (romPaged &= ~(1UL << (bit)))
+#define IS_ROM_PAGED(bit) ((romPaged >> (bit)) & 0x01)
+#define IS_ROM_PRIORITY(bit) ((romPaged >= (1UL << (bit))))
 
 #endif

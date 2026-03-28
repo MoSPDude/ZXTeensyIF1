@@ -84,6 +84,7 @@ typedef enum {
     BANK_RAM    = 0x0100
 } bank_select_t;
 
+// NOTE: This also defines the priority for active paged ROMs
 typedef enum {
     // 16KB ROMs
     ROM_ROM0,
@@ -91,10 +92,11 @@ typedef enum {
     ROM_ROM2,
     ROM_ROM3,
     ROM_IF1,
-    ROM_MF128, // Upper ROM_MF128 is MF128 RAM
+    // 8KB ROM and 8KB RAM
+    ROM_MF128,
     // 8KB ROMs
     ROM_DIVMMC,
-    // ROM_LPRINT uses separate 2KB ROM
+    // ROM_LPRINT uses separate 2KB ROM array
     ROM_LPRINT,
     // "Dynamic ROMs" that use DivMMC RAM
     ROM_MODEM,
@@ -221,6 +223,7 @@ static const uint16_t ROM_PAGE_SIZE = (RAM_PAGE_SIZE * 2);
 static const uint16_t LPRINT_ROM_SIZE = 0x800;
 volatile rom_select_t romSelected = ROM_ROM0;
 volatile bank_select_t romArraySelected = BANK_ROM0;
+volatile uint32_t romPaged = 0x00;
 volatile uint8_t romArray[ROM_PAGE_COUNT][RAM_PAGE_SIZE] __attribute__((aligned(16)));
 volatile DMAMEM uint8_t lprintRom[LPRINT_ROM_SIZE] __attribute__((aligned(16)));
 volatile uint8_t* romPtr = romArray[0];
@@ -245,7 +248,6 @@ volatile bool divMmcRomPresent = false;
 volatile bool divMmcEnabled = false;
 volatile bool divMmcRomEnabled = false;
 volatile bool divMmcToggle = false;
-volatile bool divMmcPaged = false;
 volatile bool divMmcAutoMap = false;
 volatile bool divMmcConMem = false;
 volatile bool divMmcMapRam = false;
@@ -253,25 +255,20 @@ volatile bool divMmcRamBankThree = false;
 volatile bool divMmcPreserveRam = false;
 volatile bool divMmcExtRamEnabled = false;
 volatile uint8_t* divMmcRamPtr;
-const uint16_t PAGE_BANK_DIVMMC = (BANK_ROM0 | BANK_ROM1 | BANK_ROM3);
 
 // Multiface 128
 volatile bool mf128Present = false;
 volatile bool mf128Enabled = false;
-volatile bool mf128Paged = false;
 volatile bool mf128VideoRam = false;
 volatile bool mf128ActiveNMI = false;
 
 // Interface 1
 volatile bool interface1Present = false;
 volatile bool interface1Enabled = false;
-volatile bool interface1Paged = false;
 volatile bool interface1Removed = false;
-const uint16_t PAGE_BANK_MF128_IF1 = (BANK_ROM0 | BANK_ROM1 | BANK_ROM3 | BANK_MF128);
 
 // ZXC2 cartridge
 volatile bool zxC2Present = false;
-volatile bool zxC2Paged = false;
 volatile bool zxC2Lock = false;
 volatile bool zxC2ShadowRom = false;
 volatile uint8_t zxC2BankPtr = 0x00;
@@ -296,12 +293,10 @@ volatile uint8_t mdrMaxSector = 0;
 
 // Z80 snapshot loader banking
 volatile bool snaLoaderPresent = false;
-volatile bool snaLoaderPaged = false;
 volatile uint8_t snaLoaderBanks = 0;
 
 // Boot menu ROM
 volatile bool menuEnterOnReset = false;
-volatile bool menuPaged = false;
 volatile bool menuSelected = false;
 volatile bool menuRedraw = false;
 volatile uint8_t menuSelectedIndex = 0;
@@ -328,7 +323,6 @@ UartZXTeensy espUart;
 // VTX5000
 volatile bool modemPresent = false;
 volatile bool modemEnabled = false;
-volatile bool modemPaged = false;
 volatile bool modemOnReset = true;
 
 // RTC module
@@ -373,7 +367,6 @@ volatile bool printerPresent = false;
 volatile bool printerEnabled = false;
 volatile bool lprintPresent = false;
 volatile bool lprintEnabled = false;
-volatile bool lprintPaged = false;
 volatile bool printerStrobe = false;
 volatile uint8_t printerByte = 0x00;
 
@@ -391,7 +384,7 @@ inline void sdSpiOnTick() __attribute__((always_inline, hot, optimize("O3")));
 inline void zxC3OnTick() __attribute__((always_inline, hot, optimize("O3")));
 
 // Optimised read ISR ROM functions
-inline void pageInRomIndex(bool pageNow) __attribute__((always_inline, hot, optimize("O3")));
+inline void updateRomPtr(bool pageNow) __attribute__((always_inline, hot, optimize("O3")));
 inline void updateRomIndex(bool pageNow) __attribute__((always_inline, hot, optimize("O3")));
 inline void writeRomData(uint16_t address) __attribute__((always_inline, hot, optimize("O3")));
 inline void writePagedRomData(uint16_t address) __attribute__((always_inline, hot, optimize("O3")));
@@ -1478,7 +1471,7 @@ void handleStateResetEntry()
                     (loadRomImage(MENU_ROM_PATH, (char *)divMmcExtRamArray[0],
                         RAM_PAGE_SIZE) > 0))
                 {
-                    menuPaged = true;
+                    PAGE_IN_ROM(ROM_MENU);
                     divMmcExtRamEnabled = false;
                     romArrayPresent |= BANK_RAM;
                 }
@@ -1502,7 +1495,7 @@ void handleStateResetMenu()
 
 void handleWarmStateReset()
 {
-    if (menuPaged)
+    if (IS_ROM_PRIORITY(ROM_MENU))
     {
         // Ensure menu actions are performed on reset from menu
         if (globalState != STATE_RESET_MENU)
@@ -1568,13 +1561,8 @@ void handleStateReset()
     }
 
     // Reset the banking state
-    menuPaged = false;
-    menuSelected = false;
-    rom1Paged = false;
-    rom23Paged = false;
-    interface1Paged = false;
+    romPaged = 0x00;
     interface1Enabled = false;
-    divMmcPaged = false;
     divMmcEnabled = false;
     divMmcRomEnabled = false;
     divMmcToggle = false;
@@ -1582,11 +1570,9 @@ void handleStateReset()
     divMmcAutoMap = false;
     divMmcMapRam = false;
     divMmcRamPtr = divMmcRamArray[0];
-    mf128Paged = false;
     mf128Enabled = false;
     mf128VideoRam = false;
     mf128ActiveNMI = false;
-    zxC2Paged = false;
     zxC2Lock = false;
     zxC2BankPtr = 0x00;
     zxC2ShadowRom = false;
@@ -1595,15 +1581,12 @@ void handleStateReset()
     zxC3FlashSetup = false;
     zxC3WriteTrigState = TRIGGER_READY;
     mdrEnabled = false;
-    snaLoaderPaged = false;
     uartEnabled = false;
     tzxEnabled = false;
     dskEnabled = false;
     modemEnabled = false;
-    modemPaged = false;
     printerEnabled = false;
     lprintEnabled = false;
-    lprintPaged = false;
     romSelected = ROM_ROM0;
     romArraySelected = BANK_ROM0;
 
@@ -1650,17 +1633,20 @@ void handleStateReset()
     menuEnterOnReset = false;
 
     // Populate the menu when active
-    if (menuPaged)
+    if (IS_ROM_PAGED(ROM_MENU))
     {
         menuInitialise(divMmcExtRamArray[0]);
     } else {
         // Page in the ZXC2 cartridge, or snapshot loader ROM
         if (zxC2Present)
         {
-            zxC2Paged = !zxC2ShadowRom;
+            if (!zxC2ShadowRom)
+            {
+                PAGE_IN_ROM(ROM_ZXC2);
+            }
         } else if (snaLoaderPresent)
         {
-            snaLoaderPaged = true;
+            PAGE_IN_ROM(ROM_SNA);
         }
 
         // Enable DSK, MDR and TZX peripherals, and prevent direct SD card access
@@ -1741,7 +1727,7 @@ void handleStateReset()
                         RAM_PAGE_SIZE) >= RAM_PAGE_SIZE))
                 {
                     romArrayPresent |= BANK_RAM;
-                    modemPaged = true;
+                    PAGE_IN_ROM(ROM_MODEM);
                 }
             }
 
@@ -1850,7 +1836,7 @@ FASTRUN void loop()
         if (menuRedraw)
         {
             menuRedraw = false;
-            if (menuPaged && !nmiPending)
+            if (IS_ROM_PAGED(ROM_MENU) && !nmiPending)
             {
                 menuGenerate();
                 nmiPending = true;
@@ -2114,7 +2100,7 @@ void usbKeyboardReleased(int key)
     joystickPresent = true;
 }
 
-inline void pageInRomIndex(bool pageNow)
+inline void updateRomPtr(bool pageNow)
 {
     // Enable soft ROM when page is present
     if ((romArrayPresent & romArraySelected) != 0)
@@ -2174,59 +2160,74 @@ inline void pageInRomIndex(bool pageNow)
 inline void updateRomIndex(bool pageNow)
 {
     // Determine which ROM is currently paged
-    if (menuPaged)
+    if (IS_ROM_PRIORITY(ROM_DIVMMC))
     {
-        romSelected = ROM_MENU;
-        romArraySelected = BANK_RAM;
-    } else if (zxC2Paged)
-    {
-        romSelected = ROM_ZXC2;
-        romArraySelected = BANK_RAM;
-    } else if (snaLoaderPaged)
-    {
-        romSelected = ROM_SNA;
-        romArraySelected = BANK_RAM;
-    } else if (modemPaged)
-    {
-        romSelected = ROM_MODEM;
-        romArraySelected = BANK_RAM;
-    } else if (lprintPaged)
-    {
-        romSelected = ROM_LPRINT;
-        romArraySelected = BANK_LPRINT;
-    } else if (mf128Paged)
-    {
-        romSelected = ROM_MF128;
-        romArraySelected = BANK_MF128;
-    } else if (divMmcPaged)
-    {
-        romSelected = ROM_DIVMMC;
-        romArraySelected = BANK_DIVMMC;
-    } else if (interface1Paged)
-    {
-        romSelected = ROM_IF1;
-        romArraySelected = BANK_IF1;
-    } else if (rom23Paged)
-    {
-        if (rom1Paged)
+        if (IS_ROM_PRIORITY(ROM_ZXC2))
         {
-            romArraySelected = BANK_ROM3;
-            romSelected = ROM_ROM3;
+            romArraySelected = BANK_RAM;
+            if (IS_ROM_PRIORITY(ROM_SNA))
+            {
+                if (IS_ROM_PRIORITY(ROM_MENU))
+                {
+                    romSelected = ROM_MENU;
+                } else {
+                    romSelected = ROM_SNA;
+                }
+            } else {
+                romSelected = ROM_ZXC2;
+            }
         } else {
-            romArraySelected = BANK_ROM2;
-            romSelected = ROM_ROM2;
+            if (IS_ROM_PRIORITY(ROM_LPRINT))
+            {
+                romArraySelected = BANK_RAM;
+                if (IS_ROM_PRIORITY(ROM_MODEM))
+                {
+                    romSelected = ROM_MODEM;
+                } else {
+                    romSelected = ROM_LPRINT;
+                }
+            } else {
+                romArraySelected = BANK_DIVMMC;
+                romSelected = ROM_DIVMMC;
+            }
         }
-    } else if (rom1Paged)
-    {
-        romArraySelected = BANK_ROM1;
-        romSelected = ROM_ROM1;
     } else {
-        romArraySelected = BANK_ROM0;
-        romSelected = ROM_ROM0;
+        if (IS_ROM_PRIORITY(ROM_ROM3))
+        {
+            if (IS_ROM_PRIORITY(ROM_IF1))
+            {
+                if (IS_ROM_PRIORITY(ROM_MF128))
+                {
+                    romArraySelected = BANK_MF128;
+                    romSelected = ROM_MF128;
+                } else {
+                    romArraySelected = BANK_IF1;
+                    romSelected = ROM_IF1;
+                }
+            } else {
+                romArraySelected = BANK_ROM3;
+                romSelected = ROM_ROM3;
+            }
+        } else {
+            if (IS_ROM_PRIORITY(ROM_ROM1))
+            {
+                if (IS_ROM_PRIORITY(ROM_ROM2))
+                {
+                    romArraySelected = BANK_ROM2;
+                    romSelected = ROM_ROM2;
+                } else {
+                    romArraySelected = BANK_ROM1;
+                    romSelected = ROM_ROM1;
+                }
+            } else {
+                romArraySelected = BANK_ROM0;
+                romSelected = ROM_ROM0;
+            }
+        }
     }
 
     // Enable soft ROM when page is present
-    pageInRomIndex(pageNow);
+    updateRomPtr(pageNow);
 }
 
 inline void writeRomData(uint16_t address)
@@ -2319,7 +2320,8 @@ FASTRUN void isrPinButton()
         buttonTrigState = TRIGGER_ACTIVE;
 
         // Perform NMI when not already handling previous NMI
-        if (!isGlobalStateReset() && !menuPaged && !nmiPending && !mf128ActiveNMI)
+        if (!isGlobalStateReset() && (IS_ROM_PAGED(ROM_MENU) == 0) &&
+            !nmiPending && !mf128ActiveNMI)
         {
             nmiPending = true;
             digitalWriteFast(NMI_PIN, 1);
@@ -2337,7 +2339,7 @@ FASTRUN void isrWrEvent()
 
         // Perform ZXC2 address based paging
         if (zxC2Present && !zxC2Lock &&
-            (!zxC2ShadowRom || zxC2Paged) &&
+            (!zxC2ShadowRom || IS_ROM_PAGED(ROM_ZXC2)) &&
             ((address & 0xffc0) == 0x3fc0))
         {
             if (zxC3Present)
@@ -2347,7 +2349,12 @@ FASTRUN void isrWrEvent()
             } else {
                 zxC2BankPtr = ((address & 0x0f) << 1);
             }
-            zxC2Paged = ((address & 0x10) == 0);
+            if ((address & 0x10) == 0)
+            {
+                PAGE_IN_ROM(ROM_ZXC2);
+            } else {
+                PAGE_OUT_ROM(ROM_ZXC2);
+            }
             zxC2Lock = ((address & 0x20) != 0);
             updateRomIndex(true);
         }
@@ -2459,7 +2466,7 @@ FASTRUN void isrWrEvent()
                             snaLoaderBanks = 0;
                         }
                     } else {
-                        snaLoaderPaged = false;
+                        PAGE_OUT_ROM(ROM_SNA);
                     }
                     updateRomIndex(true);
                 }
@@ -2486,12 +2493,20 @@ FASTRUN void isrWrEvent()
                         rom1Present = false;
                     }
                     rom1Paged = ((data & 0x10) != 0);
+                    romPaged &= 0x0F;
+                    if (rom23Paged)
+                    {
+                        romPaged |= (rom1Paged ? 0x08 : 0x04);
+                    } else {
+                        romPaged |= (rom1Paged ? 0x02 : 0x01);
+                    }
                     mf128VideoRam = ((data & 0x08) != 0);
                     updateRomIndex(true);
                 }
                 if (isPort7F)
                 {
-                    if (divMmcEnabled && divMmcPaged && ((data & 0x10) == 0x0))
+                    if (divMmcEnabled && IS_ROM_PAGED(ROM_DIVMMC) &&
+                        ((data & 0x10) == 0x0))
                     {
                         // Detect 0x7ffd write access to disable DivMMC
                         divMmcToggle = true;
@@ -2510,6 +2525,13 @@ FASTRUN void isrWrEvent()
                     if (rom1Present && rom23Present)
                     {
                         rom23Paged = ((data & 0x04) != 0);
+                        romPaged &= 0x0F;
+                        if (rom23Paged)
+                        {
+                            romPaged |= (rom1Paged ? 0x08 : 0x04);
+                        } else {
+                            romPaged |= (rom1Paged ? 0x02 : 0x01);
+                        }
                         updateRomIndex(true);
                     }
                     if (dskEnabled)
@@ -2592,12 +2614,12 @@ FASTRUN void isrWrEvent()
                         if ((data & 0x80) != 0)
                         {
                             divMmcConMem = 1;
-                            divMmcPaged = true;
+                            PAGE_IN_ROM(ROM_DIVMMC);
                         } else {
                             divMmcConMem = 0;
                             if (!divMmcAutoMap)
                             {
-                                divMmcPaged = false;
+                                PAGE_OUT_ROM(ROM_DIVMMC);
                             }
                         }
                         if ((data & 0x40) != 0)
@@ -2633,7 +2655,7 @@ FASTRUN void isrWrEvent()
                     }
                     break;
                 case 0xeb :
-                    if (menuPaged)
+                    if (IS_ROM_PAGED(ROM_MENU))
                     {
                         if (!menuSelected)
                         {
@@ -2660,7 +2682,12 @@ FASTRUN void isrWrEvent()
                             modemOnReset = false;
                         } else {
                             uint8_t data = readData();
-                            modemPaged = ((data & 0x20) == 0);
+                            if ((data & 0x20) == 0)
+                            {
+                                PAGE_IN_ROM(ROM_MODEM);
+                            } else {
+                                PAGE_OUT_ROM(ROM_MODEM);
+                            }
                             modemOnReset = ((data & 0x40) != 0);
                             updateRomIndex(true);
                         }
@@ -2712,7 +2739,7 @@ FASTRUN void isrRdEvent()
 
             // Perform ZXC2 address based paging
             if (zxC2Present && !zxC2Lock &&
-                (!zxC2ShadowRom || zxC2Paged) &&
+                (!zxC2ShadowRom || IS_ROM_PAGED(ROM_ZXC2)) &&
                 ((address & 0xffc0) == 0x3fc0))
             {
                 if (zxC3Present)
@@ -2722,7 +2749,12 @@ FASTRUN void isrRdEvent()
                 } else {
                     zxC2BankPtr = ((address & 0x0f) << 1);
                 }
-                zxC2Paged = ((address & 0x10) == 0);
+                if ((address & 0x10) == 0)
+                {
+                    PAGE_IN_ROM(ROM_ZXC2);
+                } else {
+                    PAGE_OUT_ROM(ROM_ZXC2);
+                }
                 zxC2Lock = ((address & 0x20) != 0);
                 updateRomIndex(true);
             }
@@ -2736,17 +2768,20 @@ FASTRUN void isrRdEvent()
             {
                 // Send the NMI to the Multiface 128
                 if (mf128Present && nmiPending && !mf128ActiveNMI &&
-                    ((romArraySelected & PAGE_BANK_MF128_IF1) != 0))
+                    ((romArraySelected & (BANK_ROM0 | BANK_ROM1 | BANK_ROM3 | 
+                        BANK_MF128)) != 0))
                 {
-                    mf128ActiveNMI = true;
-                    mf128Paged = true;
                     mf128Enabled = true;
+                    mf128ActiveNMI = true;
                     divMmcEnabled = false;
                     divMmcRomEnabled = false;
                     interface1Enabled = interface1Present;
+
+                    // Directly page in the Multiface 128 from ROM 0/1/3
+                    PAGE_IN_ROM(ROM_MF128);
                     romSelected = ROM_MF128;
                     romArraySelected = BANK_MF128;
-                    pageInRomIndex(true);
+                    updateRomPtr(true);
                 }
 
                 // Write ROM data to bus
@@ -2754,13 +2789,15 @@ FASTRUN void isrRdEvent()
 
                 // Send the NMI to the DivMMC, if not Multiface 128
                 if (divMmcRomEnabled && !mf128ActiveNMI &&
-                    ((romArraySelected & PAGE_BANK_DIVMMC) != 0))
+                    ((romArraySelected & (BANK_ROM0 | BANK_ROM1 | BANK_ROM3)) != 0))
                 {
-                    divMmcPaged = true;
                     divMmcAutoMap = true;
+
+                    // Directly page in the DivMMC from ROM 0/1/3
+                    PAGE_IN_ROM(ROM_DIVMMC);
                     romSelected = ROM_DIVMMC;
                     romArraySelected = BANK_DIVMMC;
-                    pageInRomIndex(false);
+                    updateRomPtr(false);
                 }
 
                 // Release NMI on entry to interrupt handler
@@ -2775,22 +2812,25 @@ FASTRUN void isrRdEvent()
                         // Detect M1 cycle for Multiface 128 paging
                         if (mf128ActiveNMI && (address == 0x67))
                         {
-                            mf128Paged = true;
+                            // Directly page in the Multiface 128 from ROM 0/1/3
+                            PAGE_IN_ROM(ROM_MF128);
                             romSelected = ROM_MF128;
                             romArraySelected = BANK_MF128;
-                            pageInRomIndex(true);
+                            updateRomPtr(true);
                         }
 
-                        if (divMmcRomEnabled && !mf128Paged)
+                        if (divMmcRomEnabled && (IS_ROM_PAGED(ROM_MF128) == 0))
                         {
                             // Detect M1 cycle for DivMMC paging
                             if ((address & 0xff00) == 0x3d00)
                             {
-                                divMmcPaged = true;
                                 divMmcAutoMap = true;
+
+                                // Directly page in the DivMMC from ROM 0/1/3
+                                PAGE_IN_ROM(ROM_DIVMMC);
                                 romSelected = ROM_DIVMMC;
                                 romArraySelected = BANK_DIVMMC;
-                                pageInRomIndex(true);
+                                updateRomPtr(true);
 
                                 // Write ROM data to bus
                                 writeDivMmcRomData(address);
@@ -2804,11 +2844,13 @@ FASTRUN void isrRdEvent()
                                 (address == 0x38) || (address == 0x4c6) ||
                                 (address == 0x562))
                             {
-                                divMmcPaged = true;
                                 divMmcAutoMap = true;
+
+                                // Directly page in the DivMMC from ROM 0/1/3
+                                PAGE_IN_ROM(ROM_DIVMMC);
                                 romSelected = ROM_DIVMMC;
                                 romArraySelected = BANK_DIVMMC;
-                                pageInRomIndex(false);
+                                updateRomPtr(false);
                             }
                         } else {
                             // Write ROM data to bus
@@ -2818,18 +2860,20 @@ FASTRUN void isrRdEvent()
                             if ((interface1Enabled || zxC2ShadowRom) &&
                                 ((address == 0x08) || (address == 0x1708)))
                             {
-                                // M1 cycle for Interface 1 paging
+                                // Detect post-M1 cycle for Interface 1 paging
                                 if (zxC2ShadowRom)
                                 {
-                                    zxC2Paged = true;
+                                    // Directly page in the shadow ROM from ROM 0/1/3
+                                    PAGE_IN_ROM(ROM_ZXC2);
                                     romSelected = ROM_ZXC2;
                                     romArraySelected = BANK_RAM;
                                 } else {
-                                    interface1Paged = true;
+                                    // Directly page in the Interface 1 from ROM 0/1/3
+                                    PAGE_IN_ROM(ROM_IF1);
                                     romSelected = ROM_IF1;
                                     romArraySelected = BANK_IF1;
                                 }
-                                pageInRomIndex(false);
+                                updateRomPtr(false);
                             }
 
                             // Detect LD-BYTEs to start tape
@@ -2846,7 +2890,7 @@ FASTRUN void isrRdEvent()
                         // Detect post-M1 cycle for Interface 1 paging
                         if (address == 0x700)
                         {
-                            interface1Paged = false;
+                            PAGE_OUT_ROM(ROM_IF1);
                             updateRomIndex(false);
                         }
                         break;
@@ -2861,7 +2905,7 @@ FASTRUN void isrRdEvent()
                             // M1 cycle for Interface 1 paging
                             // NOTE: ROM_MF128 is higher priority than ROM_IF1,
                             // so do NOT page now
-                            interface1Paged = true;
+                            PAGE_IN_ROM(ROM_IF1);
                         }
                         break;
                     case ROM_DIVMMC :
@@ -2873,8 +2917,8 @@ FASTRUN void isrRdEvent()
                         // loaded ROM images to behave correctly
                         if (!divMmcMapRam && ((address & 0xfff8) == 0x1ff8))
                         {
-                            divMmcPaged = false;
                             divMmcAutoMap = false;
+                            PAGE_OUT_ROM(ROM_DIVMMC);
                             updateRomIndex(false);
 
                             // Disable the DivMMC, and enable the Interface 1
@@ -2898,7 +2942,7 @@ FASTRUN void isrRdEvent()
                         // Detect post-M1 cycle for Interface 1 paging
                         if (zxC2ShadowRom && (address == 0x700))
                         {
-                            zxC2Paged = false;
+                            PAGE_OUT_ROM(ROM_ZXC2);
                             updateRomIndex(false);
                         }
                         break;
@@ -2910,7 +2954,7 @@ FASTRUN void isrRdEvent()
             }
 
             // Detect snapshot loader paging
-            if (snaLoaderPaged && (address == 0x3FFF))
+            if (IS_ROM_PAGED(ROM_SNA) && (address == 0x3FFF))
             {
                 if (snaLoaderBanks > 0)
                 {
@@ -2920,9 +2964,9 @@ FASTRUN void isrRdEvent()
                         zxC2BankPtr = 0;
                         snaLoaderBanks = 0;
                     }
-                    pageInRomIndex(false);
+                    updateRomPtr(false);
                 } else {
-                    snaLoaderPaged = false;
+                    PAGE_OUT_ROM(ROM_SNA);
                     updateRomIndex(false);
                 }
             }
@@ -2973,9 +3017,9 @@ FASTRUN void isrRdEvent()
                 {
                     writeData(mf128VideoRam ? 0x80 : 0x00);
                 }
-                if (mf128Paged)
+                if (IS_ROM_PAGED(ROM_MF128))
                 {
-                    mf128Paged = false;
+                    PAGE_OUT_ROM(ROM_MF128);
                     updateRomIndex(true);
                 }
                 break;
@@ -2983,7 +3027,7 @@ FASTRUN void isrRdEvent()
                 if (lprintEnabled)
                 {
                     writeData(printerPort.getBusy() ? 0xC0 : 0x40);
-                    lprintPaged = false;
+                    PAGE_OUT_ROM(ROM_LPRINT);
                     updateRomIndex(true);
                 }
                 break;
@@ -2997,9 +3041,9 @@ FASTRUN void isrRdEvent()
                 if (mf128Enabled)
                 {
                     writeData(mf128VideoRam ? 0x80 : 0x00);
-                    if (!mf128Paged)
+                    if (IS_ROM_PAGED(ROM_MF128) == 0)
                     {
-                        mf128Paged = true;
+                        PAGE_IN_ROM(ROM_MF128);
                         updateRomIndex(true);
                     }
                 }
@@ -3042,7 +3086,7 @@ FASTRUN void isrRdEvent()
                 if (lprintEnabled)
                 {
                     writeData(printerPort.getBusy() ? 0xC0 : 0x40);
-                    lprintPaged = true;
+                    PAGE_IN_ROM(ROM_LPRINT);
                     updateRomIndex(true);
                 }
                 break;
