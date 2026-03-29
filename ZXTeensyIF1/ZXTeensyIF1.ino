@@ -2493,7 +2493,7 @@ FASTRUN void isrWrEvent()
                         rom1Present = false;
                     }
                     rom1Paged = ((data & 0x10) != 0);
-                    romPaged &= 0x0F;
+                    romPaged &= ~(0x0F);
                     if (rom23Paged)
                     {
                         romPaged |= (rom1Paged ? 0x08 : 0x04);
@@ -2525,7 +2525,7 @@ FASTRUN void isrWrEvent()
                     if (rom1Present && rom23Present)
                     {
                         rom23Paged = ((data & 0x04) != 0);
-                        romPaged &= 0x0F;
+                        romPaged &= ~(0x0F);
                         if (rom23Paged)
                         {
                             romPaged |= (rom1Paged ? 0x08 : 0x04);
