@@ -59,6 +59,7 @@ typedef enum {
     SETTING_ACTION_TOGGLE_IF1,
     SETTING_ACTION_TOGGLE_MF128,
     SETTING_ACTION_TOGGLE_USB,
+    SETTING_ACTION_TOGGLE_FIRE_BUTTONS,
     SETTING_ACTION_TOGGLE_UART,
     SETTING_ACTION_TOGGLE_MODEM,
     SETTING_ACTION_TOGGLE_NTP,
@@ -719,6 +720,11 @@ char* menuGenerateSettings(char* ptr)
     }
     ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_USB, ptr,
         MENU_STRINGS[STRING_ENABLE_USB], usbPresent);
+    if (usbPresent)
+    {
+        ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_FIRE_BUTTONS,
+            ptr, MENU_STRINGS[STRING_ENABLE_FIRE_BUTTONS], gamepadButtons);
+    }
     ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_UART, ptr,
         MENU_STRINGS[STRING_ENABLE_UART], uartPresent);
     if (uartPresent)
@@ -1007,6 +1013,10 @@ bool menuPerformSelection(uint8_t index)
                     break;
                 case SETTING_ACTION_TOGGLE_USB :
                     usbPresent = !usbPresent;
+                    menuConfigChanged = true;
+                    break;
+                case SETTING_ACTION_TOGGLE_FIRE_BUTTONS :
+                    gamepadButtons = !gamepadButtons;
                     menuConfigChanged = true;
                     break;
                 case SETTING_ACTION_TOGGLE_UART :
@@ -1718,6 +1728,10 @@ void menuLoadConfiguration(const char* cfgCfgName)
                     {
                         bootIntoMenu = ((cfgPtr[15] == '1') ? true : false);
                         ++count;
+                    } else if (strncmp("gamepadButtons = ", cfgPtr, 17) == 0)
+                    {
+                        gamepadButtons = ((cfgPtr[17] == '1') ? true : false);
+                        ++count;
                     } else if (strncmp("interface1Present = ", cfgPtr, 20) == 0)
                     {
                         interface1Present = ((cfgPtr[20] == '1') ? true : false);
@@ -1782,6 +1796,7 @@ void menuSaveConfiguration()
             cfgFile.printf("mf128Present = %0d\n", mf128Present);
             cfgFile.printf("uartPresent = %0d\n", uartPresent);
             cfgFile.printf("usbPresent = %0d\n", usbPresent);
+            cfgFile.printf("gamepadButtons = %0d\n", gamepadButtons);
             cfgFile.printf("wifiNtpPresent = %0d\n", wifiNtpPresent);
             cfgFile.printf("wifiNtpTz = %0d\n", wifiNtpTz);
             cfgFile.printf("dskPresent = %0d\n", dskPresent);

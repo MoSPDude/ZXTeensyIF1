@@ -344,6 +344,7 @@ JoystickController usbJoystick(usbHost);
 KeyboardController usbKeyboard(usbHost);
 volatile bool usbPresent = false;
 volatile bool usbEnabled = false;
+volatile bool gamepadButtons = false;
 volatile bool mousePresent = false;
 volatile uint32_t mouseX = 0;
 volatile uint32_t mouseY = 0;
@@ -1958,17 +1959,28 @@ FASTRUN void loop()
                             0x02, 0x0A, 0x03, 0x0B, 0x06, 0x0E, 0x07, 0x0F };
                         data |= dpadMap[dpadButtons];
                     }
-
-                    // X and Squ as Fire 1
-                    if (buttons & 0xc000)
+                    if (gamepadButtons)
+                    {
+                        // NOTE: Button mapping is reversed
+                        if (buttons & 0x8000)
+                        {
+                            data |= 0x10;
+                        }
+                        if (buttons & 0x4000)
+                        {
+                            data |= 0x20;
+                        }
+                        if (buttons & 0x2000)
+                        {
+                            data |= 0x40;
+                        }
+                        if (buttons & 0x1000)
+                        {
+                            data |= 0x80;
+                        }
+                    } else if (buttons & 0xF000)
                     {
                         data |= 0x10;
-                    }
-
-                    // O and Tri as Fire 2
-                    if (buttons & 0x3000)
-                    {
-                        data |= 0x20;
                     }
                     break;
                 case JoystickController::PS4 :
@@ -1982,17 +1994,12 @@ FASTRUN void loop()
                             0x05, 0x04, 0x06, 0x02, 0x0A };
                         data |= dpadMap[dpadButtons];
                     }
-
-                    // X and Squ as Fire 1
-                    if (buttons & 0x03)
+                    if (gamepadButtons)
+                    {
+                        data |= (buttons & 0x0F) << 4;
+                    } else if (buttons & 0x0F)
                     {
                         data |= 0x10;
-                    }
-
-                    // O and Tri as Fire 2
-                    if (buttons & 0x0c)
-                    {
-                        data |= 0x20;
                     }
                     break;
                 default :
@@ -2005,17 +2012,12 @@ FASTRUN void loop()
                             0x01, 0x09, 0x05, 0x0D, 0x03, 0x0B, 0x07, 0x0F };
                         data |= dpadMap[dpadButtons];
                     }
-
-                    // A and X as Fire 1
-                    if (buttons & 0x30)
+                    if (gamepadButtons)
+                    {
+                        data |= (buttons & 0xF0);
+                    } else if (buttons & 0xF0)
                     {
                         data |= 0x10;
-                    }
-
-                    // B and Y as Fire 2
-                    if (buttons & 0xc0)
-                    {
-                        data |= 0x20;
                     }
                     break;
             }
