@@ -341,7 +341,7 @@ _romSelected:
     call _decompressScr                     ; decompress screen
     ld a,(MEM_ROM)
     out (0xeb),a
-    ld b, 6
+    ld b, 10 ; 10 @ 50Hz = 200ms
 _pauseSelected:
     halt
     djnz _pauseSelected
