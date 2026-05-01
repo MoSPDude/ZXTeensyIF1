@@ -2181,11 +2181,12 @@ inline void updateRomIndex(bool pageNow)
         } else {
             if (IS_ROM_PRIORITY(ROM_LPRINT))
             {
-                romArraySelected = BANK_RAM;
                 if (IS_ROM_PRIORITY(ROM_MODEM))
                 {
+                    romArraySelected = BANK_RAM;
                     romSelected = ROM_MODEM;
                 } else {
+                    romArraySelected = BANK_LPRINT;
                     romSelected = ROM_LPRINT;
                 }
             } else {

@@ -1610,6 +1610,7 @@ void menuClearConfiguration()
     mf128Present = false;
     uartPresent = false;
     usbPresent = false;
+    gamepadButtons = false;
     wifiNtpPresent = false;
     wifiNtpTz = 48;
     dskPresent = false;
