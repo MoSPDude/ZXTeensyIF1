@@ -81,7 +81,8 @@ typedef enum {
     BANK_MF128  = 0x0020,
     BANK_DIVMMC = 0x0040,
     BANK_LPRINT = 0x0080,
-    BANK_RAM    = 0x0100
+    BANK_MENU   = 0x0100,
+    BANK_RAM    = 0x0200
 } bank_select_t;
 
 // NOTE: This also defines the priority for active paged ROMs
@@ -102,6 +103,7 @@ typedef enum {
     ROM_MODEM,
     ROM_ZXC2,
     ROM_SNA,
+    // Menu ROM as highest priority
     ROM_MENU
 } rom_select_t;
 
@@ -113,6 +115,7 @@ typedef enum {
     ROM_PAGE_IF1       = 8,
     ROM_PAGE_MF128     = 10,
     ROM_PAGE_DIVMMC    = 12,
+    ROM_PAGE_MENU      = 13,
     ROM_PAGE_COUNT
 } rom_page_t;
 
@@ -144,6 +147,12 @@ typedef enum {
     ZXC3_FLASH_CMD,
     ZXC3_FLASH_WRITE
 } zxc3_flash_state_t;
+
+typedef enum {
+    MENU_ROM_CMD_IDLE = 0,
+    MENU_ROM_CMD_REDRAW = 1,
+    MENU_ROM_CMD_EXIT = 2
+} menu_rom_action_t;
 
 // I/O pin assignments
 static const uint8_t LED_PIN = 13;
@@ -259,7 +268,7 @@ volatile uint8_t* divMmcRamPtr;
 // Multiface 128
 volatile bool mf128Present = false;
 volatile bool mf128Enabled = false;
-volatile bool mf128VideoRam = false;
+volatile uint8_t mf128VideoRam = 0x00;
 volatile bool mf128ActiveNMI = false;
 
 // Interface 1
@@ -300,6 +309,9 @@ volatile bool menuEnterOnReset = false;
 volatile bool menuSelected = false;
 volatile bool menuRedraw = false;
 volatile uint8_t menuSelectedIndex = 0;
+DMAMEM RingBuffer<16> menuBuffer;
+volatile DMAMEM uint8_t menuRamArray[2][RAM_PAGE_SIZE] __attribute__((aligned(16)));
+volatile uint8_t* menuRamPtr;
 
 // DivMMC SPI/SD
 static const size_t READ_BUFFER_SIZE = 1024;
@@ -1452,6 +1464,13 @@ void handleStateResetEntry()
                     lprintPresent = false;
                 }
 
+                // Load menu ROM
+                if (loadRomImage(MENU_ROM_PATH, (char *)romArray[ROM_PAGE_MENU],
+                    RAM_PAGE_SIZE) > 0)
+                {
+                    romArrayPresent |= BANK_MENU;
+                }
+
                 // Load Spectrum ROM
                 loadSpectrumRomFile();
 
@@ -1466,15 +1485,13 @@ void handleStateResetEntry()
                     }
                 }
 
-                // Load menu ROM into the DivMMC RAM area
+                // Page in the menu ROM on startup
                 if ((menuEnterOnReset || (!afterFirstReset && bootIntoMenu)) &&
                     !digitalReadFast(ROMCS_IN_PIN) &&
-                    (loadRomImage(MENU_ROM_PATH, (char *)divMmcExtRamArray[0],
-                        RAM_PAGE_SIZE) > 0))
+                    ((romArrayPresent & BANK_MENU) != 0))
                 {
                     PAGE_IN_ROM(ROM_MENU);
-                    divMmcExtRamEnabled = false;
-                    romArrayPresent |= BANK_RAM;
+                    menuRamPtr = menuRamArray[0];
                 }
             } else if (!isButtonHeld)
             {
@@ -1572,7 +1589,7 @@ void handleStateReset()
     divMmcMapRam = false;
     divMmcRamPtr = divMmcRamArray[0];
     mf128Enabled = false;
-    mf128VideoRam = false;
+    mf128VideoRam = 0x00;
     mf128ActiveNMI = false;
     zxC2Lock = false;
     zxC2BankPtr = 0x00;
@@ -1636,7 +1653,7 @@ void handleStateReset()
     // Populate the menu when active
     if (IS_ROM_PAGED(ROM_MENU))
     {
-        menuInitialise(divMmcExtRamArray[0]);
+        menuInitialise(romArray[ROM_PAGE_MENU], menuRamArray[0]);
     } else {
         // Page in the ZXC2 cartridge, or snapshot loader ROM
         if (zxC2Present)
@@ -1840,8 +1857,7 @@ FASTRUN void loop()
             if (IS_ROM_PAGED(ROM_MENU) && !nmiPending)
             {
                 menuGenerate();
-                nmiPending = true;
-                digitalWriteFast(NMI_PIN, 1);
+                menuBuffer.write(MENU_ROM_CMD_REDRAW);
             }
         }
 
@@ -1854,6 +1870,9 @@ FASTRUN void loop()
                 // The menu needs the Spectrum in reset to access the SD card,
                 // reload ROMs, update FW etc.
                 setState(STATE_RESET_MENU);
+            } else {
+                // Indicate the menu is ready to re-draw
+                menuBuffer.write(MENU_ROM_CMD_REDRAW);
             }
         }
 
@@ -2125,8 +2144,10 @@ inline void updateRomPtr(bool pageNow)
             case ROM_MODEM :
             case ROM_ZXC2 :
             case ROM_SNA :
-            case ROM_MENU :
                 romPtr = divMmcExtRamArray[zxC2BankPtr];
+                break;
+            case ROM_MENU :
+                romPtr = romArray[ROM_PAGE_MENU];
                 break;
             default :
                 // 16KB ROMs are two ROM pages
@@ -2166,16 +2187,18 @@ inline void updateRomIndex(bool pageNow)
     {
         if (IS_ROM_PRIORITY(ROM_ZXC2))
         {
-            romArraySelected = BANK_RAM;
             if (IS_ROM_PRIORITY(ROM_SNA))
             {
                 if (IS_ROM_PRIORITY(ROM_MENU))
                 {
+                    romArraySelected = BANK_MENU;
                     romSelected = ROM_MENU;
                 } else {
+                    romArraySelected = BANK_RAM;
                     romSelected = ROM_SNA;
                 }
             } else {
+                romArraySelected = BANK_RAM;
                 romSelected = ROM_ZXC2;
             }
         } else {
@@ -2233,22 +2256,6 @@ inline void updateRomIndex(bool pageNow)
     updateRomPtr(pageNow);
 }
 
-inline void writeRomData(uint16_t address)
-{
-    if (romSelected == ROM_LPRINT)
-    {
-        writeData(romPtr[address & (LPRINT_ROM_SIZE - 1)]);
-    } else if ((romSelected == ROM_DIVMMC) && (address >= RAM_PAGE_SIZE))
-    {
-        // Tranfer DivMMC RAM data to the bus
-        writeData(divMmcRamPtr[address & (RAM_PAGE_SIZE - 1)]);
-    } else if (romEnabled)
-    {
-        // Transfer soft ROM data to the bus
-        writeData(romPtr[address]);
-    }
-}
-
 inline void writePagedRomData(uint16_t address)
 {
     if (romEnabled)
@@ -2267,6 +2274,46 @@ inline void writeDivMmcRomData(uint16_t address)
     } else {
         // Transfer soft ROM data to the bus
         writeData(romPtr[address]);
+    }
+}
+
+inline void writeLprintRomData(uint16_t address)
+{
+    writeData(romPtr[address & (LPRINT_ROM_SIZE - 1)]);
+}
+
+inline void writeMenuRomData(uint16_t address)
+{
+    if (address >= RAM_PAGE_SIZE)
+    {
+        // Tranfer menu RAM data to the bus
+        writeData(menuRamPtr[address & (RAM_PAGE_SIZE - 1)]);
+    } else {
+        // Transfer soft ROM data to the bus
+        writeData(romPtr[address]);
+    }
+}
+
+inline void writeRomData(uint16_t address)
+{
+    switch (romSelected)
+    {
+        case ROM_DIVMMC :
+            writeDivMmcRomData(address);
+            break;
+        case ROM_LPRINT :
+            writeLprintRomData(address);
+            break;
+        case ROM_MENU :
+            writeMenuRomData(address);
+            break;
+        default :
+            if (romEnabled)
+            {
+                // Transfer soft ROM data to the bus
+                writeData(romPtr[address]);
+            }
+            break;
     }
 }
 
@@ -2474,6 +2521,13 @@ FASTRUN void isrWrEvent()
                     updateRomIndex(true);
                 }
                 break;
+            case ROM_MENU :
+                // Perform menu RAM write
+                if (address >= RAM_PAGE_SIZE)
+                {
+                    menuRamPtr[address & (RAM_PAGE_SIZE - 1)] = readData();
+                }
+                break;
             default :
                 break;
         }
@@ -2503,7 +2557,7 @@ FASTRUN void isrWrEvent()
                     } else {
                         romPaged |= (rom1Paged ? 0x02 : 0x01);
                     }
-                    mf128VideoRam = ((data & 0x08) != 0);
+                    mf128VideoRam = data;
                     updateRomIndex(true);
                 }
                 if (isPort7F)
@@ -2607,7 +2661,13 @@ FASTRUN void isrWrEvent()
                     }
                     break;
                 case 0xbf :
-                    mf128ActiveNMI = false;
+                    if (IS_ROM_PAGED(ROM_MENU))
+                    {
+                        uint8_t data = readData();
+                        menuRamPtr = menuRamArray[(data & 0x01)];
+                    } else {
+                        mf128ActiveNMI = false;
+                    }
                     break;
                 case 0xe3 :
                     if (isDivMmcSelected())
@@ -2771,7 +2831,7 @@ FASTRUN void isrRdEvent()
             {
                 // Send the NMI to the Multiface 128
                 if (mf128Present && nmiPending && !mf128ActiveNMI &&
-                    ((romArraySelected & (BANK_ROM0 | BANK_ROM1 | BANK_ROM3 | 
+                    ((romArraySelected & (BANK_ROM0 | BANK_ROM1 | BANK_ROM3 |
                         BANK_MF128)) != 0))
                 {
                     mf128Enabled = true;
@@ -2935,7 +2995,7 @@ FASTRUN void isrRdEvent()
                         break;
                     case ROM_LPRINT :
                         // Write ROM data to bus
-                        writePagedRomData(address & (LPRINT_ROM_SIZE - 1));
+                        writeLprintRomData(address);
                         break;
                     case ROM_ZXC2 :
                         // Write ROM data to bus
@@ -2947,6 +3007,10 @@ FASTRUN void isrRdEvent()
                             PAGE_OUT_ROM(ROM_ZXC2);
                             updateRomIndex(false);
                         }
+                        break;
+                    case ROM_MENU :
+                        // Write ROM data to bus
+                        writeMenuRomData(address);
                         break;
                     default :
                         // Write ROM data to bus
@@ -3017,7 +3081,7 @@ FASTRUN void isrRdEvent()
             case 0x3f :
                 if (mf128Enabled)
                 {
-                    writeData(mf128VideoRam ? 0x80 : 0x00);
+                    writeData(((mf128VideoRam & 0x08) != 0) ? 0x80 : 0x00);
                 }
                 if (IS_ROM_PAGED(ROM_MF128))
                 {
@@ -3040,9 +3104,12 @@ FASTRUN void isrRdEvent()
                 }
                 break;
             case 0xbf :
-                if (mf128Enabled)
+                if (IS_ROM_PAGED(ROM_MENU))
                 {
-                    writeData(mf128VideoRam ? 0x80 : 0x00);
+                    writeData(mf128VideoRam);
+                } else if (mf128Enabled)
+                {
+                    writeData(((mf128VideoRam & 0x08) != 0) ? 0x80 : 0x00);
                     if (IS_ROM_PAGED(ROM_MF128) == 0)
                     {
                         PAGE_IN_ROM(ROM_MF128);
@@ -3068,7 +3135,11 @@ FASTRUN void isrRdEvent()
                 }
                 break;
             case 0xeb :
-                if (isDivMmcSelected())
+                if (IS_ROM_PAGED(ROM_MENU))
+                {
+                    writeData(menuBuffer.canRead() ? menuBuffer.readRaw() :
+                        MENU_ROM_CMD_IDLE);
+                } else if (isDivMmcSelected())
                 {
                     // Transfer SD SPI read data to bus
                     if (sdSpiReadBuffer.canRead())

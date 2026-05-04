@@ -88,6 +88,7 @@ bool menuHasMdrEmu = false;
 
 // Menu structure
 DMAMEM char* menuPtr;
+DMAMEM char* menuTxtPtr;
 DMAMEM char* menuEndPtr;
 DMAMEM uint8_t menuEntries;
 DMAMEM menu_type_t menuCurrent;
@@ -863,7 +864,7 @@ void menuGenerate()
     menuPageLine = 0;
 
     // Build the menu
-    char* textPtr = menuPtr + RAM_PAGE_SIZE;
+    char* textPtr = menuTxtPtr;
     switch (menuCurrent)
     {
         case MENU_TYPE_MAIN :
@@ -922,12 +923,13 @@ void menuResetAction()
     memset(menuDebugBuffer, 0, MENU_DEBUG_SIZE);
 }
 
-void menuInitialise(volatile uint8_t* romPtr)
+void menuInitialise(volatile uint8_t* romPtr, volatile uint8_t* ramPtr)
 {
     // Store the menu pointers
     // NOTE: Allow for ROM_NAME_LEN, left icon, tab, 2 x right icons, and new-line
     menuPtr = (char*)romPtr;
-    menuEndPtr = menuPtr + ROM_PAGE_SIZE - (ROM_NAME_LEN + 5);
+    menuTxtPtr = (char*)ramPtr;
+    menuEndPtr = menuTxtPtr + RAM_PAGE_SIZE - (ROM_NAME_LEN + 5);
 
     // Store the version information
     uint16_t address = ((menuPtr[0x11F9] << 8) + menuPtr[0x11F8]);

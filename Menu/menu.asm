@@ -11,51 +11,53 @@ MAX_ROMS    EQU (29 - 1)
 ; ------------------------------------------+----------------------------------
     DEVICE ZXSPECTRUM48
 MEM_SCR     EQU 0x4000  ; screen pixels
-MEM_ROMTXT  EQU 0x6000  ; text
-MEM_SP      EQU 0x7FF8  ; stack pointer start
-MEM_KEYR    EQU 0x7FF9  ; key repeat
-MEM_KEYL    EQU 0x7FFA  ; last key
-MEM_TXT     EQU 0x7FFB  ; text start
-MEM_POS     EQU 0x7FFD  ; cursor row
-MEM_ROM     EQU 0x7FFE  ; selected ROM
-MEM_PAGE    EQU 0x7FFF  ; which page
-; ------------------------------------------+----------------------------------
-;MEM_ORG     EQU     0x8000  ; start of code **this is for testing**
-MEM_ORG     EQU      0x0000  ; start of code
-MEM_INT     EQU     MEM_ORG + 0x0038
-MEM_NMI     EQU     MEM_ORG + 0x0066
-MEM_LTBL    EQU     MEM_ORG + 0x1000 ; lookup table MEM_LTBLP-512
-MEM_LTBLP   EQU     MEM_LTBL + 0x200 ; lookup table start
-MEM_OFFSET  EQU     MEM_LTBLP - 9;
+;MEM_ORG     EQU 0x8000  ; start of code **this is for testing**
+MEM_ORG     EQU 0x0000  ; start of code
+MEM_INT     EQU MEM_ORG + 0x0038
+MEM_NMI     EQU MEM_ORG + 0x0066
+MEM_LTBL    EQU MEM_ORG + 0x1000 ; lookup table MEM_LTBLP-512
+MEM_LTBLP   EQU MEM_LTBL + 0x200 ; lookup table start
+MEM_OFFSET  EQU MEM_LTBLP - 9;
+
+MEM_SP      EQU MEM_ORG + 0x3FF8  ; stack pointer start
+MEM_KEYR    EQU MEM_ORG + 0x3FF9  ; key repeat
+MEM_KEYL    EQU MEM_ORG + 0x3FFA  ; last key
+MEM_TXT     EQU MEM_ORG + 0x3FFB  ; text start
+MEM_POS     EQU MEM_ORG + 0x3FFD  ; cursor row
+MEM_ROM     EQU MEM_ORG + 0x3FFE  ; selected ROM
+MEM_PAGE    EQU MEM_ORG + 0x3FFF  ; which page
+
+MEM_SCR2    EQU MEM_ORG + 0x2500 ; screen backup
+MEM_REG2    EQU MEM_ORG + 0x24FE ; 0x1FFD backup
+MEM_SPR     EQU MEM_ORG + 0x24FC ; stack of registers to restore
+MEM_SP2     EQU MEM_ORG + 0x24FA ; SP register to restore
 ; ------------------------------------------+----------------------------------
 ; initial set-up
 ; ------------------------------------------+----------------------------------
     org MEM_ORG
     di                                        ; disable interrupts
     ; fill lower 16K RAM with zeros
-    ld hl,0x4000
+    ld hl,MEM_SCR
     ld de,0x4001
     ld bc,0x4000
     ld (hl), 0x00
     ldir
-    ;
-    ld a,0x80                                ; set i to 0x80
-    ld i,a
-    ld sp,MEM_SP                            ; stack pointer
+_nmiMenuStart:
+    ld a,0x80       ; set i to 0x80
+    ld i, a
+    ld sp,MEM_SP    ; stack pointer
     ; start at first line on first page
     xor a
     ld (MEM_ROM),a
     ld (MEM_POS),a
-    ld (MEM_KEYL),a                           ; reset last key
+    ld (MEM_KEYL),a ; reset last key
     ld a,1
     ld (MEM_PAGE),a
     ;
-nmi_restart:
-    call _txtMem                            ; set start txt mem for page
-    ld a,%00000111                            ; white border
+    ld a,%00000111  ; white border
     out (0xfe),a
-    im 1                                    ; interrupt mode 1
-    ei                                        ; enable interrupts
+    im 1            ; interrupt mode 1
+    ei              ; enable interrupts
     jr _menu
 ; ------------------------------------------+----------------------------------
 ; IM1 maskable interrupt routine @ 0x0038
@@ -64,20 +66,20 @@ nmi_restart:
     ei
     ret
     org MEM_NMI
-    pop bc
-    jp nmi_restart
+    jp _nmiMenuEntry
 ; ------------------------------------------+----------------------------------
 ; Menu Routine
 ; ------------------------------------------+----------------------------------
 _menu:
-    ld hl,_compressedBlank                    ; blank explorer screen
-    call _decompressScr                     ; decompress screen
+    ld hl,_compressedBlank  ; blank explorer screen
+    call _decompressScr     ; decompress screen
 _menu2:
-    ld de,MEM_SCR+1                         ; start of ZX Spectrum ROM Explorer vx.x text on screen
-    exx                                     ; alt
+    call _txtMem            ; set start txt mem for page
+    ld de,MEM_SCR+1         ; start of ZX Spectrum ROM Explorer vx.x text on screen
+    exx                     ; alt
     ld de,_menuHeader
-    call _pltText                            ; plot the text
-    exx                                     ; norm
+    call _pltText           ; plot the text
+    exx                     ; norm
 ; ------------------------------------------+----------------------------------
 ; Plot Slider at RHS of Screen
 ;   max 255 ROMs can be added which is 13 pages with 21 entries per page
@@ -85,46 +87,46 @@ _menu2:
     ld de,_sliderData - 13  ; get correct plot
     ld a,(_right+1)         ; get max pages
     ld b,a
-    add a,a                                    ; x2
-    ld c,a                                    ; x2 into c
-    add a,a                                 ; x4
-    add a,c                                 ; x6
-    add a,a                                 ; x12
-    add a,b                                 ; x13
+    add a,a ; x2
+    ld c,a  ; x2 into c
+    add a,a ; x4
+    add a,c ; x6
+    add a,a ; x12
+    add a,b ; x13
     add a,e
     ld e,a
     adc a,d
     sub e
-    ld d,a                                    ; de now correct slider plot
-    ld hl,MEM_SCR+64+31                        ; start screen pixel pos
-    ex af,af'                                ; alta
-    ld a,(MEM_PAGE)                            ; get current page
-    ex af,af'                                ; norma
+    ld d,a              ; de now correct slider plot
+    ld hl,MEM_SCR+64+31 ; start screen pixel pos
+    ex af,af'           ; alt-A
+    ld a,(MEM_PAGE)     ; get current page
+    ex af,af'           ; norm-A
 _pltSliderLoop:
-    ld a,(de)                                ;  get number of lines to plot
+    ld a,(de)           ;  get number of lines to plot
     or a
-    jp z,_menuTxt                            ; if zero all done
+    jp z,_menuTxt       ; if zero all done
     inc de
     ld b,a
-    ex af,af'                                ; alta
-    ld c,%01111110                            ; set to clear slider
+    ex af,af'           ; alt-A
+    ld c,%01111110      ; set to clear slider
     dec a
-    jr nz,_noSlider                            ; if not the current page skip reassignment
-    ld c,%01000010                            ; set to plot slider
+    jr nz,_noSlider     ; if not the current page skip reassignment
+    ld c,%01000010      ; set to plot slider
 _noSlider:
-    ex af,af'                                ; norma
+    ex af,af'           ; norm-A
 _sliderLoop:
-    ld (hl),c                                ; plot slider or clear to screen
-    inc h                                    ; down one within char row
+    ld (hl),c           ; plot slider or clear to screen
+    inc h               ; down one within char row
     ld a,h
-    and %00000111                            ; check if char complete (8 rows)
+    and %00000111       ; check if char complete (8 rows)
     jr nz,_sliderChar
     ld a,l
-    add a,32                                ; if complete move down one
+    add a,32            ; if complete move down one
     ld l,a
-    jr c,_sliderChar                        ; into next screen sector?
+    jr c,_sliderChar    ; into next screen sector?
     ld a,h
-    sub 8                                    ; now so back up to top of char
+    sub 8               ; now so back up to top of char
     ld h,a
 _sliderChar:
     djnz _sliderLoop
@@ -150,131 +152,136 @@ _sliderData:
 ; Show all the text (variable width)
 ; ------------------------------------------+----------------------------------
 _menuTxt:
-    ld de,MEM_SCR+64                         ; start of text on screen
-    exx                                     ; alt
-    ld de,(MEM_TXT)                            ; get text start
-    call _pltText                            ; plot the text
-    exx                                     ; norm
+    ld de,MEM_SCR+64    ; start of text on screen
+    exx                 ; alt
+    ld de,(MEM_TXT)     ; get text start
+    call _pltText       ; plot the text
+    exx                 ; norm
 ; ------------------------------------------+----------------------------------
 ; Colour in selection bar to mimic 128k menu
 ; ------------------------------------------+----------------------------------
 _menu100:
-    ld a,(MEM_POS)                            ; get pos from storage
-    ld c,a                                    ; pos into c
+    ld a,(MEM_POS)  ; get pos from storage
+    ld c,a          ; pos into c
 _menu200:
-    call _colbar                            ; colour in the bar
+    call _colbar    ; colour in the bar
 ; ------------------------------------------+----------------------------------
 ; Simple key up/down routine, with key repeat
 ;   0.7 second wait for 1st repeat, then 0.1 seconds
 ; ------------------------------------------+----------------------------------
 _menu300:
-    call _getkey                            ; get key press
+    call _getkey    ; get key press
     and %00111111
-    jr z,_menu370                            ; key up
+    jr z,_menu370   ; key up
     ld b,a
-    ld a,(MEM_KEYL)                            ; get last key
+    ld a,(MEM_KEYL) ; get last key
     cp b
     jr nz,_menu350
-    halt                                    ;  wait 1/50th second
+    halt            ;  wait 1/50th second
     ld a,(MEM_KEYR)
     dec a
     jr nz,_menu360
-    ld a,5                                    ; 0.1seconds
-    ld (MEM_KEYR),a                            ; clear key repeat delay
+    ld a,5          ; 0.1seconds
+    ld (MEM_KEYR),a ; clear key repeat delay
     ld a,b
     jr _menu450
 _menu350:
     ld a,b
-    ld (MEM_KEYL),a                            ; store new key
-    ld a,35                                    ; 0.7seconds
+    ld (MEM_KEYL),a ; store new key
+    ld a,35         ; 0.7seconds
 _menu360:
-    ld (MEM_KEYR),a                            ; clear key repeat delay
+    ld (MEM_KEYR),a ; clear key repeat delay
     jr _menu300
 _menu370:
-    ld a,35                                    ; 0.7seconds
-    ld (MEM_KEYR),a                            ; clear key repeat delay
+    ld a,35         ; 0.7seconds
+    ld (MEM_KEYR),a ; clear key repeat delay
 _menu400:
-    call _getkey                            ; get key press
-    and %00111111                            ; wait for key down
+    call _getkey    ; get key press
+    and %00111111   ; wait for key down
+    jr nz,_menu450
+    ; test if Teensy needs to refresh the menu
+    in a,(0xeb)
+    or a
     jr z,_menu400
+    jp _menu
 _menu450:
 ; ------------------------------------------+----------------------------------
 ; Simple beeper routine to simulate basic keyclick
 ;   port 0xfe -> 0,0,0,ear,mic,border,border,border
 ; ------------------------------------------+----------------------------------
-    ld e,a                                    ; preserve a
+    ld e,a          ; preserve a
     ld b,0x3f
-    ld a,%00011111                            ; keep border white and mic/ear bits set
+    ld a,%00011111  ; keep border white and mic/ear bits set
     out (0xfe),a
 _clickLoop:
-    djnz _clickLoop                            ; wait 63*13t -5t = 814t
-    ld a,%00001111                            ; switch ear bit to zero to create tiny click
+    djnz _clickLoop ; wait 63*13t -5t = 814t
+    ld a,%00001111  ; switch ear bit to zero to create tiny click
     out (0xfe),a
-    ld a,e                                    ; restore a
+    ld a,e          ; restore a
 ; ------------------------------------------+----------------------------------
 ; Check which button pressed using carry flag
 ;   bit 0 - fire, bit 1 - left, bit 2 - right, bit 3 - up, bit 4 - down
 ; ------------------------------------------+----------------------------------
-    rra                                        ; fire pressed
+    rra             ; fire pressed
     jp c,_romSelected
-    rra                                     ; left pressed
+    rra             ; left pressed
     jp c,_left
-    rra                                        ; right pressed
+    rra             ; right pressed
     jr c,_right
-    rra                                        ; up pressed
+    rra             ; up pressed
     jr c,_up
 ; ------------------------------------------+----------------------------------
 ; Down pressed - down one row or to next page if at bottom
 ; ------------------------------------------+----------------------------------
     ld a,c
-    cp 20                                    ; at bottom? (0-20 or 21 entries)
-    jr nz,_down100                            ; if at bottom jump to pgdn
-    ld a,(_right+1)                            ; max pages
+    cp 20               ; at bottom? (0-20 or 21 entries)
+    jr nz,_down100      ; if at bottom jump to pgdn
+    ld a,(_right+1)     ; max pages
     ld b,a
-    ld a,(MEM_PAGE)                            ; current page
+    ld a,(MEM_PAGE)     ; current page
     cp b
-    jr z,_menu300                            ; if at max do nothing
+    jr z,_menu300       ; if at max do nothing
     inc a
-    ld (MEM_PAGE),a                            ; page down
+    ld (MEM_PAGE),a     ; page down
     xor a
-    ld (MEM_POS),a                            ; back to the top
+    ld (MEM_POS),a      ; back to the top
     ld a,(MEM_ROM)
-    inc a                                    ; back to the top
+    inc a               ; back to the top
     jr _right200
 _down100:
     ld a,(MEM_ROM)
 _maxroms:
-    cp MAX_ROMS     ; pre-loaded max roms (-1 as 0 to max)
-    jr z,_menu300   ; at maximum? if so do nothing
+    cp MAX_ROMS         ; pre-loaded max roms (-1 as 0 to max)
+    jr z,_menu300       ; at maximum? if so do nothing
     inc a
     ld (MEM_ROM),a
-    call _clrbar                            ; clear coloured line
-    inc c                                    ; pos +1
+    call _clrbar        ; clear coloured line
+    inc c               ; pos +1
     jr _up100
 ; ------------------------------------------+----------------------------------
 ; Up pressed - up one row or previous page if at top
 ; ------------------------------------------+----------------------------------
 _up:
     ld a,c
-    or a                                    ; at top?
-    jr nz,_up050                            ; if at top jump to pgup
+    or a                ; at top?
+    jr nz,_up050        ; if at top jump to pgup
     ld a,(MEM_PAGE)
     dec a
-    jp z,_menu300                            ; if already at 1st then do nothing
-    ld (MEM_PAGE),a                            ; page down
+    jp z,_menu300       ; if already at 1st then do nothing
+    ld (MEM_PAGE),a     ; page down
     ld a,20
-    ld (MEM_POS),a                            ; to bottom
+    ld (MEM_POS),a      ; to bottom
     ld a,(MEM_ROM)
-    dec a                                    ; back one rom
+    dec a               ; back one rom
     jr _right200
 _up050:
     ld a,(MEM_ROM)
     or a
-    jp z,_menu300                            ; if rom=0 do nothing
+    jp z,_menu300       ; if rom=0 do nothing
     dec a
     ld (MEM_ROM),a
-    call _clrbar                            ; clear coloured line
-    dec c                                    ; pos -1
+    call _clrbar        ; clear coloured line
+    dec c               ; pos -1
 _up100:
     ld a,c
     ld (MEM_POS),a
@@ -287,46 +294,45 @@ _right:
     ld b, MAX_PAGES ; pre-loaded max pages
     ld a,(MEM_PAGE) ; current page
     cp b
-    jr nz,_right100                         ; if not zero then page down
-    call _clrbar                            ; clear coloured line
+    jr nz,_right100 ; if not zero then page down
+    call _clrbar    ; clear coloured line
     ld a,(MEM_ROM)
     ld b,a
     ld a,(_maxroms+1)
-    ld (MEM_ROM),a                            ; rom = maxrom
+    ld (MEM_ROM),a  ; rom = maxrom
     sub b
     add a,c
     ld (MEM_POS),a
     jp _menu100
 _right100:
     inc a
-    ld (MEM_PAGE),a                            ; page down
+    ld (MEM_PAGE),a ; page down
     ld a,(MEM_ROM)
-    add a,21                                ; add 21 roms
-    ld b,a                                    ; now need to check not > maxroms
+    add a,21        ; add 21 roms
+    ld b,a          ; now need to check not > maxroms
     ld a,(_maxroms+1)
     cp b
-    jr nc,_right150                            ; if rom > maxroms then fix
-    ld e,a                                    ; e=maxrom
-    sub b                                    ; difference max to over
+    jr nc,_right150 ; if rom > maxroms then fix
+    ld e,a          ; e=maxrom
+    sub b           ; difference max to over
     add a,c
     ld (MEM_POS),a
-    ld b,e                                    ; b=maxrom
+    ld b,e          ; b=maxrom
 _right150:
     ld a,b
 _right200:
     ld (MEM_ROM),a
-    call _txtMem                            ; get start of new page text
     jp _menu
 ; ------------------------------------------+----------------------------------
 ; Left pressed - Page Up
 ; ------------------------------------------+----------------------------------
 _left:
-    ld a,(MEM_PAGE)                            ; which page
+    ld a,(MEM_PAGE)     ; which page
     dec a
-    jr nz,_left100                            ; if not zero then page up
-    ld (MEM_ROM),a                            ; just move to top
-    ld (MEM_POS),a                            ; which is row & rom=0
-    call _clrbar                            ; clear coloured line
+    jr nz,_left100      ; if not zero then page up
+    ld (MEM_ROM),a      ; just move to top
+    ld (MEM_POS),a      ; which is row & rom=0
+    call _clrbar        ; clear coloured line
     jp _menu100
 _left100:
     ld (MEM_PAGE),a
@@ -337,14 +343,16 @@ _left100:
 ; Write the menu index to the Teensy at port 0xeb, then redraw any changes
 ; ------------------------------------------+----------------------------------
 _romSelected:
-    ld hl,_compressedBlank                    ; blank explorer screen
-    call _decompressScr                     ; decompress screen
+    ld hl,_compressedBlank  ; blank explorer screen
+    call _decompressScr     ; decompress screen
     ld a,(MEM_ROM)
     out (0xeb),a
-    ld b, 10 ; 10 @ 50Hz = 200ms
-_pauseSelected:
+_waitForTeensy:
     halt
-    djnz _pauseSelected
+    in a,(0xeb)
+    or a
+    jr z, _waitForTeensy
+_menuRedraw:
     ld b,a
     ld a,(_maxroms+1)
     cp b
@@ -356,7 +364,6 @@ _pauseSelected:
     ld a,1
     ld (MEM_PAGE),a
 _doneSelected:
-    call _txtMem
     jp _menu2
 ; ------------------------------------------+----------------------------------
 ; Find correct MEM_ROMTXT start depending on page and load into MEM_TXT
@@ -366,16 +373,16 @@ _txtMem:
     ld a,(MEM_PAGE)
     ld c,a
 _txtMem100:
-    dec c                                    ; correct page?
-    jr z,_txtMem300                            ; page correct
+    dec c               ; correct page?
+    jr z,_txtMem300     ; page correct
 _txtMem200:
-    ld a,(de)                                ; get char
+    ld a,(de)           ; get char
     inc de
-    or a                                    ; search for end marker
+    or a                ; search for end marker
     jr nz,_txtMem200
-    jr _txtMem100                            ; see if this page is right
+    jr _txtMem100       ; see if this page is right
 _txtMem300:
-    ld (MEM_TXT),de                            ; store for other routines
+    ld (MEM_TXT),de     ; store for other routines
     ret
 ; ------------------------------------------+----------------------------------
 ; Get KeyPress
@@ -385,25 +392,25 @@ _txtMem300:
 ;   0xf7 (5,4,3,2,1) 0xfb (t,r,e,w,q) 0xfd (g,f,d,s,a) 0xfe (v,c,x,z,sh)
 ; ------------------------------------------+----------------------------------
 _getkey:
-    ld a,0xef                                ; read 6,7,8,9,0 (6 down, 7 up, 8 right)
-    in a,(0xfe)                                ; read
-    cpl                                        ; so keypress = 1 not 0
-    and %00011100                            ; only keep 6,7,8
+    ld a,0xef       ; read 6,7,8,9,0 (6 down, 7 up, 8 right)
+    in a,(0xfe)     ; read
+    cpl             ; so keypress = 1 not 0
+    and %00011100   ; only keep 6,7,8
     ld b,a
-    ld a,0xbf                                ; read h,j,k,l,enter
-    in a,(0xfe)                                ; read
-    cpl                                        ; so keypress = 1 not 0
-    and %00000001                            ; only keep enter
+    ld a,0xbf       ; read h,j,k,l,enter
+    in a,(0xfe)     ; read
+    cpl             ; so keypress = 1 not 0
+    and %00000001   ; only keep enter
     or b
     ld b,a
-    ld a,0xf7                                ; read 5,4,3,2,1
-    in a,(0xfe)                                ; read
+    ld a,0xf7       ; read 5,4,3,2,1
+    in a,(0xfe)     ; read
     rrca
     rrca
-    rrca                                     ; move 5 to bit 1
-    cpl                                        ; so keypress = 1 not 0
-    and %00000010                            ; only keep 5
-    or b                                    ; bring in the rest
+    rrca            ; move 5 to bit 1
+    cpl             ; so keypress = 1 not 0
+    and %00000010   ; only keep 5
+    or b            ; bring in the rest
     ret
 ; ------------------------------------------+----------------------------------
 ; Colour in the Select Text
@@ -411,24 +418,24 @@ _getkey:
 ; input: c=char row (preserved)
 ; ------------------------------------------+----------------------------------
 _clrbar:
-    ld d,%01111000                            ; paper=white
+    ld d,%01111000  ; paper=white
     jr _colbar100
 _colbar:
-    ld d,%01101000                            ; paper=cyan
+    ld d,%01101000  ; paper=cyan
 _colbar100:
     ld a,c
-    add a,2                                 ; 2-23
-    add a,a                                    ; x2
-    add a,a                                    ; x4
-    add a,a                                    ; x8 (max 23*8=184)
+    add a,2         ; 2-23
+    add a,a         ; x2
+    add a,a         ; x4
+    add a,a         ; x8 (max 23*8=184)
     ld l,a
     ld h,0
-    add hl,hl                                 ; x16
-    add hl,hl                                 ; x32
+    add hl,hl       ; x16
+    add hl,hl       ; x32
     ld a,h
-    add a,0x58                                ; ATTR
+    add a,0x58      ; ATTR
     ld h,a
-    ld b,31                                    ; colour in 31 chars
+    ld b,31         ; colour in 31 chars
 _colbarLoop:
     ld (hl),d
     inc l
@@ -446,88 +453,88 @@ _colbarLoop:
 ; input: de - memory location of text to plot
 ; ------------------------------------------+----------------------------------
 _pltText:
-    ld bc,0x0000                            ; gap & rotation =0
+    ld bc,0x0000    ; gap & rotation =0
 _pltTextLoop:
-    ld a,(de)                                ; get char
+    ld a,(de)       ; get char
     ld hl,_gapLengthData-32
     add a,l
     ld l,a
     adc a,h
     sub l
-    ld h,a                                     ; hl now correct width of char
-    ld b,(hl)                                 ; b=gap, c=rotation
+    ld h,a          ; hl now correct width of char
+    ld b,(hl)       ; b=gap, c=rotation
     ld a,c
-    add a,a                                 ; x2
+    add a,a         ; x2
     add a,MEM_LTBL/256
-    ld h,a                                    ; h now correct high byte in lookup table for the rotation
-    ld a,(de)                                ; get char again
-    inc de                                    ; next mem
-    add a,a                                 ; x2 (max char=127)
-    ret z                                    ; return on char=zero
-    ret c                                    ; return on char > 127
-    cp 18                                    ; check for tab (9*2)
+    ld h,a          ; h now correct high byte in lookup table for the rotation
+    ld a,(de)       ; get char again
+    inc de          ; next mem
+    add a,a         ; x2 (max char=127)
+    ret z           ; return on char=zero
+    ret c           ; return on char > 127
+    cp 18           ; check for tab (9*2)
     jr nz,_noTab
-    exx                                        ; norm
+    exx             ; norm
     ld a,e
-    and %11100000                             ; back to left hand side of screen
-    or %00011101                            ; move to right hand side of screen
+    and %11100000   ; back to left hand side of screen
+    or %00011101    ; move to right hand side of screen
     ld e,a
     jr _lf100
 _noTab:
-    cp 20                                     ; check for line feed (10*2)
+    cp 20           ; check for line feed (10*2)
     jr nz,_noLf
-    exx                                     ; norm
+    exx             ; norm
     ld a,e
-    and %11100000                             ; back to left hand side of screen
-    add a,32                                ; move one line down
+    and %11100000   ; back to left hand side of screen
+    add a,32        ; move one line down
     ld e,a
-    jr nc,_lf100                            ; if no carry then no need to adjust screen high byte
+    jr nc,_lf100    ; if no carry then no need to adjust screen high byte
     ld a,d
-    add a,8                                    ; move down one screen sector
+    add a,8         ; move down one screen sector
     ld d,a
 _lf100:
-    exx                                     ; alt
-    ld c,0                                     ; reset rotation
+    exx             ; alt
+    ld c,0          ; reset rotation
     jr _pltTextLoop
 _noLf:
-    cp 40                                    ; check for invalid char <20
+    cp 40           ; check for invalid char <20
     ret c
-    exx                                     ; norm
+    exx             ; norm
     ld l,a
     ld h,0
-    add hl,hl                                 ; x4
-    add hl,hl                                 ; x8
-    ld bc,_shiftedFontData-256                 ; -256 as space is 32 which *8 is 256
-    add hl,bc                                ; hl now correct graphic location
-    exx                                     ; alt
-    ld a,c                                    ; rotation
-    exx                                     ; norm
+    add hl,hl       ; x4
+    add hl,hl       ; x8
+    ld bc,_shiftedFontData-256  ; -256 as space is 32 which *8 is 256
+    add hl,bc       ; hl now correct graphic location
+    exx             ; alt
+    ld a,c          ; rotation
+    exx             ; norm
     ld c,d
     ld b,8
     ex de,hl
-    or a                                     ; check if any rotation
+    or a            ; check if any rotation
     jr nz,_rotatedVersion
 _nonRotatedLoop:
-    ld a,(de)                                ; get byte
-    ld (hl),a                                ; to screen
-    inc de                                    ; next byte
-    inc h                                    ; down one char row
+    ld a,(de)       ; get byte
+    ld (hl),a       ; to screen
+    inc de          ; next byte
+    inc h           ; down one char row
     djnz _nonRotatedLoop
     jr _rotationDone
 _rotatedVersion:
     ld a,(de)
     inc de
-    exx                                     ; alt
-    ld l,a                                    ; byte into rotation lookup table low byte
-    ld a,(hl)                                ; get lhs
-    exx                                     ; norm
-    or (hl)                                    ; or with screen, not overwritten
-    ld (hl),a                                ; put or'd byte to screen
-    exx                                     ; alt
-    inc h                                    ; to rhs of rotation lookup table
-    ld a,(hl)                                 ; get rhs
-    dec h                                    ; back to lhs of rotation lookup table
-    exx                                        ; norm
+    exx         ; alt
+    ld l,a      ; byte into rotation lookup table low byte
+    ld a,(hl)   ; get lhs
+    exx         ; norm
+    or (hl)     ; or with screen, not overwritten
+    ld (hl),a   ; put or'd byte to screen
+    exx         ; alt
+    inc h       ; to rhs of rotation lookup table
+    ld a,(hl)   ; get rhs
+    dec h       ; back to lhs of rotation lookup table
+    exx         ; norm
     inc hl
     ld (hl),a
     dec hl
@@ -536,17 +543,17 @@ _rotatedVersion:
 _rotationDone:
     ex de,hl
     ld d,c
-    exx                                     ; alt
+    exx         ; alt
     ld a,b
-    add a,c                                 ; add char width to current rotation to get new rotation
-    cp 8                                    ; if >7 then move the next char
+    add a,c     ; add char width to current rotation to get new rotation
+    cp 8        ; if >7 then move the next char
     jr c,_newRotation
-    exx                                     ; norm
-    inc de                                    ; next char
-    exx                                     ; alt
-    sub 8                                    ; if in next char reduce rotation by 8 bits
+    exx         ; norm
+    inc de      ; next char
+    exx         ; alt
+    sub 8       ; if in next char reduce rotation by 8 bits
 _newRotation:
-    ld c,a                                    ; put new rotation into c
+    ld c,a      ; put new rotation into c
     jr _pltTextLoop
 _menuHeader:
     defb "ZXTeensyIF1 "
@@ -682,32 +689,32 @@ _gapLengthData:                                ; start at space (32)
 ; input: hl - memory location of compressed screen or text block
 ; ------------------------------------------+----------------------------------
 _decompressScr:
-    ld de,MEM_SCR                            ; start of screen pixels
+    ld de,MEM_SCR   ; start of screen pixels
 _decompressTxt:
-    ld b,e                                    ; b=0
+    ld b,e          ; b=0
     jr _loop
 _copy:
     inc a
-    ld c,a                                    ; loop counter into bc for ldir
+    ld c,a          ; loop counter into bc for ldir
     ldir
 _loop:
-    ld a,(hl)                                ; get byte
+    ld a,(hl)       ; get byte
     inc hl
-    cp 128                                    ; end?
+    cp 128          ; end?
     ret z
-    jr c,_copy                                ; if <128 straight copy a times
-    sub 126                                    ; offset copy length max 130
-    ld c,(hl)                                ; get offset b=0, c 0=1, 255=256
+    jr c,_copy      ; if <128 straight copy a times
+    sub 126         ; offset copy length max 130
+    ld c,(hl)       ; get offset b=0, c 0=1, 255=256
     inc hl
-    push hl                                    ; preserve compression pos
+    push hl         ; preserve compression pos
     ld h,d
     ld l,e
-    sbc hl,bc                                ; shift screen pos by offset bc
-    dec hl                                    ; -1 as 1to256 not 0to255
-    ld c,a                                    ; loop counter into bc for ldir
+    sbc hl,bc       ; shift screen pos by offset bc
+    dec hl          ; -1 as 1to256 not 0to255
+    ld c,a          ; loop counter into bc for ldir
     ldir
     pop hl
-    jr _loop                                ; restore compression pos
+    jr _loop        ; restore compression pos
 ; ------------------------------------------+----------------------------------
 ; Compressed ROM Selector Blank Screen
 ; ------------------------------------------+----------------------------------
@@ -725,7 +732,81 @@ _compressedBlank:
     defb 0x00,0x00,0x10,0xe4,0x00,0x87,0x9c,0x52,0x20,0x42,0x00,0x9c,0x80,0x08,0x80,0x27,0xa2,0x04,0x3c,0x79,0x9e,0x71,0x87,0xf4,0x01,0x0a,0x00,0xff,0xff,0xde,0xff,0x01
     defb 0x00,0x04,0x83,0xec,0x01,0x02,0x07,0x81,0xea,0x01,0x81,0xc0,0x8d,0xed,0x02,0x08,0x00,0x06,0x97,0x00,0x06,0x42,0x56,0x74,0x65,0x68,0x47,0x78,0x9c,0x00,0x00,0x07
     defb 0xff,0x1f,0xff,0x9f,0xff,0xff,0xff,0xff,0xff,0xff,0x99,0xff,0x9a,0x00,0x03,0x06,0x01,0x03,0x03,0x80
-
+_nmiMenuEntry:
+    ; store SP and registers
+    ld (MEM_SP2),sp
+    ld sp,MEM_SP2
+    push af
+    push hl
+    ld a,i
+    push af
+    ld a,r
+    push af
+    push de
+    push bc
+    ex af,af'
+    push af
+    ex af,af'
+    exx
+    push hl
+    push de
+    push bc
+    exx
+    push ix
+    push iy
+    ld (MEM_SPR),sp
+    ; copy screen to scratch RAM
+    ld hl,MEM_SCR
+    ld de,MEM_SCR2
+    ld bc,0x1B00
+    ldir
+    ; setup screen
+    in a,(0xBF)
+    ld (MEM_REG2),a
+    res 3,a
+    ld bc,0x7FFD
+    out (c),a
+    ; change scratch RAM
+    xor a
+    out (0xBF),a
+    ; enter menu
+    jp _nmiMenuStart
+__nmiMenuExit:
+    di
+    ; change scratch RAM
+    ld a,1
+    out (0xBF),a
+    ; restore screen from scratch RAM
+    ld hl,MEM_SCR2
+    ld de,MEM_SCR
+    ld bc,0x1B00
+    ldir
+    ; restore screen
+    ld a,(MEM_REG2)
+    ld bc,0x7FFD
+    out (c),a
+    ; restore registers and SP
+    ld sp,(MEM_SPR)
+    pop iy
+    pop ix
+    exx
+    pop bc
+    pop de
+    pop hl
+    exx
+    ex af,af'
+    pop af
+    ex af,af'
+    pop bc
+    pop de
+    pop af
+    ld r,a
+    pop af
+    ld i,a
+    pop hl
+    pop af
+    ld sp,(MEM_SP2)
+    retn
 _codeend:
     org MEM_OFFSET
     jp (_verText)
@@ -983,5 +1064,5 @@ _textData:
     DISPLAY "textData address is:",/A,_textData
     DISPLAY "maxRoms address is:",/A,(_maxroms+1)
     DISPLAY "maxPages address is:",/A,(_right+1)
-    ;savetap "MENU.TAP", MEM_ORG
+    ;savetap "MENU.TAP", CODE, "menu", MEM_ORG, $2000
     savebin "MENU.ROM", MEM_ORG, $2000
