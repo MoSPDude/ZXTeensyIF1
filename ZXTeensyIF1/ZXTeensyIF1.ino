@@ -46,7 +46,10 @@ typedef enum {
     MENU_ACTION_BROWSER_MOUNT_FDA,
     MENU_ACTION_BROWSER_MOUNT_FDB,
     MENU_ACTION_START_SERVER,
-    MENU_ACTION_STOP_SERVER
+    MENU_ACTION_STOP_SERVER,
+    MENU_ACTION_IN_GAME_EXIT,
+    MENU_ACTION_IN_GAME_MF128,
+    MENU_ACTION_IN_GAME_DIVMMC
 } menu_action_t;
 
 typedef enum {
@@ -151,7 +154,7 @@ typedef enum {
 typedef enum {
     MENU_ROM_CMD_IDLE = 0,
     MENU_ROM_CMD_REDRAW = 1,
-    MENU_ROM_CMD_EXIT = 2
+    MENU_ROM_CMD_IN_GAME_EXIT = 2
 } menu_rom_action_t;
 
 // I/O pin assignments
@@ -218,6 +221,7 @@ volatile bool divMmcCardPresent = false;
 volatile run_state_t globalState = STATE_RESET;
 volatile bool busRdActive = false;
 volatile bool nmiPending = false;
+volatile rom_select_t nmiRomTarget = ROM_ROM0;
 
 // Reset and NMI debouncing
 volatile trigger_state_t resetTrigState = TRIGGER_ACTIVE;
@@ -305,9 +309,11 @@ volatile bool snaLoaderPresent = false;
 volatile uint8_t snaLoaderBanks = 0;
 
 // Boot menu ROM
+volatile bool menuEnableInGame = false;
 volatile bool menuEnterOnReset = false;
 volatile bool menuSelected = false;
 volatile bool menuRedraw = false;
+volatile bool menuTriggerNMI = false;
 volatile uint8_t menuSelectedIndex = 0;
 DMAMEM RingBuffer<16> menuBuffer;
 volatile DMAMEM uint8_t menuRamArray[2][RAM_PAGE_SIZE] __attribute__((aligned(16)));
@@ -1469,6 +1475,11 @@ void handleStateResetEntry()
                     RAM_PAGE_SIZE) > 0)
                 {
                     romArrayPresent |= BANK_MENU;
+
+                    // Initialise the menu
+                    menuInitialise(romArray[ROM_PAGE_MENU], menuRamArray[0]);
+                } else {
+                    menuEnableInGame = false;
                 }
 
                 // Load Spectrum ROM
@@ -1544,6 +1555,7 @@ void handleStateReset()
 
     // Clear any pending NMI
     nmiPending = false;
+    nmiRomTarget = ROM_ROM0;
     digitalWriteFast(NMI_PIN, 0);
 
     // Handle actions before warm reset
@@ -1591,6 +1603,7 @@ void handleStateReset()
     mf128Enabled = false;
     mf128VideoRam = 0x00;
     mf128ActiveNMI = false;
+    menuTriggerNMI = false;
     zxC2Lock = false;
     zxC2BankPtr = 0x00;
     zxC2ShadowRom = false;
@@ -1653,7 +1666,7 @@ void handleStateReset()
     // Populate the menu when active
     if (IS_ROM_PAGED(ROM_MENU))
     {
-        menuInitialise(romArray[ROM_PAGE_MENU], menuRamArray[0]);
+        menuBeginMain();
     } else {
         // Page in the ZXC2 cartridge, or snapshot loader ROM
         if (zxC2Present)
@@ -1861,15 +1874,45 @@ FASTRUN void loop()
             }
         }
 
+        // Trigger NMI to enter the menu, when requested
+        if (menuTriggerNMI)
+        {
+            // Prepare the in-game menu
+            menuBeginInGame();
+
+            // Trigger NMI to page in the menu ROM
+            nmiRomTarget = ROM_MENU;
+            nmiPending = true;
+            menuTriggerNMI = false;
+            digitalWriteFast(NMI_PIN, 1);
+        }
+
         // Perform menu actions
         if (menuSelected)
         {
             menuSelected = false;
             if (menuPerformSelection(menuSelectedIndex))
             {
-                // The menu needs the Spectrum in reset to access the SD card,
-                // reload ROMs, update FW etc.
-                setState(STATE_RESET_MENU);
+                switch (menuGetSelectionAction())
+                {
+                    case MENU_ACTION_IN_GAME_EXIT :
+                        nmiRomTarget = ROM_ROM0;
+                        menuBuffer.write(MENU_ROM_CMD_IN_GAME_EXIT);
+                        break;
+                    case MENU_ACTION_IN_GAME_MF128 :
+                        nmiRomTarget = ROM_MF128;
+                        menuBuffer.write(MENU_ROM_CMD_IN_GAME_EXIT);
+                        break;
+                    case MENU_ACTION_IN_GAME_DIVMMC :
+                        nmiRomTarget = ROM_DIVMMC;
+                        menuBuffer.write(MENU_ROM_CMD_IN_GAME_EXIT);
+                        break;
+                    default :
+                        // The menu needs the Spectrum in reset to access the SD card,
+                        // reload ROMs, update FW etc.
+                        setState(STATE_RESET_MENU);
+                        break;
+                }
             } else {
                 // Indicate the menu is ready to re-draw
                 menuBuffer.write(MENU_ROM_CMD_REDRAW);
@@ -2371,10 +2414,15 @@ FASTRUN void isrPinButton()
 
         // Perform NMI when not already handling previous NMI
         if (!isGlobalStateReset() && (IS_ROM_PAGED(ROM_MENU) == 0) &&
-            !nmiPending && !mf128ActiveNMI)
+            !nmiPending && !mf128ActiveNMI && !menuTriggerNMI)
         {
-            nmiPending = true;
-            digitalWriteFast(NMI_PIN, 1);
+            if (menuEnableInGame)
+            {
+                menuTriggerNMI = true;
+            } else {
+                nmiPending = true;
+                digitalWriteFast(NMI_PIN, 1);
+            }
         }
     }
 }
@@ -2542,9 +2590,14 @@ FASTRUN void isrWrEvent()
             {
                 bool isPort7F = ((gpioSix & A14_PIN_BITMASK) != 0x0);
                 uint8_t data = readData();
-                if (rom1Present && (!rom23Present || isPort7F))
+                if (!rom1Present)
+                {
+                    // Record 0x7ffd write access for Internal ROMs
+                    mf128VideoRam = data;
+                } else if (!rom23Present || isPort7F)
                 {
                     // Detect 0x7ffd write access for 128k ROMs
+                    mf128VideoRam = data;
                     if ((data & 0x20) != 0)
                     {
                         rom1Present = false;
@@ -2557,7 +2610,6 @@ FASTRUN void isrWrEvent()
                     } else {
                         romPaged |= (rom1Paged ? 0x02 : 0x01);
                     }
-                    mf128VideoRam = data;
                     updateRomIndex(true);
                 }
                 if (isPort7F)
@@ -2829,22 +2881,40 @@ FASTRUN void isrRdEvent()
                 writeRomData(address);
             } else if (address == 0x66)
             {
-                // Send the NMI to the Multiface 128
-                if (mf128Present && nmiPending && !mf128ActiveNMI &&
-                    ((romArraySelected & (BANK_ROM0 | BANK_ROM1 | BANK_ROM3 |
-                        BANK_MF128)) != 0))
+                // Send the NMI to the menu ROM, or Multiface 128
+                if (nmiPending && !mf128ActiveNMI)
                 {
-                    mf128Enabled = true;
-                    mf128ActiveNMI = true;
-                    divMmcEnabled = false;
-                    divMmcRomEnabled = false;
-                    interface1Enabled = interface1Present;
+                    if (nmiRomTarget == ROM_MENU)
+                    {
+                        // Send the NMI to the menu, and set scratch RAM
+                        // to store existing Spectrum state
+                        menuRamPtr = menuRamArray[1];
 
-                    // Directly page in the Multiface 128 from ROM 0/1/3
-                    PAGE_IN_ROM(ROM_MF128);
-                    romSelected = ROM_MF128;
-                    romArraySelected = BANK_MF128;
-                    updateRomPtr(true);
+                        // Directly page in the menu from any ROM, as highest
+                        // priority
+                        PAGE_IN_ROM(ROM_MENU);
+                        romSelected = ROM_MENU;
+                        romArraySelected = BANK_MENU;
+                        updateRomPtr(true);
+                    } else if (mf128Present && (nmiRomTarget != ROM_DIVMMC))
+                    {
+                        if ((romArraySelected & (BANK_ROM0 | BANK_ROM1 | BANK_ROM3 |
+                            BANK_MF128)) != 0)
+                        {
+                            // Send the NMI to the Multiface 128
+                            mf128Enabled = true;
+                            mf128ActiveNMI = true;
+                            divMmcEnabled = false;
+                            divMmcRomEnabled = false;
+                            interface1Enabled = interface1Present;
+
+                            // Directly page in the Multiface 128 from ROM 0/1/3
+                            PAGE_IN_ROM(ROM_MF128);
+                            romSelected = ROM_MF128;
+                            romArraySelected = BANK_MF128;
+                            updateRomPtr(true);
+                        }
+                    }
                 }
 
                 // Write ROM data to bus
@@ -2865,6 +2935,7 @@ FASTRUN void isrRdEvent()
 
                 // Release NMI on entry to interrupt handler
                 nmiPending = false;
+                nmiRomTarget = ROM_ROM0;
                 digitalWriteFast(NMI_PIN, 0);
             } else {
                 switch (romSelected)
@@ -3011,6 +3082,20 @@ FASTRUN void isrRdEvent()
                     case ROM_MENU :
                         // Write ROM data to bus
                         writeMenuRomData(address);
+
+                        // Detect post-M1 cycle for menu paging
+                        if (address == 0x003B)
+                        {
+                            PAGE_OUT_ROM(ROM_MENU);
+                            updateRomIndex(false);
+
+                            // Trigger NMI directly for given target
+                            if (nmiRomTarget != ROM_ROM0)
+                            {
+                                nmiPending = true;
+                                digitalWriteFast(NMI_PIN, 1);
+                            }
+                        }
                         break;
                     default :
                         // Write ROM data to bus

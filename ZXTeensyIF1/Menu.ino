@@ -30,6 +30,7 @@ typedef enum {
     MENU_TYPE_BROWSER_MOUNT_HDF,
     MENU_TYPE_BROWSER_MOUNT_DSK,
     MENU_TYPE_HTTP_SERVER,
+    MENU_TYPE_IN_GAME,
     MENU_TYPE_DEBUG
 } menu_type_t;
 
@@ -54,6 +55,7 @@ typedef enum {
     SETTING_ACTION_DISABLE,
     SETTING_ACTION_NO_OP,
     SETTING_ACTION_TOGGLE_MENU,
+    SETTING_ACTION_TOGGLE_MENU_IN_GAME,
     SETTING_ACTION_TOGGLE_DIVMMC,
     SETTING_ACTION_TOGGLE_DIVMMC_ROM,
     SETTING_ACTION_TOGGLE_IF1,
@@ -378,6 +380,22 @@ char* menuAddBrowserFile(uint8_t index, char* ptr, File entry)
     return menuInsertFile(action, icon, index, ptr, filename);
 }
 
+char* menuGenerateInGame(char* ptr)
+{
+    ptr = menuInsertSetting(MENU_ACTION_IN_GAME_EXIT, 0, ptr, MENU_STRINGS[STRING_CANCEL], 0);
+    if (mf128Present && ((romArrayPresent & BANK_MF128) != 0))
+    {
+        ptr = menuInsertSetting(MENU_ACTION_IN_GAME_MF128, 0, ptr,
+            MENU_STRINGS[STRING_IN_GAME_MF128], 0);
+    }
+    if (divMmcRomPresent && ((romArrayPresent & BANK_DIVMMC) != 0))
+    {
+        ptr = menuInsertSetting(MENU_ACTION_IN_GAME_DIVMMC, 0, ptr,
+            MENU_STRINGS[STRING_IN_GAME_DIVMMC], 0);
+    }
+    return ptr;
+}
+
 char* menuGenerateDebug(char* ptr)
 {
     size_t i = 0;
@@ -612,6 +630,8 @@ char* menuGenerateSettings(char* ptr)
     // Add settings menu
     ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_MENU,
         ptr, MENU_STRINGS[STRING_BOOT_MENU], bootIntoMenu);
+    ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_MENU_IN_GAME,
+        ptr, MENU_STRINGS[STRING_ENABLE_MENU_IN_GAME], menuEnableInGame);
     ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_DIVMMC,
         ptr, MENU_STRINGS[STRING_ENABLE_DIVMMC], divMmcPresent);
     if (divMmcPresent)
@@ -900,6 +920,9 @@ void menuGenerate()
         case MENU_TYPE_DEBUG :
             textPtr = menuGenerateDebug(textPtr);
             break;
+        case MENU_TYPE_IN_GAME :
+            textPtr = menuGenerateInGame(textPtr);
+            break;
     }
 
     // End of menu
@@ -923,6 +946,25 @@ void menuResetAction()
     memset(menuDebugBuffer, 0, MENU_DEBUG_SIZE);
 }
 
+void menuBeginInGame()
+{
+    // Reset the menu actions
+    menuCurrent = MENU_TYPE_IN_GAME;
+    menuAction = MENU_ACTION_LOAD_ROM;
+
+    // Generate the menu
+    menuGenerate();
+}
+
+void menuBeginMain()
+{
+    // Reset the menu actions
+    menuResetAction();
+
+    // Generate the menu
+    menuGenerate();
+}
+
 void menuInitialise(volatile uint8_t* romPtr, volatile uint8_t* ramPtr)
 {
     // Store the menu pointers
@@ -944,10 +986,6 @@ void menuInitialise(volatile uint8_t* romPtr, volatile uint8_t* ramPtr)
     } else {
         menuHasMdrEmu = false;
     }
-
-    // Generate the menu
-    menuResetAction();
-    menuGenerate();
 }
 
 bool menuPerformSelection(uint8_t index)
@@ -986,6 +1024,10 @@ bool menuPerformSelection(uint8_t index)
                     break;
                 case SETTING_ACTION_TOGGLE_MENU :
                     bootIntoMenu = !bootIntoMenu;
+                    menuConfigChanged = true;
+                    break;
+                case SETTING_ACTION_TOGGLE_MENU_IN_GAME :
+                    menuEnableInGame = !menuEnableInGame;
                     menuConfigChanged = true;
                     break;
                 case SETTING_ACTION_TOGGLE_DIVMMC :
@@ -1248,6 +1290,12 @@ bool menuPerformSelection(uint8_t index)
         case MENU_ACTION_STOP_SERVER :
             httpStopServer();
             break;
+        case MENU_ACTION_IN_GAME_EXIT :
+        case MENU_ACTION_IN_GAME_MF128 :
+        case MENU_ACTION_IN_GAME_DIVMMC :
+            // These actions do not put the Spectrum into reset,
+            // but require additional NMI handling
+            return true;
     }
 
     // Refresh the menu
@@ -1257,6 +1305,11 @@ bool menuPerformSelection(uint8_t index)
     }
     menuGenerate();
     return false;
+}
+
+inline menu_action_t menuGetSelectionAction()
+{
+    return menuAction;
 }
 
 void menuPerformAction()
@@ -1620,6 +1673,7 @@ void menuClearConfiguration()
     printerPresent = false;
     lprintPresent = false;
     bootIntoMenu = true;
+    menuEnableInGame = true;
     memset(&cfgData, 0, sizeof(cfgData));
     strcpy(cfgData.modemUrl, MODEM_URL_PATH);
 }
@@ -1689,7 +1743,11 @@ void menuLoadConfiguration(const char* cfgCfgName)
                     }
                     break;
                 case 'm' :
-                    if (strncmp("mf128Present = ", cfgPtr, 15) == 0)
+                    if (strncmp("menuEnableInGame = ", cfgPtr, 19) == 0)
+                    {
+                        menuEnableInGame = ((cfgPtr[19] == '1') ? true : false);
+                        ++count;
+                    } else if (strncmp("mf128Present = ", cfgPtr, 15) == 0)
                     {
                         mf128Present = ((cfgPtr[15] == '1') ? true : false);
                         ++count;
@@ -1807,6 +1865,7 @@ void menuSaveConfiguration()
             cfgFile.printf("printerPresent = %0d\n", printerPresent);
             cfgFile.printf("lprintPresent = %0d\n", lprintPresent);
             cfgFile.printf("bootIntoMenu = %0d\n", bootIntoMenu);
+            cfgFile.printf("menuEnableInGame = %0d\n", menuEnableInGame);
             cfgFile.printf("cfgName = %s\n", cfgData.cfgName);
             cfgFile.printf("romName = %s\n", cfgData.romName);
             cfgFile.printf("divMmcSdaPath = %s\n", cfgData.divMmcSdaPath);

@@ -28,24 +28,29 @@ MEM_ROM     EQU MEM_ORG + 0x3FFE  ; selected ROM
 MEM_PAGE    EQU MEM_ORG + 0x3FFF  ; which page
 
 MEM_SCR2    EQU MEM_ORG + 0x2500 ; screen backup
-MEM_REG2    EQU MEM_ORG + 0x24FE ; 0x1FFD backup
+MEM_IM2     EQU MEM_ORG + 0x24FF ; IM2 restore flag
+MEM_BANK1   EQU MEM_ORG + 0x24FE ; 0x7FFD backup
 MEM_SPR     EQU MEM_ORG + 0x24FC ; stack of registers to restore
 MEM_SP2     EQU MEM_ORG + 0x24FA ; SP register to restore
 ; ------------------------------------------+----------------------------------
 ; initial set-up
 ; ------------------------------------------+----------------------------------
     org MEM_ORG
-    di                                        ; disable interrupts
+    di  ; disable interrupts
     ; fill lower 16K RAM with zeros
-    ld hl,MEM_SCR
-    ld de,0x4001
-    ld bc,0x4000
+    ld hl, MEM_SCR
+    ld de, 0x4001
+    ld bc, 0x4000
     ld (hl), 0x00
     ldir
+    ld a, %00000111 ; white border
+    out (0xfe), a
 _nmiMenuStart:
-    ld a,0x80       ; set i to 0x80
+    ld a, 0x80      ; set i to 0x80
     ld i, a
-    ld sp,MEM_SP    ; stack pointer
+    ld sp, MEM_SP   ; stack pointer
+    im 1    ; interrupt mode 1
+    ei      ; enable interrupts
     ; start at first line on first page
     xor a
     ld (MEM_ROM),a
@@ -53,17 +58,16 @@ _nmiMenuStart:
     ld (MEM_KEYL),a ; reset last key
     ld a,1
     ld (MEM_PAGE),a
-    ;
-    ld a,%00000111  ; white border
-    out (0xfe),a
-    im 1            ; interrupt mode 1
-    ei              ; enable interrupts
     jr _menu
 ; ------------------------------------------+----------------------------------
 ; IM1 maskable interrupt routine @ 0x0038
 ; ------------------------------------------+----------------------------------
     org MEM_INT
     ei
+    ret
+_nmiMenuPageOut:
+    ei
+    ; page out at 0x003B
     ret
     org MEM_NMI
     jp _nmiMenuEntry
@@ -352,6 +356,10 @@ _waitForTeensy:
     in a,(0xeb)
     or a
     jr z, _waitForTeensy
+; detect menu exit
+    cp 2
+    jp z, _nmiMenuExit
+; otherwise, menu redraw
 _menuRedraw:
     ld b,a
     ld a,(_maxroms+1)
@@ -732,6 +740,12 @@ _compressedBlank:
     defb 0x00,0x00,0x10,0xe4,0x00,0x87,0x9c,0x52,0x20,0x42,0x00,0x9c,0x80,0x08,0x80,0x27,0xa2,0x04,0x3c,0x79,0x9e,0x71,0x87,0xf4,0x01,0x0a,0x00,0xff,0xff,0xde,0xff,0x01
     defb 0x00,0x04,0x83,0xec,0x01,0x02,0x07,0x81,0xea,0x01,0x81,0xc0,0x8d,0xed,0x02,0x08,0x00,0x06,0x97,0x00,0x06,0x42,0x56,0x74,0x65,0x68,0x47,0x78,0x9c,0x00,0x00,0x07
     defb 0xff,0x1f,0xff,0x9f,0xff,0xff,0xff,0xff,0xff,0xff,0x99,0xff,0x9a,0x00,0x03,0x06,0x01,0x03,0x03,0x80
+_nmiIntModeDetect:
+    push hl
+    ld hl,MEM_IM2
+    set 0,(hl)
+    pop hl
+    ret
 _nmiMenuEntry:
     ; store SP and registers
     ld (MEM_SP2),sp
@@ -740,6 +754,7 @@ _nmiMenuEntry:
     push hl
     ld a,i
     push af
+    di
     ld a,r
     push af
     push de
@@ -755,6 +770,30 @@ _nmiMenuEntry:
     push ix
     push iy
     ld (MEM_SPR),sp
+    ; detect interrupt mode 2
+    xor a
+    ld (MEM_IM2),a
+    ; set interrupt vector jump at 0x2020
+    ld de, _nmiIntModeDetect
+    ld hl, 0x2020
+    ld (hl), 0xC3 ; jp
+    inc l
+    ld (hl),e
+    inc l
+    ld (hl),d
+    ; store IM2 vector table at 0x21XX, to point to 0x2020
+    ld hl, 0x2100
+    ld de, 0x2101
+    ld bc, 0x0101
+    ld (hl), 0x20
+    ldir
+    ; set IM2 vector to 0x21XX
+    ld a, 0x21
+    ld i, a
+    ; wait for interrupt, either to 0x0038 or 0x2020
+    ei
+    halt
+    di
     ; copy screen to scratch RAM
     ld hl,MEM_SCR
     ld de,MEM_SCR2
@@ -762,7 +801,7 @@ _nmiMenuEntry:
     ldir
     ; setup screen
     in a,(0xBF)
-    ld (MEM_REG2),a
+    ld (MEM_BANK1),a
     res 3,a
     ld bc,0x7FFD
     out (c),a
@@ -771,7 +810,7 @@ _nmiMenuEntry:
     out (0xBF),a
     ; enter menu
     jp _nmiMenuStart
-__nmiMenuExit:
+_nmiMenuExit:
     di
     ; change scratch RAM
     ld a,1
@@ -782,10 +821,10 @@ __nmiMenuExit:
     ld bc,0x1B00
     ldir
     ; restore screen
-    ld a,(MEM_REG2)
+    ld a,(MEM_BANK1)
     ld bc,0x7FFD
     out (c),a
-    ; restore registers and SP
+    ; restore registers
     ld sp,(MEM_SPR)
     pop iy
     pop ix
@@ -804,9 +843,15 @@ __nmiMenuExit:
     pop af
     ld i,a
     pop hl
+    ; restore interrupt mode 2
+    ld a, (MEM_IM2)
+    or a
+    jr z, _nmiMenuExit2
+    im 2
+_nmiMenuExit2:
     pop af
     ld sp,(MEM_SP2)
-    retn
+    jp _nmiMenuPageOut
 _codeend:
     org MEM_OFFSET
     jp (_verText)
