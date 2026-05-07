@@ -1,6 +1,8 @@
 
 #include "TzxPlayerZXTeensy.h"
 
+extern bool menuPrintDebug(bool clearDebug, const char *fmt, ...);
+
 void TzxPlayerZXTeensy::sendStopCommand()
 {
     uint8_t command[8];
@@ -339,7 +341,8 @@ bool TzxPlayerZXTeensy::loadFromTape()
     {
         if (truncateTapeLength(1) >= 1)
         {
-            switch (readTapeByte())
+            uint8_t blockId = readTapeByte();
+            switch (blockId)
             {
                 case 0x10 :
                     // Load Standard Speed Block
@@ -431,7 +434,27 @@ bool TzxPlayerZXTeensy::loadFromTape()
                         return loadFromTape();
                     }
                     break;
+                case 0x32 :
+                    // Archive info
+                    if (truncateTapeLength(2) >= 2)
+                    {
+                        uint16_t length = truncateTapeLength(readTapeWord());
+                        ignoreTapeData(length);
+                        return loadFromTape();
+                    }
+                    break;
+                case 0x33 :
+                    // Hardware type
+                    if (truncateTapeLength(1) >= 1)
+                    {
+                        uint16_t length = readTapeByte();
+                        length = truncateTapeLength(3 * length);
+                        ignoreTapeData(length);
+                        return loadFromTape();
+                    }
+                    break;
                 default :
+                    menuPrintDebug(false, "tzxPlayer unknown ID 0x%h", blockId);
                     break;
             }
         }
@@ -445,6 +468,9 @@ bool TzxPlayerZXTeensy::loadFromTape()
 
 void TzxPlayerZXTeensy::begin(volatile uint8_t* buffer, size_t size)
 {
+    // Ensure the player is reset
+    end();
+
     // Store the tape buffer
     tapeBuffer = buffer;
     tapeLength = size;
@@ -457,14 +483,14 @@ void TzxPlayerZXTeensy::begin(volatile uint8_t* buffer, size_t size)
         isTzxTapeFile = false;
     }
 
-    // Reset the player state, and enable
-    end();
+    // Enable the player
     enabled = true;
 }
 
 void TzxPlayerZXTeensy::end()
 {
     isPlaying = false;
+    isPaused = false;
     isBuffering = false;
     dataBlockSize = 0;
     currentBlock = BLOCK_IDLE;

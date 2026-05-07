@@ -94,6 +94,7 @@ DMAMEM char* menuTxtPtr;
 DMAMEM char* menuEndPtr;
 DMAMEM uint8_t menuEntries;
 DMAMEM menu_type_t menuCurrent;
+DMAMEM menu_type_t menuTopMenu;
 DMAMEM menu_entry_t menu[255];
 volatile DMAMEM menu_action_t menuAction;
 
@@ -109,6 +110,7 @@ DMAMEM uint8_t menuPageLine;
 static const size_t MENU_DEBUG_SIZE = (21 * (ROM_NAME_LEN + 3) * 2);
 DMAMEM char menuDebugBuffer[MENU_DEBUG_SIZE];
 volatile size_t menuDebugIndex = 0;
+volatile bool menuHasDebug = false;
 
 void menuInsertEntry(menu_action_t action, uint8_t index, const char* ptr)
 {
@@ -383,6 +385,14 @@ char* menuAddBrowserFile(uint8_t index, char* ptr, File entry)
 char* menuGenerateInGame(char* ptr)
 {
     ptr = menuInsertSetting(MENU_ACTION_IN_GAME_EXIT, 0, ptr, MENU_STRINGS[STRING_CANCEL], 0);
+    if (tzxEnabled)
+    {
+        ptr = menuInsertSetting(MENU_ACTION_IN_GAME_EXIT_TAPE, 0, ptr,
+            MENU_STRINGS[STRING_IN_GAME_EXIT_TAPE], 0);
+    }
+    ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_OPEN_BROWSER,
+        ptr, MENU_STRINGS[STRING_OPEN_BROWSER], 0);
+    ptr = menuInsertSpacer(ptr);
     if (mf128Present && ((romArrayPresent & BANK_MF128) != 0))
     {
         ptr = menuInsertSetting(MENU_ACTION_IN_GAME_MF128, 0, ptr,
@@ -393,6 +403,7 @@ char* menuGenerateInGame(char* ptr)
         ptr = menuInsertSetting(MENU_ACTION_IN_GAME_DIVMMC, 0, ptr,
             MENU_STRINGS[STRING_IN_GAME_DIVMMC], 0);
     }
+    ptr = menuInsertSetting(MENU_ACTION_IN_GAME_RESET, 0, ptr, MENU_STRINGS[STRING_IN_GAME_RESET], 0);
     return ptr;
 }
 
@@ -859,7 +870,8 @@ char* menuGenerateMain(char* ptr)
         ptr, MENU_STRINGS[STRING_OPEN_SETTINGS], 0);
     ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_OPEN_SERVER,
         ptr, MENU_STRINGS[STRING_OPEN_HTTP_SERVER], 0);
-    ptr = menuInsertSpacer(ptr);
+    ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_OPEN_DEBUG,
+        ptr, (menuHasDebug ? MENU_STRINGS[STRING_OPEN_DEBUG] : ""), 0);
     ptr = menuInsertStatus(ptr);
     if (rtcHasTime)
     {
@@ -869,10 +881,6 @@ char* menuGenerateMain(char* ptr)
             ptr, (wifiNtpEnabled ? MENU_STRINGS[STRING_WIFI_NTP_WAITING] :
                 MENU_STRINGS[STRING_RTC_NOT_SET]), 0);
     }
-#ifdef ENABLE_DEBUG_MENU
-    ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_OPEN_DEBUG,
-        ptr, MENU_STRINGS[STRING_OPEN_DEBUG], 0);
-#endif
     return ptr;
 }
 
@@ -939,6 +947,7 @@ void menuResetAction()
 {
     // Reset the menu actions
     menuCurrent = MENU_TYPE_MAIN;
+    menuTopMenu = MENU_TYPE_MAIN;
     menuAction = MENU_ACTION_LOAD_ROM;
 
     // Clear debug buffer
@@ -950,6 +959,7 @@ void menuBeginInGame()
 {
     // Reset the menu actions
     menuCurrent = MENU_TYPE_IN_GAME;
+    menuTopMenu = MENU_TYPE_IN_GAME;
     menuAction = MENU_ACTION_LOAD_ROM;
 
     // Generate the menu
@@ -1004,7 +1014,7 @@ bool menuPerformSelection(uint8_t index)
     switch (menuAction)
     {
         case MENU_ACTION_TOP_MENU :
-            menuCurrent = MENU_TYPE_MAIN;
+            menuCurrent = menuTopMenu;
             break;
         case MENU_ACTION_SETTING :
             switch (entryIndex)
@@ -1198,7 +1208,7 @@ bool menuPerformSelection(uint8_t index)
             {
                 menuCurrent = MENU_TYPE_BROWSER;
             } else {
-                menuCurrent = MENU_TYPE_MAIN;
+                menuCurrent = menuTopMenu;
             }
             break;
         case MENU_ACTION_BROWSER_OPEN :
@@ -1206,7 +1216,7 @@ bool menuPerformSelection(uint8_t index)
             {
                 menuCurrent = MENU_TYPE_BROWSER_OPEN;
             } else {
-                menuCurrent = MENU_TYPE_MAIN;
+                menuCurrent = menuTopMenu;
             }
             break;
         case MENU_ACTION_BROWSER_OPEN_ZXC2 :
@@ -1214,7 +1224,7 @@ bool menuPerformSelection(uint8_t index)
             {
                 menuCurrent = MENU_TYPE_BROWSER_OPEN_ZXC2;
             } else {
-                menuCurrent = MENU_TYPE_MAIN;
+                menuCurrent = menuTopMenu;
             }
             break;
         case MENU_ACTION_BROWSER_OPEN_HDF :
@@ -1222,7 +1232,7 @@ bool menuPerformSelection(uint8_t index)
             {
                 menuCurrent = MENU_TYPE_BROWSER_MOUNT_HDF;
             } else {
-                menuCurrent = MENU_TYPE_MAIN;
+                menuCurrent = menuTopMenu;
             }
             break;
         case MENU_ACTION_BROWSER_OPEN_DSK :
@@ -1230,18 +1240,31 @@ bool menuPerformSelection(uint8_t index)
             {
                 menuCurrent = MENU_TYPE_BROWSER_MOUNT_DSK;
             } else {
-                menuCurrent = MENU_TYPE_MAIN;
+                menuCurrent = menuTopMenu;
             }
             break;
         case MENU_ACTION_BROWSER_LOAD_Z80 :
-        case MENU_ACTION_BROWSER_LOAD_TZX :
         case MENU_ACTION_BROWSER_LOAD_MDR :
             if ((menuCurrent == MENU_TYPE_BROWSER_OPEN) ||
                 updateBrowserPath(entryIndex, entryPtr))
             {
                 return true;
             } else {
-                menuCurrent = MENU_TYPE_MAIN;
+                menuCurrent = menuTopMenu;
+            }
+            break;
+        case MENU_ACTION_BROWSER_LOAD_TZX :
+            if ((menuCurrent == MENU_TYPE_BROWSER_OPEN) ||
+                updateBrowserPath(entryIndex, entryPtr))
+            {
+                if (menuTopMenu != MENU_TYPE_MAIN)
+                {
+                    menuCurrent = menuTopMenu;
+                } else {
+                    return true;
+                }
+            } else {
+                menuCurrent = menuTopMenu;
             }
             break;
         case MENU_ACTION_BROWSER_LOAD_CART :
@@ -1253,7 +1276,7 @@ bool menuPerformSelection(uint8_t index)
             {
                 return true;
             } else {
-                menuCurrent = MENU_TYPE_MAIN;
+                menuCurrent = menuTopMenu;
             }
             break;
         case MENU_ACTION_BROWSER_MOUNT_SDA :
@@ -1268,7 +1291,7 @@ bool menuPerformSelection(uint8_t index)
                 divMmcPresent = true;
                 menuConfigChanged = true;
             }
-            menuCurrent = MENU_TYPE_MAIN;
+            menuCurrent = menuTopMenu;
             break;
         case MENU_ACTION_BROWSER_MOUNT_FDA :
         case MENU_ACTION_BROWSER_MOUNT_FDB :
@@ -1279,10 +1302,13 @@ bool menuPerformSelection(uint8_t index)
                 strncpy(((menuAction == MENU_ACTION_BROWSER_MOUNT_FDB) ?
                     cfgData.dskFdbPath : cfgData.dskFdaPath),
                     browserPath, MAX_PATH);
-                dskPresent = true;
-                menuConfigChanged = true;
+                if (menuTopMenu == MENU_TYPE_MAIN)
+                {
+                    dskPresent = true;
+                    menuConfigChanged = true;
+                }
             }
-            menuCurrent = MENU_TYPE_MAIN;
+            menuCurrent = menuTopMenu;
             break;
         case MENU_ACTION_START_SERVER :
             httpStartServer();
@@ -1291,10 +1317,11 @@ bool menuPerformSelection(uint8_t index)
             httpStopServer();
             break;
         case MENU_ACTION_IN_GAME_EXIT :
+        case MENU_ACTION_IN_GAME_EXIT_TAPE :
         case MENU_ACTION_IN_GAME_MF128 :
         case MENU_ACTION_IN_GAME_DIVMMC :
-            // These actions do not put the Spectrum into reset,
-            // but require additional NMI handling
+        case MENU_ACTION_IN_GAME_RESET :
+            // These actions require additional NMI or reset handling
             return true;
     }
 
@@ -1307,9 +1334,11 @@ bool menuPerformSelection(uint8_t index)
     return false;
 }
 
-inline menu_action_t menuGetSelectionAction()
+inline menu_action_t menuGetInGameAction()
 {
-    return menuAction;
+    // Return MENU_ACTION_TOP_MENU as "No-Op", to either redraw or reset the
+    // Spectrum on the main menu
+    return ((menuTopMenu != MENU_TYPE_MAIN) ? menuAction : MENU_ACTION_TOP_MENU);
 }
 
 void menuPerformAction()
@@ -1330,27 +1359,27 @@ void menuPerformAction()
         case MENU_ACTION_BROWSER_LOAD_ZXC2 :
         case MENU_ACTION_BROWSER_LOAD_ZXC3 :
         case MENU_ACTION_BROWSER_LOAD_Z80 :
-            // Load new cartridge, with DivMMC and modem disabled
-            modemPresent = false;
+            // Load new cartridge - with DivMMC, modem and LPRINT III disabled
             divMmcPresent = false;
+            modemPresent = false;
+            lprintPresent = false;
             break;
         case MENU_ACTION_BROWSER_LOAD_TZX :
-            // Load new tape, with DivMMC disabled
             tzxPresent = true;
-            divMmcPresent = false;
             break;
         case MENU_ACTION_BROWSER_LOAD_MDR :
-            // Load new MDR, with DivMMC and Interface 1 disabled
+            // Load new MDR image - with DivMMC and Interface 1 disabled
             mdrPresent = true;
             divMmcPresent = false;
             interface1Present = false;
             break;
         case MENU_ACTION_LOAD_NETMAN :
         case MENU_ACTION_LOAD_RTC_SETUP :
-            // Load tools, with DivMMC and UART enabled
+            // Load tools - with DivMMC and UART enabled
             uartPresent = true;
             divMmcPresent = true;
             modemPresent = false;
+            lprintPresent = false;
             wifiNtpPresent = false;
             break;
         default :
@@ -1889,9 +1918,13 @@ void menuClearPrinterFile()
     }
 }
 
+inline bool menuIsDebugging()
+{
+    return (menuCurrent == MENU_TYPE_DEBUG);
+}
+
 bool menuPrintDebug(bool clearDebug, const char *fmt, ...)
 {
-#ifdef ENABLE_DEBUG_MENU
     if (clearDebug)
     {
         menuDebugIndex = 0;
@@ -1912,8 +1945,6 @@ bool menuPrintDebug(bool clearDebug, const char *fmt, ...)
         }
         va_end(ap);
     }
+    menuHasDebug = true;
     return (menuCurrent == MENU_TYPE_DEBUG);
-#else
-    return false;
-#endif
 }

@@ -30,6 +30,7 @@ class TzxPlayerZXTeensy
         volatile bool enabled;
         volatile bool isBuffering;
         volatile bool isPlaying;
+        volatile bool isPaused;
         volatile bool currentLevel;
         volatile block_type_t currentBlock;
         volatile uint16_t zeroDuration;
@@ -196,7 +197,7 @@ class TzxPlayerZXTeensy
 
     public :
         constexpr TzxPlayerZXTeensy() : enabled(false), isBuffering(false), isPlaying(false),
-            currentLevel(false), currentBlock(BLOCK_IDLE),
+            isPaused(false), currentLevel(false), currentBlock(BLOCK_IDLE),
             zeroDuration(0), oneDuration(0), numBytes(0), numFinalBits(0),
             doublePulse(false), pulseData(0xAA), pulseShiftCount(0),
             pulseDuration(0), edgeCycleCount(0), isTzxTapeFile(false),
@@ -215,13 +216,13 @@ class TzxPlayerZXTeensy
             {
                 bufferTape();
             }
-            if (isPlaying)
+            if (isPlaying && !isPaused)
             {
                 isPlaying = runTape();
             }
         }
 
-        inline __attribute__((always_inline)) void play()
+        inline void play() __attribute__((always_inline, hot, optimize("O3")))
         {
             if (enabled && !isPlaying)
             {
@@ -229,6 +230,7 @@ class TzxPlayerZXTeensy
                 {
                     edgeCycleCount = ARM_DWT_CYCCNT;
                     isPlaying = true;
+                    isPaused = false;
                 } else if (!tapeBufferEnded)
                 {
                     isBuffering = true;
@@ -237,12 +239,35 @@ class TzxPlayerZXTeensy
             }
         }
 
-        inline __attribute__((always_inline)) bool isTapePlaying()
+        inline void pause() __attribute__((always_inline, hot, optimize("O3")))
         {
-            return (isPlaying);
+            if (enabled && isPlaying && !isPaused)
+            {
+                isPaused = true;
+            }
         }
 
-        inline __attribute__((always_inline)) uint8_t getTapeByte()
+        inline __attribute__((always_inline)) void unpause()
+        {
+            if (enabled && isPlaying && isPaused)
+            {
+                edgeCycleCount = ARM_DWT_CYCCNT;
+                pulseDuration = TEENSY_CLK_FREQ;
+                isPaused = false;
+            }
+        }
+
+        inline __attribute__((always_inline)) bool isTapePlaying()
+        {
+            return (isPlaying && !isPaused);
+        }
+
+        inline __attribute__((always_inline)) bool isTapePaused()
+        {
+            return isPaused;
+        }
+
+        inline uint8_t getTapeByte() __attribute__((always_inline, hot, optimize("O3")))
         {
             if ((currentBlock != BLOCK_PAUSE) &&
                 ((ARM_DWT_CYCCNT - edgeCycleCount) >= pulseDuration))

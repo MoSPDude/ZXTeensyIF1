@@ -48,8 +48,10 @@ typedef enum {
     MENU_ACTION_START_SERVER,
     MENU_ACTION_STOP_SERVER,
     MENU_ACTION_IN_GAME_EXIT,
+    MENU_ACTION_IN_GAME_EXIT_TAPE,
     MENU_ACTION_IN_GAME_MF128,
-    MENU_ACTION_IN_GAME_DIVMMC
+    MENU_ACTION_IN_GAME_DIVMMC,
+    MENU_ACTION_IN_GAME_RESET
 } menu_action_t;
 
 typedef enum {
@@ -296,7 +298,7 @@ volatile trigger_state_t zxC3WriteTrigState = TRIGGER_READY;
 volatile uint32_t zxC3WriteTrigExitCount = 0;
 volatile trigger_state_t zxC3EraseTrigState = TRIGGER_READY;
 volatile uint32_t zxC3EraseTrigExitCount = 0;
-DMAMEM RingBuffer<EXT_RAM_PAGE_COUNT> zxC3EraseBuffer;
+RingBuffer<EXT_RAM_PAGE_COUNT> zxC3EraseBuffer;
 
 // Microdrive emulator
 static const uint8_t MDR_MAX_SECTOR = 0xB4;
@@ -309,14 +311,16 @@ volatile bool snaLoaderPresent = false;
 volatile uint8_t snaLoaderBanks = 0;
 
 // Boot menu ROM
+static const uint16_t MENU_PAGE_COUNT = 2;
+static const uint16_t MENU_BUFFER_SIZE = 16;
 volatile bool menuEnableInGame = false;
 volatile bool menuEnterOnReset = false;
 volatile bool menuSelected = false;
 volatile bool menuRedraw = false;
 volatile bool menuTriggerNMI = false;
 volatile uint8_t menuSelectedIndex = 0;
-DMAMEM RingBuffer<16> menuBuffer;
-volatile DMAMEM uint8_t menuRamArray[2][RAM_PAGE_SIZE] __attribute__((aligned(16)));
+RingBuffer<MENU_BUFFER_SIZE> menuBuffer;
+volatile DMAMEM uint8_t menuRamArray[MENU_PAGE_COUNT][RAM_PAGE_SIZE] __attribute__((aligned(16)));
 volatile uint8_t* menuRamPtr;
 
 // DivMMC SPI/SD
@@ -1700,6 +1704,7 @@ void handleStateReset()
             if (loadTzxPlayerFile(menuGetBrowserPath(), &size))
             {
                 tzxEnabled = true;
+                divMmcExtRamEnabled = false;
                 tzxPlayer.begin(divMmcExtRamArray[0], size);
             }
         }
@@ -1738,6 +1743,8 @@ void handleStateReset()
                     divMmcDriveSlot[0] = (hasSdAccess ? DIVMMC_NONE : DIVMMC_SDHC);
                 }
             }
+        } else {
+            divMmcExtRamEnabled = false;
         }
 
         // Enable the Interface 1 when DivMMC is not enabled
@@ -1875,7 +1882,8 @@ FASTRUN void loop()
         }
 
         // Trigger NMI to enter the menu, when requested
-        if (menuTriggerNMI)
+        if (menuTriggerNMI && (divMmcDrive == DIVMMC_NONE) &&
+            beginSdfsSd())
         {
             // Prepare the in-game menu
             menuBeginInGame();
@@ -1893,9 +1901,22 @@ FASTRUN void loop()
             menuSelected = false;
             if (menuPerformSelection(menuSelectedIndex))
             {
-                switch (menuGetSelectionAction())
+                switch (menuGetInGameAction())
                 {
                     case MENU_ACTION_IN_GAME_EXIT :
+                        nmiRomTarget = ROM_ROM0;
+                        menuBuffer.write(MENU_ROM_CMD_IN_GAME_EXIT);
+                        break;
+                    case MENU_ACTION_IN_GAME_EXIT_TAPE :
+                        if (tzxEnabled)
+                        {
+                            if (tzxPlayer.isTapePaused())
+                            {
+                                tzxPlayer.unpause();
+                            } else {
+                                tzxPlayer.play();
+                            }
+                        }
                         nmiRomTarget = ROM_ROM0;
                         menuBuffer.write(MENU_ROM_CMD_IN_GAME_EXIT);
                         break;
@@ -1907,6 +1928,11 @@ FASTRUN void loop()
                         nmiRomTarget = ROM_DIVMMC;
                         menuBuffer.write(MENU_ROM_CMD_IN_GAME_EXIT);
                         break;
+                    case MENU_ACTION_IN_GAME_RESET :
+                        // Reset into the main menu
+                        menuEnterOnReset = true;
+                        setState(STATE_RESET);
+                        break;
                     default :
                         // The menu needs the Spectrum in reset to access the SD card,
                         // reload ROMs, update FW etc.
@@ -1914,6 +1940,31 @@ FASTRUN void loop()
                         break;
                 }
             } else {
+                // Perform in-game actions
+                switch (menuGetInGameAction())
+                {
+                    case MENU_ACTION_BROWSER_LOAD_TZX :
+                        if (!divMmcExtRamEnabled && beginSdfsSd())
+                        {
+                            size_t size;
+                            if (loadTzxPlayerFile(menuGetBrowserPath(), &size))
+                            {
+                                tzxEnabled = true;
+                                tzxPlayer.begin(divMmcExtRamArray[0], size);
+                            }
+                        }
+                        break;
+                    case MENU_ACTION_BROWSER_MOUNT_FDA :
+                    case MENU_ACTION_BROWSER_MOUNT_FDB :
+                        if (dskEnabled && !dskController.isMotorOn() && beginSdfsSd())
+                        {
+                            dskController.begin(menuGetFdcFdaPath(), menuGetFdcFdbPath());
+                        }
+                        break;
+                    default :
+                        break;
+                }
+
                 // Indicate the menu is ready to re-draw
                 menuBuffer.write(MENU_ROM_CMD_REDRAW);
             }
@@ -2083,8 +2134,8 @@ FASTRUN void loop()
                     }
                     break;
             }
-#ifdef ENABLE_DEBUG_MENU
-            if (joystickData != data)
+#ifdef ENABLE_JOYSTICK_DEBUG
+            if (menuIsDebugging() && (joystickData != data))
             {
                 menuRedraw = menuPrintDebug(true, "joystickData %0d", data);
             }
@@ -2412,6 +2463,12 @@ FASTRUN void isrPinButton()
     {
         buttonTrigState = TRIGGER_ACTIVE;
 
+        // Pause the tape
+        if (tzxEnabled)
+        {
+            tzxPlayer.pause();
+        }
+
         // Perform NMI when not already handling previous NMI
         if (!isGlobalStateReset() && (IS_ROM_PAGED(ROM_MENU) == 0) &&
             !nmiPending && !mf128ActiveNMI && !menuTriggerNMI)
@@ -2716,7 +2773,7 @@ FASTRUN void isrWrEvent()
                     if (IS_ROM_PAGED(ROM_MENU))
                     {
                         uint8_t data = readData();
-                        menuRamPtr = menuRamArray[(data & 0x01)];
+                        menuRamPtr = menuRamArray[data & (MENU_PAGE_COUNT - 1)];
                     } else {
                         mf128ActiveNMI = false;
                     }

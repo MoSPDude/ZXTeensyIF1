@@ -153,6 +153,11 @@ class Dsk765ZXTeensy
             }
         }
 
+        inline __attribute__((always_inline)) bool isMotorOn()
+        {
+            return motorOn;
+        }
+
         inline __attribute__((always_inline)) uint8_t readData()
         {
             uint8_t data;

@@ -350,6 +350,7 @@ _romSelected:
     ld hl,_compressedBlank  ; blank explorer screen
     call _decompressScr     ; decompress screen
     ld a,(MEM_ROM)
+    ld b,a
     out (0xeb),a
 _waitForTeensy:
     halt
@@ -361,7 +362,6 @@ _waitForTeensy:
     jp z, _nmiMenuExit
 ; otherwise, menu redraw
 _menuRedraw:
-    ld b,a
     ld a,(_maxroms+1)
     cp b
     jr nc, _doneSelected
@@ -842,6 +842,8 @@ _nmiMenuExit:
     ld r,a
     pop af
     ld i,a
+    ; detect if IFF2 was reset, so interrupts disabled
+    jp po, _nmiMenuExitDI
     pop hl
     ; restore interrupt mode 2
     ld a, (MEM_IM2)
@@ -851,7 +853,20 @@ _nmiMenuExit:
 _nmiMenuExit2:
     pop af
     ld sp,(MEM_SP2)
+    ; page out with interrupts enabled
     jp _nmiMenuPageOut
+_nmiMenuExitDI :
+    pop hl
+    ; restore interrupt mode 2
+    ld a, (MEM_IM2)
+    or a
+    jr z, _nmiMenuExitDI2
+    im 2
+_nmiMenuExitDI2:
+    pop af
+    ld sp,(MEM_SP2)
+    ; page out with interrupts disabled
+    jp (_nmiMenuPageOut + 1)
 _codeend:
     org MEM_OFFSET
     jp (_verText)
@@ -1103,11 +1118,11 @@ _textData:
     defb 30,"Automania",9,26,27,10
     defb 30,"Chase H.Q. (128k)",9,26,27,10
 
-    DISPLAY "codeEnd address is:",/A,_codeend
-    DISPLAY "MEM_OFFSET address is:",/A,MEM_OFFSET
-    DISPLAY "MEM_LTBL address is:",/A,MEM_LTBL
-    DISPLAY "textData address is:",/A,_textData
     DISPLAY "maxRoms address is:",/A,(_maxroms+1)
     DISPLAY "maxPages address is:",/A,(_right+1)
+    DISPLAY "codeEnd address is:",/A,_codeend
+    DISPLAY "MEM_OFFSET address is:",/A,MEM_OFFSET
+    DISPLAY "MEM_LTBLP address is:",/A,MEM_LTBLP
+    DISPLAY "textData address is:",/A,_textData
     ;savetap "MENU.TAP", CODE, "menu", MEM_ORG, $2000
     savebin "MENU.ROM", MEM_ORG, $2000

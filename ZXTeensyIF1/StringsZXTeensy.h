@@ -79,7 +79,9 @@ typedef enum {
     STRING_PLUS_13_00_HOURS,
     STRING_PLUS_14_00_HOURS,
     STRING_IN_GAME_MF128,
-    STRING_IN_GAME_DIVMMC
+    STRING_IN_GAME_DIVMMC,
+    STRING_IN_GAME_RESET,
+    STRING_IN_GAME_EXIT_TAPE
 } menu_string_t;
 
 const char* PROGMEM MENU_STRINGS[] = {
@@ -92,7 +94,7 @@ const char* PROGMEM MENU_STRINGS[] = {
     "Configure HTTP server",
     "Update firmware and Reset",
     "Boot into Menu",
-    "   Enable In-game Menu",
+    "Enable In-game Menu",
     "Enable DivMMC",
     "   Enable DivMMC ROM",
     "Enable Interface 1",
@@ -123,7 +125,7 @@ const char* PROGMEM MENU_STRINGS[] = {
     "Mount as FDD B:",
     "Start HTTP server",
     "Stop HTTP server",
-    "View debug",
+    "View debug log",
     "Internal ROM",
     "-12:00 hours",
     "-11:00 hours",
@@ -159,7 +161,9 @@ const char* PROGMEM MENU_STRINGS[] = {
     "+13:00 hours",
     "+14:00 hours",
     "Send NMI to Multiface 128",
-    "Send NMI to DivMMC ROM"
+    "Send NMI to DivMMC ROM",
+    "Reset into Main Menu",
+    "Play Tape"
 };
 
 #endif
