@@ -2464,7 +2464,8 @@ FASTRUN void isrPinButton()
         buttonTrigState = TRIGGER_ACTIVE;
 
         // Pause the tape
-        if (tzxEnabled)
+        bool wasTapePlaying = (tzxEnabled && tzxPlayer.isTapePlaying());
+        if (wasTapePlaying)
         {
             tzxPlayer.pause();
         }
@@ -2476,7 +2477,8 @@ FASTRUN void isrPinButton()
             if (menuEnableInGame)
             {
                 menuTriggerNMI = true;
-            } else {
+            } else if (!wasTapePlaying)
+            {
                 nmiPending = true;
                 digitalWriteFast(NMI_PIN, 1);
             }
@@ -2726,16 +2728,6 @@ FASTRUN void isrWrEvent()
         } else {
             switch (port_)
             {
-                case 0x3f :
-                    mf128ActiveNMI = false;
-                    if (mf128Enabled)
-                    {
-                        mf128Enabled = false;
-                        divMmcEnabled = divMmcPresent;
-                        divMmcRomEnabled = (divMmcEnabled && divMmcRomPresent);
-                        interface1Enabled = (interface1Present && !divMmcEnabled);
-                    }
-                    break;
                 case 0x3b :
                     {
                         uint8_t highPort = decodeHighAddress(gpioSix);
@@ -2754,6 +2746,16 @@ FASTRUN void isrWrEvent()
                                     break;
                             }
                         }
+                    }
+                    break;
+                case 0x3f :
+                    mf128ActiveNMI = false;
+                    if (mf128Enabled)
+                    {
+                        mf128Enabled = false;
+                        divMmcEnabled = divMmcPresent;
+                        divMmcRomEnabled = (divMmcEnabled && divMmcRomPresent);
+                        interface1Enabled = (interface1Present && !divMmcEnabled);
                     }
                     break;
                 case 0x7b :

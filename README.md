@@ -379,3 +379,46 @@ Once found, add the USB PID:VID code to %LOCALAPPDATA%\Arduino15\packages\teensy
 under JoystickController::pid_vid_mapping ,
 
 * 8BitDo M30 Wired Controller for Xbox One :- \{ 0x2dc8, 0x200a, XBOXONE, false \}
+
+## I/O port mapping
+
+The following ports are decoded by the Teensy,
+
+| Port | R/W | Function | Comments |
+| 0xXX1F | R | Kempston joystick | |
+| 0x133B | R | UART status | |
+| 0x133B | W | UART TX data | |
+| 0x143B | R | UART RX data | |
+| 0x143B | W | UART baud register | |
+| 0x7N3B | R/W | DivMMC RTC registers 0 - 15 | N is the register address |
+| 0xXX3F | R | Multiface 128 page out | Returns bit 7 as the Current Screen |
+| 0xXX3F | W | Multiface 128 disable | |
+| 0xXX7B | R | LPRINT III page out | Returns status |
+| 0xXX7B | W | LPRINT III data with strobe | |
+| 0xXX7F | R/W | VTX5000 data | |
+| 0xXXBF | R | Multiface 128 page in | Returns bit 7 as the Current Screen. Menu ROM returns last 128K Memory Control write |
+| 0xXXBF | W | Multiface 128 NMI clear | Menu ROM RAM banking |
+| 0xFADF | R | Kempston mouse buttons | |
+| 0xFBDF | R | Kempston mouse X axis | |
+| 0xFFDF | R | Kempston mouse Y axis | |
+| 0xXXE3 | W | DivMMC control register | |
+| 0xXXE7 | W | DivMMC SPI select | |
+| 0xXXEB | R/W | DivMMC SPI data | Menu ROM read command, write selected option |
+| 0xXXFB | R | LPRINT III page in | Returns status |
+| 0xXXFB | W | LPRINT III data, clear strobe | |
+| 0x0FFD | R | +3 Centronics busy status | |
+| 0x0FFD (0b0000XXXX_XXXXXX0X) | W | +3 Centronics data | |
+| 0x1FFD (0b0001XXXX_XXXXXX0X) | W | +2A / +3 Secondary Memory Control | ROM paging, +3 FDC motor and +3 Centronics strobe |
+| 0x2FFD | R | +3 FDC status register | |
+| 0x3FFD | R | +3 FDC data | |
+| 0x3FFD (0b0011XXXX_XXXXXX0X) | W | +3 FDC data | |
+| 0x7FFD (0b01XXXXXX_XXXXXX0X) | W | 128K Memory Control | Current Screen, and ROM paging |
+| 0xXXFE | W | Spectrum ULA | Drives EAR input for tape |
+| 0xXXFF | R/W | VTX5000 register | Ignore first write access, controls ROM paging |
+
+The following ports are decoded by the Interface 1 ULA when not inhibited by the Teensy,
+
+| Port | R/W | Function | Comments |
+| 0xXXE7 (0bXXX00XXX) | R/W | Interface 1 microdrive data | Halts Z80 on read |
+| 0xXXEF (0bXXX01XXX) | R/W | Interface 1 control register | |
+| 0xXXF7 (0bXXX10XXX) | R/W | Interface 1 RS232/network data | |
