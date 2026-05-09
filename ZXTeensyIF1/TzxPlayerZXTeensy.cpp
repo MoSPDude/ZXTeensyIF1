@@ -492,7 +492,10 @@ void TzxPlayerZXTeensy::scanTape()
                 // Standard Speed Block
                 if (hasTapeLength(4))
                 {
-                    ignoreTapeData(2);
+                    if (isTzxTapeFile)
+                    {
+                        ignoreTapeData(2);
+                    }
                     uint16_t count = truncateTapeLength(readTapeWord());
                     size_t nextPosition = tapePosition + count;
                     if (count > 0)
