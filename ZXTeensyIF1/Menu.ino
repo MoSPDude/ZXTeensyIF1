@@ -15,8 +15,6 @@ static const uint8_t CHAR_Z80_R = 29;
 static const uint8_t CHAR_TZX_L = 30;
 static const uint8_t CHAR_TZX_R = 31;
 
-static const size_t ROM_NAME_LEN = 32;
-
 extern float tempmonGetTemp(void);
 
 typedef enum {
@@ -31,6 +29,7 @@ typedef enum {
     MENU_TYPE_BROWSER_MOUNT_DSK,
     MENU_TYPE_HTTP_SERVER,
     MENU_TYPE_IN_GAME,
+    MENU_TYPE_TAPE_BROWSER,
     MENU_TYPE_DEBUG
 } menu_type_t;
 
@@ -73,7 +72,8 @@ typedef enum {
     SETTING_ACTION_UNMOUNT_SDB,
     SETTING_ACTION_UNMOUNT_FDA,
     SETTING_ACTION_UNMOUNT_FDB,
-    SETTING_ACTION_OPEN_DEBUG = 0xF9,
+    SETTING_ACTION_OPEN_DEBUG = 0xF8,
+    SETTING_ACTION_OPEN_TAPE_BROWSER = 0xF9,
     SETTING_ACTION_OPEN_SERVER = 0xFA,
     SETTING_ACTION_OPEN_ROMS = 0xFB,
     SETTING_ACTION_OPEN_NTP_TZ = 0xFC,
@@ -107,7 +107,7 @@ DMAMEM uint8_t menuPage;
 DMAMEM uint8_t menuPageLine;
 
 // Debug menu text
-static const size_t MENU_DEBUG_SIZE = (21 * (ROM_NAME_LEN + 3) * 2);
+static const size_t MENU_DEBUG_SIZE = (21 * MENU_TXT_LEN * 2);
 DMAMEM char menuDebugBuffer[MENU_DEBUG_SIZE];
 volatile size_t menuDebugIndex = 0;
 volatile bool menuHasDebug = false;
@@ -129,9 +129,9 @@ char* menuInsertSetting(menu_action_t action, uint8_t index, char* ptr, const ch
     menuInsertEntry(action, index, 0);
     *ptr++ = (checked ? CHAR_TICK : CHAR_BORDER);
     unsigned int len = strlen(label);
-    if (len > 35)
+    if (len > MENU_TXT_LEN)
     {
-        for (size_t i = 0; i < 34; ++i)
+        for (size_t i = 0; i < (MENU_TXT_LEN - 1); ++i)
         {
             *ptr++ = (label[i] >= 128) ? '?' : label[i];
         }
@@ -171,7 +171,7 @@ char* menuInsertClockTime(char* ptr)
 {
     struct tm buf;
     time_t timeNow = now();
-    char label[38];
+    char label[(MENU_STR_LEN + 1)];
     label[0] = ' ';
     label[1] = '>';
     label[2] = ' ';
@@ -183,14 +183,14 @@ char* menuInsertClockTime(char* ptr)
 
 char* menuInsertStatus(char* ptr)
 {
-    char label[38];
+    char label[(MENU_STR_LEN + 1)];
     double temp = tempmonGetTemp();
     int a = temp;
     temp *= 100;
     int b = (int)(temp) % 100;
-    if (snprintf(label, 38, " > %d.%02d degC", a, b) >= 38)
+    if (snprintf(label, (MENU_STR_LEN + 1), " > %d.%02d degC", a, b) >= (MENU_STR_LEN + 1))
     {
-        label[37] = 0;
+        label[MENU_STR_LEN] = 0;
     }
     return menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_NO_OP,
         ptr, label, 0);
@@ -207,7 +207,7 @@ char* menuInsertFile(menu_action_t action, icon_type_t icon, uint8_t index, char
     if (len > ROM_NAME_LEN)
     {
         labelPtr = 0;
-        for (size_t i = 0; i < 31; ++i)
+        for (size_t i = 0; i < (ROM_NAME_LEN - 1); ++i)
         {
             *ptr++ = (filename[i] >= 128) ? '?' : filename[i];
         }
@@ -382,6 +382,19 @@ char* menuAddBrowserFile(uint8_t index, char* ptr, File entry)
     return menuInsertFile(action, icon, index, ptr, filename);
 }
 
+char* menuGenerateTapeBrowser(char* ptr)
+{
+    uint8_t count = tzxPlayer.tapeMarkCount;
+    ptr = menuInsertSetting(MENU_ACTION_TOP_MENU, 0, ptr, MENU_STRINGS[STRING_CANCEL], 0);
+    for (uint8_t index = 0; index < count; ++index)
+    {
+        char* markName = tzxPlayer.tapeMarkName[index];
+        ptr = menuInsertSetting(MENU_ACTION_IN_GAME_SEEK_TAPE, index, ptr,
+            markName, 0);
+    }
+    return ptr;
+}
+
 char* menuGenerateInGame(char* ptr)
 {
     ptr = menuInsertSetting(MENU_ACTION_IN_GAME_EXIT, 0, ptr, MENU_STRINGS[STRING_CANCEL], 0);
@@ -389,6 +402,8 @@ char* menuGenerateInGame(char* ptr)
     {
         ptr = menuInsertSetting(MENU_ACTION_IN_GAME_EXIT_TAPE, 0, ptr,
             MENU_STRINGS[STRING_IN_GAME_EXIT_TAPE], 0);
+        ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_OPEN_TAPE_BROWSER,
+            ptr, MENU_STRINGS[STRING_OPEN_TAPE_BROWSER], 0);
     }
     ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_OPEN_BROWSER,
         ptr, MENU_STRINGS[STRING_OPEN_BROWSER], 0);
@@ -652,16 +667,16 @@ char* menuGenerateSettings(char* ptr)
             ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_DIVMMC_ROM,
                 ptr, MENU_STRINGS[STRING_ENABLE_DIVMMC_ROM], divMmcRomPresent);
         }
-        char label[38];
+        char label[(MENU_STR_LEN + 1)];
         char* tmpPath = menuGetDivMmcSdaPath();
         if (tmpPath != 0)
         {
             tmpFile = SD.open(tmpPath, FILE_READ);
             if (tmpFile)
             {
-                if (snprintf(label, 38, " > sda: %s", tmpFile.name()) >= 38)
+                if (snprintf(label, (MENU_STR_LEN + 1), " > sda: %s", tmpFile.name()) >= (MENU_STR_LEN + 1))
                 {
-                    label[37] = 0;
+                    label[MENU_STR_LEN] = 0;
                 }
                 ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_UNMOUNT_SDA,
                     ptr, label, 0);
@@ -676,9 +691,9 @@ char* menuGenerateSettings(char* ptr)
             tmpFile = SD.open(tmpPath, FILE_READ);
             if (tmpFile)
             {
-                if (snprintf(label, 38, " > sdb: %s", tmpFile.name()) >= 38)
+                if (snprintf(label, (MENU_STR_LEN + 1), " > sdb: %s", tmpFile.name()) >= (MENU_STR_LEN + 1))
                 {
-                    label[37] = 0;
+                    label[MENU_STR_LEN] = 0;
                 }
                 ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_UNMOUNT_SDB,
                     ptr, label, 0);
@@ -692,16 +707,16 @@ char* menuGenerateSettings(char* ptr)
         ptr, MENU_STRINGS[STRING_ENABLE_FDC], dskPresent);
     if (dskPresent)
     {
-        char label[38];
+        char label[(MENU_STR_LEN + 1)];
         char* tmpPath = menuGetFdcFdaPath();
         if (tmpPath != 0)
         {
             tmpFile = SD.open(tmpPath, FILE_READ);
             if (tmpFile)
             {
-                if (snprintf(label, 38, " > A: %s", tmpFile.name()) >= 38)
+                if (snprintf(label, (MENU_STR_LEN + 1), " > A: %s", tmpFile.name()) >= (MENU_STR_LEN + 1))
                 {
-                    label[37] = 0;
+                    label[MENU_STR_LEN] = 0;
                 }
                 ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_UNMOUNT_FDA,
                     ptr, label, 0);
@@ -716,9 +731,9 @@ char* menuGenerateSettings(char* ptr)
             tmpFile = SD.open(tmpPath, FILE_READ);
             if (tmpFile)
             {
-                if (snprintf(label, 38, " > B: %s", tmpFile.name()) >= 38)
+                if (snprintf(label, (MENU_STR_LEN + 1), " > B: %s", tmpFile.name()) >= (MENU_STR_LEN + 1))
                 {
-                    label[37] = 0;
+                    label[MENU_STR_LEN] = 0;
                 }
                 ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_UNMOUNT_FDB,
                     ptr, label, 0);
@@ -765,10 +780,10 @@ char* menuGenerateSettings(char* ptr)
             ptr, MENU_STRINGS[STRING_ENABLE_MODEM], modemPresent);
         if (modemPresent)
         {
-            char label[38];
-            if (snprintf(label, 38, " > %s", cfgData.modemUrl) >= 38)
+            char label[(MENU_STR_LEN + 1)];
+            if (snprintf(label, (MENU_STR_LEN + 1), " > %s", cfgData.modemUrl) >= (MENU_STR_LEN + 1))
             {
-                label[37] = 0;
+                label[MENU_STR_LEN] = 0;
             }
             ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_NO_OP,
                 ptr, label, 0);
@@ -925,11 +940,14 @@ void menuGenerate()
         case MENU_TYPE_HTTP_SERVER :
             textPtr = menuGenerateHttpServer(textPtr);
             break;
-        case MENU_TYPE_DEBUG :
-            textPtr = menuGenerateDebug(textPtr);
-            break;
         case MENU_TYPE_IN_GAME :
             textPtr = menuGenerateInGame(textPtr);
+            break;
+        case MENU_TYPE_TAPE_BROWSER :
+            textPtr = menuGenerateTapeBrowser(textPtr);
+            break;
+        case MENU_TYPE_DEBUG :
+            textPtr = menuGenerateDebug(textPtr);
             break;
     }
 
@@ -949,10 +967,6 @@ void menuResetAction()
     menuCurrent = MENU_TYPE_MAIN;
     menuTopMenu = MENU_TYPE_MAIN;
     menuAction = MENU_ACTION_LOAD_ROM;
-
-    // Clear debug buffer
-    menuDebugIndex = 0;
-    memset(menuDebugBuffer, 0, MENU_DEBUG_SIZE);
 }
 
 void menuBeginInGame()
@@ -978,10 +992,9 @@ void menuBeginMain()
 void menuInitialise(volatile uint8_t* romPtr, volatile uint8_t* ramPtr)
 {
     // Store the menu pointers
-    // NOTE: Allow for ROM_NAME_LEN, left icon, tab, 2 x right icons, and new-line
     menuPtr = (char*)romPtr;
     menuTxtPtr = (char*)ramPtr;
-    menuEndPtr = menuTxtPtr + RAM_PAGE_SIZE - (ROM_NAME_LEN + 5);
+    menuEndPtr = menuTxtPtr + RAM_PAGE_SIZE - MENU_STR_LEN;
 
     // Store the version information
     uint16_t address = ((menuPtr[0x11F9] << 8) + menuPtr[0x11F8]);
@@ -1122,6 +1135,11 @@ bool menuPerformSelection(uint8_t index)
                 case SETTING_ACTION_OPEN_DEBUG :
                     // Open debug menu
                     menuCurrent = MENU_TYPE_DEBUG;
+                    break;
+                case SETTING_ACTION_OPEN_TAPE_BROWSER :
+                    // Open tape browser
+                    tzxPlayer.scanTape();
+                    menuCurrent = MENU_TYPE_TAPE_BROWSER;
                     break;
                 case SETTING_ACTION_OPEN_SERVER :
                     // Configure HTTP server
@@ -1315,6 +1333,10 @@ bool menuPerformSelection(uint8_t index)
             break;
         case MENU_ACTION_STOP_SERVER :
             httpStopServer();
+            break;
+        case MENU_ACTION_IN_GAME_SEEK_TAPE :
+            tzxPlayer.seek(entryIndex);
+            menuCurrent = menuTopMenu;
             break;
         case MENU_ACTION_IN_GAME_EXIT :
         case MENU_ACTION_IN_GAME_EXIT_TAPE :
@@ -1923,12 +1945,18 @@ inline bool menuIsDebugging()
     return (menuCurrent == MENU_TYPE_DEBUG);
 }
 
+inline void menuClearDebug()
+{
+    menuDebugIndex = 0;
+    memset(menuDebugBuffer, 0, MENU_DEBUG_SIZE);
+    menuHasDebug = false;
+}
+
 bool menuPrintDebug(bool clearDebug, const char *fmt, ...)
 {
     if (clearDebug)
     {
-        menuDebugIndex = 0;
-        memset(menuDebugBuffer, 0, MENU_DEBUG_SIZE);
+        menuClearDebug();
     }
     if (menuDebugIndex < MENU_DEBUG_SIZE)
     {

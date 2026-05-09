@@ -18,7 +18,6 @@ extern "C" volatile uint32_t systick_millis_count;
 extern "C" uint32_t set_arm_clock(uint32_t frequency);
 
 static const char PROGMEM VERSION_STR[9] = ZXTEENSY_VERSION;
-static const size_t MAX_PATH = 256;
 
 typedef enum {
     MENU_ACTION_TOP_MENU,
@@ -49,6 +48,7 @@ typedef enum {
     MENU_ACTION_STOP_SERVER,
     MENU_ACTION_IN_GAME_EXIT,
     MENU_ACTION_IN_GAME_EXIT_TAPE,
+    MENU_ACTION_IN_GAME_SEEK_TAPE,
     MENU_ACTION_IN_GAME_MF128,
     MENU_ACTION_IN_GAME_DIVMMC,
     MENU_ACTION_IN_GAME_RESET
@@ -821,6 +821,7 @@ void setup()
 #endif
         Serial.print(CrashReport);
     }
+    menuClearDebug();
 
     // Configure UART
     Serial8.addMemoryForRead(uartBuffer, UART_BUFFER_SIZE);

@@ -54,6 +54,12 @@ class TzxPlayerZXTeensy
         volatile bool tapeBufferEnded;
         volatile bool tapeBufferAutoPlay;
 
+    public :
+        size_t tapeMarkPosition[255];
+        char tapeMarkName[255][MENU_STR_LEN];
+        uint8_t tapeMarkCount;
+
+    protected :
         void sendStopCommand();
         void sendPulseCommand(uint16_t length);
         void sendPulseSeqCommand(uint8_t numPulses, uint16_t firstLength);
@@ -190,6 +196,11 @@ class TzxPlayerZXTeensy
             return size;
         }
 
+        inline __attribute__((always_inline)) bool hasTapeLength(size_t size)
+        {
+            return ((tapePosition + size) <= tapeLength);
+        }
+
         inline __attribute__((always_inline)) void ignoreTapeData(size_t size)
         {
             tapePosition += size;
@@ -202,10 +213,13 @@ class TzxPlayerZXTeensy
             doublePulse(false), pulseData(0xAA), pulseShiftCount(0),
             pulseDuration(0), edgeCycleCount(0), isTzxTapeFile(false),
             tapeBuffer(0), tapePosition(0), tapeLength(0), dataBlockSize(0), pauseAfterBlock(0),
-            tapeBufferStarted(false), tapeBufferEnded(false), tapeBufferAutoPlay(false)
+            tapeBufferStarted(false), tapeBufferEnded(false), tapeBufferAutoPlay(false),
+            tapeMarkPosition{}, tapeMarkName{}, tapeMarkCount(0)
         {
         }
 
+        void scanTape();
+        void seek(uint8_t index);
         void begin(volatile uint8_t* buffer, size_t size);
         void end();
 

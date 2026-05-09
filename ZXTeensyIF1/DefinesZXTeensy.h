@@ -2,10 +2,12 @@
 #ifndef DEFINES_ZX_TEENSY_H
 #define DEFINES_ZX_TEENSY_H
 
-#define ZXTEENSY_VERSION "20260507"
+#define ZXTEENSY_VERSION "20260510"
 #define ENABLE_BUILTIN_ROM_IF1
 //define DEBUG_OUTPUT
 //define ENABLE_JOYSTICK_DEBUG
+
+#define MAX_PATH 256
 
 #define ESXMMC_BIN_PATH ((const char*)F("/ZXTEENSY/esxmmc.bin"))
 #define MF128_ROM_PATH ((const char*)F("/ZXTEENSY/mf128.rom"))
@@ -46,6 +48,16 @@
 
 // VTX5000 read data rate to 120 bps (~1200 baud)
 #define MODEM_DELAY_CNT (TEENSY_CLK_FREQ / 120ULL)
+
+// Maximum length of a visible file name
+#define ROM_NAME_LEN 32
+
+// Maximum length of ROM_NAME_LEN, tab and 2 x right icons
+#define MENU_TXT_LEN (ROM_NAME_LEN + 3)
+
+// Maximum length of menu entry
+// NOTE: Allow for left icon, ROM_NAME_LEN, tab, 2 x right icons, and new-line
+#define MENU_STR_LEN (ROM_NAME_LEN + 5)
 
 #define PAGE_IN_ROM(bit) (romPaged |= (1UL << (bit)))
 #define PAGE_OUT_ROM(bit) (romPaged &= ~(1UL << (bit)))
