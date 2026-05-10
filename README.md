@@ -385,6 +385,7 @@ under JoystickController::pid_vid_mapping ,
 The following ports are decoded by the Teensy,
 
 | Port | R/W | Function | Comments |
+| ---- | --- | -------- | -------- |
 | 0xXX1F | R | Kempston joystick | |
 | 0x133B | R | UART status | |
 | 0x133B | W | UART TX data | |
@@ -419,6 +420,7 @@ The following ports are decoded by the Teensy,
 The following ports are decoded by the Interface 1 ULA when not inhibited by the Teensy,
 
 | Port | R/W | Function | Comments |
+| ---- | --- | -------- | -------- |
 | 0xXXE7 (0bXXX00XXX) | R/W | Interface 1 microdrive data | Halts Z80 on read |
 | 0xXXEF (0bXXX01XXX) | R/W | Interface 1 control register | |
 | 0xXXF7 (0bXXX10XXX) | R/W | Interface 1 RS232/network data | |

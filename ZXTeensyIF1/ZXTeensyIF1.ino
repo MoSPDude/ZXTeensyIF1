@@ -238,7 +238,7 @@ static const uint16_t ROM_PAGE_SIZE = (RAM_PAGE_SIZE * 2);
 static const uint16_t LPRINT_ROM_SIZE = 0x800;
 volatile rom_select_t romSelected = ROM_ROM0;
 volatile bank_select_t romArraySelected = BANK_ROM0;
-volatile uint32_t romPaged = 0x00;
+volatile uint32_t romPaged = 0x01;
 volatile uint8_t romArray[ROM_PAGE_COUNT][RAM_PAGE_SIZE] __attribute__((aligned(16)));
 volatile DMAMEM uint8_t lprintRom[LPRINT_ROM_SIZE] __attribute__((aligned(16)));
 volatile uint8_t* romPtr = romArray[0];
@@ -1515,6 +1515,9 @@ void handleStateResetEntry()
                 interface1Present = ((romArrayPresent & BANK_IF1) != 0);
             }
         }
+    } else {
+        // Unlock 128K paging when ROM present
+        rom1Present = ((romArrayPresent & BANK_ROM1) != 0);
     }
 }
 
@@ -1596,7 +1599,7 @@ void handleStateReset()
     }
 
     // Reset the banking state
-    romPaged = 0x00;
+    romPaged = 0x01;
     interface1Enabled = false;
     divMmcEnabled = false;
     divMmcRomEnabled = false;
@@ -1871,17 +1874,6 @@ FASTRUN void loop()
             }
         }
 
-        // Re-draw the menu, when requested
-        if (menuRedraw)
-        {
-            menuRedraw = false;
-            if (IS_ROM_PAGED(ROM_MENU) && !nmiPending)
-            {
-                menuGenerate();
-                menuBuffer.write(MENU_ROM_CMD_REDRAW);
-            }
-        }
-
         // Trigger NMI to enter the menu, when requested
         if (menuTriggerNMI && (divMmcDrive == DIVMMC_NONE) &&
             beginSdfsSd())
@@ -1952,6 +1944,7 @@ FASTRUN void loop()
                             {
                                 tzxEnabled = true;
                                 tzxPlayer.begin(divMmcExtRamArray[0], size);
+                                menuRedraw = true;
                             }
                         }
                         break;
@@ -1960,6 +1953,7 @@ FASTRUN void loop()
                         if (dskEnabled && !dskController.isMotorOn() && beginSdfsSd())
                         {
                             dskController.begin(menuGetFdcFdaPath(), menuGetFdcFdbPath());
+                            menuRedraw = true;
                         }
                         break;
                     default :
@@ -1967,6 +1961,20 @@ FASTRUN void loop()
                 }
 
                 // Indicate the menu is ready to re-draw
+                if (!menuRedraw)
+                {
+                    menuBuffer.write(MENU_ROM_CMD_REDRAW);
+                }
+            }
+        }
+
+        // Re-generate and re-draw the menu, when requested
+        if (menuRedraw)
+        {
+            menuRedraw = false;
+            if (IS_ROM_PAGED(ROM_MENU) && !nmiPending)
+            {
+                menuGenerate();
                 menuBuffer.write(MENU_ROM_CMD_REDRAW);
             }
         }

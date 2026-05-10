@@ -290,6 +290,12 @@ class TzxPlayerZXTeensy
             }
             return (currentLevel ? 0xFF : 0xBF);
         }
+
+        inline size_t getPosition(size_t* length)
+        {
+            *length = tapeLength;
+            return tapePosition;
+        }
 };
 
 #endif

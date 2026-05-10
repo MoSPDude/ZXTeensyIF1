@@ -165,7 +165,7 @@ const char* PROGMEM MENU_STRINGS[] = {
     "Send NMI to Multiface 128",
     "Send NMI to DivMMC ROM",
     "Reset into Main Menu",
-    "Play Tape"
+    "Back and Play Tape"
 };
 
 #endif

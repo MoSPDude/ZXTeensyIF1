@@ -167,6 +167,41 @@ inline __attribute__((always_inline)) char* menuInsertSpacer(char* ptr)
         ptr, "", 0);
 }
 
+char* menuInsertInGameStatus(char* ptr)
+{
+    // Show tape position
+    char label[(MENU_STR_LEN + 1)];
+    if (tzxEnabled)
+    {
+        size_t size;
+        size_t pos = tzxPlayer.getPosition(&size);
+        double temp = pos;
+        temp = (temp * 100) / size;
+        int a = temp;
+        temp *= 100;
+        int b = (int)(temp) % 100;
+        if (snprintf(label, (MENU_STR_LEN + 1), " > Tape: %d.%02d%%", a, b) >= (MENU_STR_LEN + 1))
+        {
+            label[MENU_STR_LEN] = 0;
+        }
+        ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_NO_OP,
+            ptr, label, 0);
+    }
+
+    // Show current ROMs
+    uint32_t dbgRomPaged = romPaged;
+    strcpy(label, " > ROM: 0123IMDLVZS");
+    for (uint8_t i = 0; i < ROM_MENU; ++i)
+    {
+        if (((dbgRomPaged >> (i)) & 0x01) == 0)
+        {
+            label[8 + i] = ' ';
+        }
+    }
+    return menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_NO_OP,
+        ptr, label, 0);
+}
+
 char* menuInsertClockTime(char* ptr)
 {
     struct tm buf;
@@ -418,7 +453,22 @@ char* menuGenerateInGame(char* ptr)
         ptr = menuInsertSetting(MENU_ACTION_IN_GAME_DIVMMC, 0, ptr,
             MENU_STRINGS[STRING_IN_GAME_DIVMMC], 0);
     }
-    ptr = menuInsertSetting(MENU_ACTION_IN_GAME_RESET, 0, ptr, MENU_STRINGS[STRING_IN_GAME_RESET], 0);
+    ptr = menuInsertSetting(MENU_ACTION_IN_GAME_RESET, 0, ptr, 
+        MENU_STRINGS[STRING_IN_GAME_RESET], 0);
+
+    // Add debug and status
+    ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_OPEN_DEBUG,
+        ptr, (menuHasDebug ? MENU_STRINGS[STRING_OPEN_DEBUG] : ""), 0);
+    ptr = menuInsertStatus(ptr);
+    if (rtcHasTime)
+    {
+        ptr = menuInsertClockTime(ptr);
+    } else {
+        ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_NO_OP,
+            ptr, (wifiNtpEnabled ? MENU_STRINGS[STRING_WIFI_NTP_WAITING] :
+                MENU_STRINGS[STRING_RTC_NOT_SET]), 0);
+    }
+    ptr = menuInsertInGameStatus(ptr);
     return ptr;
 }
 
@@ -885,6 +935,8 @@ char* menuGenerateMain(char* ptr)
         ptr, MENU_STRINGS[STRING_OPEN_SETTINGS], 0);
     ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_OPEN_SERVER,
         ptr, MENU_STRINGS[STRING_OPEN_HTTP_SERVER], 0);
+
+    // Add debug and status
     ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_OPEN_DEBUG,
         ptr, (menuHasDebug ? MENU_STRINGS[STRING_OPEN_DEBUG] : ""), 0);
     ptr = menuInsertStatus(ptr);
