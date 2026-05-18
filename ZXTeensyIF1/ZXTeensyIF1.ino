@@ -261,6 +261,7 @@ volatile DMAMEM uint8_t divMmcExtRamArray[EXT_RAM_PAGE_COUNT][RAM_PAGE_SIZE] __a
 volatile bool divMmcPresent = false;
 volatile bool divMmcRomPresent = false;
 volatile bool divMmcEnabled = false;
+volatile bool divMmcExtRamPresent = false;
 volatile bool divMmcRomEnabled = false;
 volatile bool divMmcToggle = false;
 volatile bool divMmcAutoMap = false;
@@ -950,7 +951,7 @@ bool loadZXC2RomFile(File RomFile)
         if (count > 0)
         {
             zxC2Present = true;
-            zxC2ShadowRom = (strstr(RomFile.name(), "SPECTRA_") != 0);
+            zxC2ShadowRom = (strncmp("SPECTRA_", RomFile.name(), 8) == 0);
             divMmcExtRamEnabled = false;
             romArrayPresent |= BANK_RAM;
             for (uint8_t i_ = 1; i_ < EXT_RAM_PAGE_COUNT; ++i_)
@@ -1254,6 +1255,9 @@ void saveMdrEmulatorFile(const char* fileName)
 
 bool loadForegroundRom()
 {
+    // Enable the DivMMC RAM
+    divMmcExtRamEnabled = divMmcExtRamPresent;
+
     // Open and load the foreground ROM, if present
     rom_type_t romType;
     File RomFile = menuGetForegroundRomFile(&romType);
@@ -1283,11 +1287,11 @@ bool loadForegroundRom()
 
 void initialiseRamBanks()
 {
-    divMmcExtRamEnabled = true;
     romArrayPresent &= ~(BANK_RAM);
     memset((void*)divMmcRamArray, 0xFF, (RAM_PAGE_COUNT * RAM_PAGE_SIZE));
     memset((void*)divMmcExtRamArray, 0xFF, (EXT_RAM_PAGE_COUNT * RAM_PAGE_SIZE));
     memset((void*)&(romArray[ROM_PAGE_MF128][RAM_PAGE_SIZE]), 0xFF, RAM_PAGE_SIZE);
+    memset((void*)menuRamArray, 0xFF, (MENU_PAGE_COUNT * RAM_PAGE_SIZE));
 }
 
 void performHardReset()

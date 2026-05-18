@@ -36,11 +36,10 @@ class Dsk765ZXTeensy
         FDC_PTR fdc;
         FDRV_PTR fdd_a;
         FDRV_PTR fdd_b;
-        FDRV_PTR fdd_x;
 
     public :
         constexpr Dsk765ZXTeensy() : readDataStatus(0xFF), motorOn(false), 
-            statusRegister(0), fdc(0), fdd_a(0), fdd_b(0), fdd_x(0)
+            statusRegister(0), fdc(0), fdd_a(0), fdd_b(0)
         {
         }
 
@@ -51,7 +50,6 @@ class Dsk765ZXTeensy
 
             // Create the FDC, and attach drives with disks
             fdc = fdc_new();
-            fdd_x = fd_new();
             if (diskAPath != 0)
             {
                 fdd_a = fd_newdsk();
@@ -94,7 +92,6 @@ class Dsk765ZXTeensy
                 fdc_destroy(&fdc);
                 fd_destroy(&fdd_a);
                 fd_destroy(&fdd_b);
-                fd_destroy(&fdd_x);
                 fdc = 0;
             }
         }

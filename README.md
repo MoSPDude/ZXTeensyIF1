@@ -114,6 +114,8 @@ It borrows content, ideas and inspiration from,
     * ZX Interface 1 v2 ROM disassembly
 * https://spectrumcomputing.co.uk/pub/sinclair/technical-docs/ZXInterface1_Schematics.gif
     * ZX Interface 1 schematic
+* https://spectrumcomputing.co.uk/pub/sinclair/technical-docs/PrismVTX5000Modem_Schematics-Interface.bmp
+    * Prism VTX5000 schematic
 * https://zxpress.ru/chapters_images/periferiya/periferiya-33.png
     * ZX LPRINT III schematic
 * https://divide.speccy.cz/files/pgm_model.txt
@@ -319,8 +321,7 @@ To navigate, either press numbers to select items, or enter pages in the form of
 ## DivMMC and ZX Interface 1 support
 
 Technically, the DivMMC and ZX Interface 1 cannot be active simultaneously. The DivMMC ports and
-ZX Interface 1 I/O ports clash directly. (More info at
-https://worldofspectrum.org/faq/reference/48kreference.htm#PortF7)
+ZX Interface 1 I/O ports clash directly. (More info at below)
 
 To overcome this, the Teensy drives the nIORQ of the Interface 1 ULA high when the DivMMC is
 active. Also, only A3 and A4 have been wired to the Interface 1 ULA, as required for the port
@@ -361,9 +362,9 @@ I've placed the updated files in the GAL folder.
 The modification is shown at
 https://github.com/DonSuperfo/ZX-Max-128/blob/main/Issue%203/Modify%20for%20%2B3%20ROM.pdf,
 
-* Replace R12 with a 1N4148 diode, with cathode to U9 pin 4
-* Add a 1N4148 diode from U6 pin 12 with cathode to U9 pin 4
-* Add a 10K resistor from U9 pin 4 to ground (eg. U8 pin 24)
+* Replace R12 with a 1N4148 diode, with cathode to U9 pin 9
+* Add a 1N4148 diode from U6 pin 12 with cathode to U9 pin 9
+* Add a 10K resistor from U9 pin 9 to ground (eg. U8 pin 24)
 
 ## 3rd party Xbox One USB gamepads
 
@@ -414,7 +415,7 @@ The following ports are decoded by the Teensy,
 | 0x3FFD | R | +3 FDC data | |
 | 0x3FFD (0b0011XXXX_XXXXXX0X) | W | +3 FDC data | |
 | 0x7FFD (0b01XXXXXX_XXXXXX0X) | W | 128K Memory Control | Current Screen, and ROM paging |
-| 0xXXFE | W | Spectrum ULA | Drives EAR input for tape |
+| 0xXXFE | R | Spectrum ULA | Drives EAR input for tape |
 | 0xXXFF | R/W | VTX5000 register | Ignore first write access, controls ROM paging |
 
 The following ports are decoded by the Interface 1 ULA when not inhibited by the Teensy,

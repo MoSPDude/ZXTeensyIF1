@@ -56,6 +56,7 @@ typedef enum {
     SETTING_ACTION_TOGGLE_MENU,
     SETTING_ACTION_TOGGLE_MENU_IN_GAME,
     SETTING_ACTION_TOGGLE_DIVMMC,
+    SETTING_ACTION_TOGGLE_DIVMMC_RAM,
     SETTING_ACTION_TOGGLE_DIVMMC_ROM,
     SETTING_ACTION_TOGGLE_IF1,
     SETTING_ACTION_TOGGLE_MF128,
@@ -712,6 +713,8 @@ char* menuGenerateSettings(char* ptr)
         ptr, MENU_STRINGS[STRING_ENABLE_DIVMMC], divMmcPresent);
     if (divMmcPresent)
     {
+        ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_DIVMMC_RAM,
+            ptr, MENU_STRINGS[STRING_ENABLE_DIVMMC_RAM], divMmcExtRamPresent);
         if ((romArrayPresent & BANK_DIVMMC) != 0)
         {
             ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_DIVMMC_ROM,
@@ -1107,6 +1110,10 @@ bool menuPerformSelection(uint8_t index)
                     break;
                 case SETTING_ACTION_TOGGLE_DIVMMC :
                     divMmcPresent = !divMmcPresent;
+                    menuConfigChanged = true;
+                    break;
+                case SETTING_ACTION_TOGGLE_DIVMMC_RAM :
+                    divMmcExtRamPresent = !divMmcExtRamPresent;
                     menuConfigChanged = true;
                     break;
                 case SETTING_ACTION_TOGGLE_DIVMMC_ROM :
@@ -1763,6 +1770,7 @@ File menuGetSpectrumRomFile()
 void menuClearConfiguration()
 {
     divMmcPresent = false;
+    divMmcExtRamPresent = true;
     divMmcRomPresent = false;
     interface1Present = false;
     mf128Present = false;
@@ -1814,6 +1822,10 @@ void menuLoadConfiguration(const char* cfgCfgName)
                     if (strncmp("divMmcPresent = ", cfgPtr, 16) == 0)
                     {
                         divMmcPresent = ((cfgPtr[16] == '1') ? true : false);
+                        ++count;
+                    } else if (strncmp("divMmcExtRamPresent = ", cfgPtr, 22) == 0)
+                    {
+                        divMmcExtRamPresent = ((cfgPtr[22] == '1') ? true : false);
                         ++count;
                     } else if (strncmp("divMmcRomPresent = ", cfgPtr, 19) == 0)
                     {
@@ -1955,6 +1967,7 @@ void menuSaveConfiguration()
             // Write configuration to file
             cfgFile.truncate();
             cfgFile.printf("divMmcPresent = %0d\n", divMmcPresent);
+            cfgFile.printf("divMmcExtRamPresent = %0d\n", divMmcExtRamPresent);
             cfgFile.printf("divMmcRomPresent = %0d\n", divMmcRomPresent);
             cfgFile.printf("interface1Present = %0d\n", interface1Present);
             cfgFile.printf("mf128Present = %0d\n", mf128Present);
