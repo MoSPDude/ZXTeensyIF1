@@ -83,7 +83,8 @@ typedef enum {
     STRING_IN_GAME_MF128,
     STRING_IN_GAME_DIVMMC,
     STRING_IN_GAME_RESET,
-    STRING_IN_GAME_EXIT_TAPE
+    STRING_IN_GAME_EXIT_TAPE,
+    STRING_IN_GAME_EXIT_BASIC
 } menu_string_t;
 
 const char* PROGMEM MENU_STRINGS[] = {
@@ -167,7 +168,8 @@ const char* PROGMEM MENU_STRINGS[] = {
     "Send NMI to Multiface 128",
     "Send NMI to DivMMC ROM",
     "Reset into Main Menu",
-    "Back and Play Tape"
+    "Back and Play Tape",
+    "Return to BASIC"
 };
 
 #endif

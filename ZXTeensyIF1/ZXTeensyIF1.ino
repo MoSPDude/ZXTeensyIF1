@@ -48,6 +48,7 @@ typedef enum {
     MENU_ACTION_STOP_SERVER,
     MENU_ACTION_IN_GAME_EXIT,
     MENU_ACTION_IN_GAME_EXIT_TAPE,
+    MENU_ACTION_IN_GAME_EXIT_BASIC,
     MENU_ACTION_IN_GAME_SEEK_TAPE,
     MENU_ACTION_IN_GAME_MF128,
     MENU_ACTION_IN_GAME_DIVMMC,
@@ -1680,18 +1681,6 @@ void handleStateReset()
     {
         menuBeginMain();
     } else {
-        // Page in the ZXC2 cartridge, or snapshot loader ROM
-        if (zxC2Present)
-        {
-            if (!zxC2ShadowRom)
-            {
-                PAGE_IN_ROM(ROM_ZXC2);
-            }
-        } else if (snaLoaderPresent)
-        {
-            PAGE_IN_ROM(ROM_SNA);
-        }
-
         // Enable DSK, MDR and TZX peripherals, and prevent direct SD card access
         bool hasSdAccess = false;
         if (dskPresent && beginSdfsSd())
@@ -1720,8 +1709,6 @@ void handleStateReset()
         // Enable the DivMMC
         if (divMmcPresent)
         {
-            // The Interface 1 can be enabled by switching back
-            // into 128k mode (".128") or enabling the Multiface 128
             divMmcEnabled = true;
             divMmcRomEnabled = divMmcRomPresent;
             char* sdaPath = menuGetDivMmcSdaPath();
@@ -1756,6 +1743,8 @@ void handleStateReset()
         }
 
         // Enable the Interface 1 when DivMMC is not enabled
+        // NOTE: When DivMMC enabled, the Interface 1 can be enabled by switching
+        // back into 128k mode (".128") or enabling the Multiface 128
         if (!divMmcEnabled && interface1Present)
         {
             interface1Enabled = true;
@@ -1790,6 +1779,18 @@ void handleStateReset()
                     uartEnabled = true;
                 }
             }
+        }
+
+        // Page in the ZXC2 cartridge, or snapshot loader ROM
+        if (zxC2Present)
+        {
+            if (!zxC2ShadowRom)
+            {
+                PAGE_IN_ROM(ROM_ZXC2);
+            }
+        } else if (snaLoaderPresent)
+        {
+            PAGE_IN_ROM(ROM_SNA);
         }
 
         // If printer port is present, then enable
@@ -1900,7 +1901,9 @@ FASTRUN void loop()
             {
                 switch (menuGetInGameAction())
                 {
-                    case MENU_ACTION_IN_GAME_EXIT :
+                    case MENU_ACTION_IN_GAME_EXIT_BASIC :
+                        menuInGameExitBasic();
+                        updateRomIndex(true);
                         nmiRomTarget = ROM_ROM0;
                         menuBuffer.write(MENU_ROM_CMD_IN_GAME_EXIT);
                         break;
@@ -1914,6 +1917,10 @@ FASTRUN void loop()
                                 tzxPlayer.play();
                             }
                         }
+                        nmiRomTarget = ROM_ROM0;
+                        menuBuffer.write(MENU_ROM_CMD_IN_GAME_EXIT);
+                        break;
+                    case MENU_ACTION_IN_GAME_EXIT :
                         nmiRomTarget = ROM_ROM0;
                         menuBuffer.write(MENU_ROM_CMD_IN_GAME_EXIT);
                         break;

@@ -28,10 +28,11 @@ MEM_ROM     EQU MEM_ORG + 0x3FFE  ; selected ROM
 MEM_PAGE    EQU MEM_ORG + 0x3FFF  ; which page
 
 MEM_SCR2    EQU MEM_ORG + 0x2500 ; screen backup
-MEM_IM2     EQU MEM_ORG + 0x24FF ; IM2 restore flag
-MEM_BANK1   EQU MEM_ORG + 0x24FE ; 0x7FFD backup
-MEM_SPR     EQU MEM_ORG + 0x24FC ; stack of registers to restore
+MEM_BANK1   EQU MEM_ORG + 0x24FF ; 0x7FFD backup
+MEM_IM2     EQU MEM_ORG + 0x24FE ; IM2 restore flag
+MEM_PC      EQU MEM_ORG + 0x24FC ; PC from stack
 MEM_SP2     EQU MEM_ORG + 0x24FA ; SP register to restore
+MEM_SPR     EQU MEM_ORG + 0x24F8 ; stack of registers to restore
 ; ------------------------------------------+----------------------------------
 ; initial set-up
 ; ------------------------------------------+----------------------------------
@@ -770,6 +771,12 @@ _nmiMenuEntry:
     push ix
     push iy
     ld (MEM_SPR),sp
+    ; capture PC
+    ld hl, (MEM_SP2)
+    ld e, (hl)
+    inc hl
+    ld d, (hl)
+    ld (MEM_PC), de
     ; detect interrupt mode 2
     xor a
     ld (MEM_IM2),a
@@ -815,6 +822,12 @@ _nmiMenuExit:
     ; change scratch RAM
     ld a,1
     out (0xBF),a
+    ; modify PC
+    ld hl, (MEM_SP2)
+    ld de, (MEM_PC)
+    ld (hl), e
+    inc hl
+    ld (hl), d
     ; restore screen from scratch RAM
     ld hl,MEM_SCR2
     ld de,MEM_SCR

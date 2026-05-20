@@ -15,6 +15,31 @@ static const uint8_t CHAR_Z80_R = 29;
 static const uint8_t CHAR_TZX_L = 30;
 static const uint8_t CHAR_TZX_R = 31;
 
+static const uint16_t MENU_VERSION_STR = 0x11F8;
+static const uint16_t MENU_NUM_ENTRIES = 0x11FB;
+static const uint16_t MENU_NUM_PAGES = 0x11FE;
+
+static const uint16_t Z80_BANK1 = 0x4FF;
+static const uint16_t Z80_IM2 = 0x4FE;
+static const uint16_t Z80_PC = 0x4FC;
+static const uint16_t Z80_SP = 0x4FA;
+static const uint16_t Z80_REGS = 0x4F8;
+
+typedef enum {
+    Z80_REG_IY = 0,
+    Z80_REG_IX = 2,
+    Z80_REG_BC2 = 4,
+    Z80_REG_DE2 = 6,
+    Z80_REG_HL2 = 8,
+    Z80_REG_AF2 = 10,
+    Z80_REG_BC = 12,
+    Z80_REG_DE = 14,
+    Z80_REG_RF = 16,
+    Z80_REG_IF = 18,
+    Z80_REG_HL = 20,
+    Z80_REG_AF = 24
+} z80_regs_offset_t;
+
 extern float tempmonGetTemp(void);
 
 typedef enum {
@@ -190,13 +215,37 @@ char* menuInsertInGameStatus(char* ptr)
     }
 
     // Show current ROMs
-    uint32_t dbgRomPaged = romPaged;
-    strcpy(label, " > ROM: 0123IMDLVZS");
-    for (uint8_t i = 0; i < ROM_MENU; ++i)
+    uint32_t dbgRomPaged = romArrayPresent;
+    strcpy(label, " > ROM: 0123IMDL   ");
+    for (uint8_t i = 0; i <= ROM_LPRINT; ++i)
     {
         if (((dbgRomPaged >> (i)) & 0x01) == 0)
         {
             label[8 + i] = ' ';
+        }
+    }
+    if ((dbgRomPaged & BANK_RAM) != 0)
+    {
+        if (modemPresent)
+        {
+            label[16] = 'V';
+        }
+        if (zxC2Present)
+        {
+            label[17] = 'Z';
+        }
+        if (snaLoaderPresent)
+        {
+            label[18] = 'S';
+        }
+    }
+    dbgRomPaged = romPaged;
+    for (uint8_t i = 0; i < ROM_MENU; ++i)
+    {
+        if ((label[8 + i] != ' ') &&
+            (((dbgRomPaged >> (i)) & 0x01) == 0))
+        {
+            label[8 + i] = '-';
         }
     }
     return menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_NO_OP,
@@ -454,8 +503,11 @@ char* menuGenerateInGame(char* ptr)
         ptr = menuInsertSetting(MENU_ACTION_IN_GAME_DIVMMC, 0, ptr,
             MENU_STRINGS[STRING_IN_GAME_DIVMMC], 0);
     }
-    ptr = menuInsertSetting(MENU_ACTION_IN_GAME_RESET, 0, ptr, 
+    ptr = menuInsertSetting(MENU_ACTION_IN_GAME_RESET, 0, ptr,
         MENU_STRINGS[STRING_IN_GAME_RESET], 0);
+    ptr = menuInsertSpacer(ptr);
+    ptr = menuInsertSetting(MENU_ACTION_IN_GAME_EXIT_BASIC, 0, ptr,
+        MENU_STRINGS[STRING_IN_GAME_EXIT_BASIC], 0);
 
     // Add debug and status
     ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_OPEN_DEBUG,
@@ -1010,9 +1062,9 @@ void menuGenerate()
     *(textPtr - 1) = 0;
 
     // Store the menu dimensions
-    uint16_t address = ((menuPtr[0x11FC] << 8) + menuPtr[0x11FB]);
+    uint16_t address = ((menuPtr[(MENU_NUM_ENTRIES + 1)] << 8) + menuPtr[MENU_NUM_ENTRIES]);
     menuPtr[address] = (menuEntries - 1);
-    address = ((menuPtr[0x11FF] << 8) + menuPtr[0x11FE]);
+    address = ((menuPtr[(MENU_NUM_PAGES + 1)] << 8) + menuPtr[MENU_NUM_PAGES]);
     menuPtr[address] = ((menuPageLine != 0) ? (menuPage + 1) : menuPage);
 }
 
@@ -1052,7 +1104,7 @@ void menuInitialise(volatile uint8_t* romPtr, volatile uint8_t* ramPtr)
     menuEndPtr = menuTxtPtr + RAM_PAGE_SIZE - MENU_STR_LEN;
 
     // Store the version information
-    uint16_t address = ((menuPtr[0x11F9] << 8) + menuPtr[0x11F8]);
+    uint16_t address = ((menuPtr[(MENU_VERSION_STR + 1)] << 8) + menuPtr[MENU_VERSION_STR]);
     strncpy((char*)&menuPtr[address], VERSION_STR, 9);
 
     // Check for microdrive emulator ROM
@@ -1399,6 +1451,7 @@ bool menuPerformSelection(uint8_t index)
             break;
         case MENU_ACTION_IN_GAME_EXIT :
         case MENU_ACTION_IN_GAME_EXIT_TAPE :
+        case MENU_ACTION_IN_GAME_EXIT_BASIC :
         case MENU_ACTION_IN_GAME_MF128 :
         case MENU_ACTION_IN_GAME_DIVMMC :
         case MENU_ACTION_IN_GAME_RESET :
@@ -1765,6 +1818,35 @@ File menuGetSpectrumRomFile()
 {
     rom_type_t romType;
     return menuGetMenuRomFile(cfgData.romName, &romType);
+}
+
+void menuInGameExitBasic()
+{
+    // Return to REPORT-D in 48K ROM
+    menuRamArray[1][(Z80_PC + 1)] = 0x0D;
+    menuRamArray[1][Z80_PC] = 0x00;
+
+    // Set IM1, and enable interrupts
+    menuRamArray[1][Z80_IM2] = 0;
+    uint16_t address = ((menuRamArray[1][(Z80_REGS + 1)] << 8) + menuRamArray[1][Z80_REGS]);
+    address = (address + Z80_REG_IF) & (RAM_PAGE_SIZE - 1);
+    menuRamArray[1][address] |= 0x02;
+
+    // Set to bank in ROM1/3
+    menuRamArray[1][Z80_BANK1] |= 0x10;
+
+    // Page out into 48K ROM
+    romPaged = 0;
+    if ((romArrayPresent & BANK_ROM3) != 0)
+    {
+        PAGE_IN_ROM(ROM_ROM3);
+    } else if ((romArrayPresent & BANK_ROM1) != 0)
+    {
+        PAGE_IN_ROM(ROM_ROM1);
+    } else {
+        PAGE_IN_ROM(ROM_ROM0);
+    }
+    PAGE_IN_ROM(ROM_MENU);
 }
 
 void menuClearConfiguration()
