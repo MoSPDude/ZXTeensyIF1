@@ -1459,7 +1459,7 @@ void handleStateResetEntry()
                 {
                     romArrayPresent |= BANK_DIVMMC;
                 } else {
-                    divMmcPresent = false;
+                    divMmcRomPresent = false;
                 }
 
                 // Load Multiface 128 ROM

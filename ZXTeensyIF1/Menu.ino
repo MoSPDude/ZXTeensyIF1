@@ -216,38 +216,71 @@ char* menuInsertInGameStatus(char* ptr)
     }
 
     // Show current ROMs
-    uint32_t dbgRomPaged = romArrayPresent;
-    strcpy(label, " > ROM: 0123IMDL   ");
-    for (uint8_t i = 0; i <= ROM_LPRINT; ++i)
+    strcpy(label, " > ROM:         ");
+    if ((romArrayPresent & BANK_ROM0) != 0)
     {
-        if (((dbgRomPaged >> (i)) & 0x01) == 0)
+        if (IS_ROM_PAGED(ROM_ROM3))
         {
-            label[8 + i] = ' ';
+            label[8] = '3';
+        } else if (IS_ROM_PAGED(ROM_ROM2))
+        {
+            label[8] = '2';
+        } else if (IS_ROM_PAGED(ROM_ROM1))
+        {
+            label[8] = '1';
+        } else if (IS_ROM_PAGED(ROM_ROM0))
+        {
+            label[8] = '0';
         }
     }
-    if ((dbgRomPaged & BANK_RAM) != 0)
+    if (IS_ROM_PAGED(ROM_IF1))
     {
-        if (modemPresent)
-        {
-            label[16] = 'V';
-        }
-        if (zxC2Present)
-        {
-            label[17] = 'Z';
-        }
-        if (snaLoaderPresent)
-        {
-            label[18] = 'S';
-        }
+        label[9] = 'I';
+    } else if (interface1Enabled)
+    {
+        label[9] = 'i';
     }
-    dbgRomPaged = romPaged;
-    for (uint8_t i = 0; i < ROM_MENU; ++i)
+    if (IS_ROM_PAGED(ROM_MF128))
     {
-        if ((label[8 + i] != ' ') &&
-            (((dbgRomPaged >> (i)) & 0x01) == 0))
-        {
-            label[8 + i] = '-';
-        }
+        label[10] = 'M';
+    } else if (mf128Present)
+    {
+        label[10] = 'm';
+    }
+    if (IS_ROM_PAGED(ROM_DIVMMC))
+    {
+        label[10] = 'D';
+    } else if (divMmcRomEnabled)
+    {
+        label[11] = 'd';
+    }
+    if (IS_ROM_PAGED(ROM_LPRINT))
+    {
+        label[12] = 'L';
+    } else if (lprintEnabled)
+    {
+        label[12] = 'l';
+    }
+    if (IS_ROM_PAGED(ROM_MODEM))
+    {
+        label[13] = 'V';
+    } else if (modemPresent)
+    {
+        label[13] = 'v';
+    }
+    if (IS_ROM_PAGED(ROM_ZXC2))
+    {
+        label[14] = 'Z';
+    } else if (zxC2Present)
+    {
+        label[14] = 'z';
+    }
+    if (IS_ROM_PAGED(ROM_SNA))
+    {
+        label[15] = 'S';
+    } else if (snaLoaderPresent)
+    {
+        label[15] = 's';
     }
     return menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_NO_OP,
         ptr, label, 0);
@@ -504,7 +537,7 @@ char* menuGenerateInGame(char* ptr)
         ptr = menuInsertSetting(MENU_ACTION_IN_GAME_MF128, 0, ptr,
             MENU_STRINGS[STRING_IN_GAME_MF128], 0);
     }
-    if (divMmcRomPresent && ((romArrayPresent & BANK_DIVMMC) != 0))
+    if (divMmcRomEnabled && ((romArrayPresent & BANK_DIVMMC) != 0))
     {
         ptr = menuInsertSetting(MENU_ACTION_IN_GAME_DIVMMC, 0, ptr,
             MENU_STRINGS[STRING_IN_GAME_DIVMMC], 0);
