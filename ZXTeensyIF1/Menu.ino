@@ -98,6 +98,7 @@ typedef enum {
     SETTING_ACTION_UNMOUNT_SDB,
     SETTING_ACTION_UNMOUNT_FDA,
     SETTING_ACTION_UNMOUNT_FDB,
+    SETTING_ACTION_IN_GAME_TOGGLE_IF1,
     SETTING_ACTION_OPEN_DEBUG = 0xF8,
     SETTING_ACTION_OPEN_TAPE_BROWSER = 0xF9,
     SETTING_ACTION_OPEN_SERVER = 0xFA,
@@ -493,6 +494,11 @@ char* menuGenerateInGame(char* ptr)
     ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_OPEN_BROWSER,
         ptr, MENU_STRINGS[STRING_OPEN_BROWSER], 0);
     ptr = menuInsertSpacer(ptr);
+    if (interface1Present && divMmcPresent)
+    {
+        ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_IN_GAME_TOGGLE_IF1, 
+            ptr, MENU_STRINGS[STRING_ENABLE_IF1], interface1Enabled);
+    }
     if (mf128Present && ((romArrayPresent & BANK_MF128) != 0))
     {
         ptr = menuInsertSetting(MENU_ACTION_IN_GAME_MF128, 0, ptr,
@@ -503,9 +509,9 @@ char* menuGenerateInGame(char* ptr)
         ptr = menuInsertSetting(MENU_ACTION_IN_GAME_DIVMMC, 0, ptr,
             MENU_STRINGS[STRING_IN_GAME_DIVMMC], 0);
     }
+    ptr = menuInsertSpacer(ptr);
     ptr = menuInsertSetting(MENU_ACTION_IN_GAME_RESET, 0, ptr,
         MENU_STRINGS[STRING_IN_GAME_RESET], 0);
-    ptr = menuInsertSpacer(ptr);
     ptr = menuInsertSetting(MENU_ACTION_IN_GAME_EXIT_BASIC, 0, ptr,
         MENU_STRINGS[STRING_IN_GAME_EXIT_BASIC], 0);
 
@@ -1243,6 +1249,18 @@ bool menuPerformSelection(uint8_t index)
                     cfgData.dskFdbPath[0] = 0;
                     menuConfigChanged = true;
                     break;
+                case SETTING_ACTION_IN_GAME_TOGGLE_IF1 :
+                    // Toggle between DivMMC and Interface 1
+                    if (interface1Enabled)
+                    {
+                        divMmcEnabled = divMmcPresent;
+                        interface1Enabled = (interface1Present && !divMmcEnabled);
+                    } else {
+                        interface1Enabled = interface1Present;
+                        divMmcEnabled = (divMmcPresent && !interface1Enabled);
+                    }
+                    divMmcRomEnabled = (divMmcEnabled && divMmcRomPresent);
+                    break;
                 case SETTING_ACTION_OPEN_DEBUG :
                     // Open debug menu
                     menuCurrent = MENU_TYPE_DEBUG;
@@ -1826,17 +1844,25 @@ void menuInGameExitBasic()
     menuRamArray[1][(Z80_PC + 1)] = 0x0D;
     menuRamArray[1][Z80_PC] = 0x00;
 
-    // Set IM1, and enable interrupts
-    menuRamArray[1][Z80_IM2] = 0;
-    uint16_t address = ((menuRamArray[1][(Z80_REGS + 1)] << 8) + menuRamArray[1][Z80_REGS]);
-    address = (address + Z80_REG_IF) & (RAM_PAGE_SIZE - 1);
+    // Set IY to 0x5C3A for BASIC
+    uint16_t baseAddress = (RAM_PAGE_SIZE - 1) & 
+        ((menuRamArray[1][(Z80_REGS + 1)] << 8) + menuRamArray[1][Z80_REGS]);
+    uint16_t address = (baseAddress + Z80_REG_IY);
+    menuRamArray[1][(address + 1)] = 0x5C;
+    menuRamArray[1][address] = 0x3A;
+
+    // Restore BASIC with IM1, enable interrupts, and I to 0x3F
+     address = (baseAddress + Z80_REG_IF);
+    menuRamArray[1][(address + 1)] = 0x3F;
     menuRamArray[1][address] |= 0x02;
+    menuRamArray[1][Z80_IM2] = 0x02;
 
     // Set to bank in ROM1/3
     menuRamArray[1][Z80_BANK1] |= 0x10;
 
     // Page out into 48K ROM
     romPaged = 0;
+    PAGE_IN_ROM(ROM_MENU);
     if ((romArrayPresent & BANK_ROM3) != 0)
     {
         PAGE_IN_ROM(ROM_ROM3);
@@ -1846,7 +1872,6 @@ void menuInGameExitBasic()
     } else {
         PAGE_IN_ROM(ROM_ROM0);
     }
-    PAGE_IN_ROM(ROM_MENU);
 }
 
 void menuClearConfiguration()

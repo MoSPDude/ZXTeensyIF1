@@ -169,7 +169,7 @@ const char* PROGMEM MENU_STRINGS[] = {
     "Send NMI to DivMMC ROM",
     "Reset into Main Menu",
     "Back and Play Tape",
-    "Return to BASIC"
+    "Break into BASIC"
 };
 
 #endif

@@ -29,10 +29,13 @@ MEM_PAGE    EQU MEM_ORG + 0x3FFF  ; which page
 
 MEM_SCR2    EQU MEM_ORG + 0x2500 ; screen backup
 MEM_BANK1   EQU MEM_ORG + 0x24FF ; 0x7FFD backup
-MEM_IM2     EQU MEM_ORG + 0x24FE ; IM2 restore flag
+MEM_IM2     EQU MEM_ORG + 0x24FE ; IM2 and BASIC restore flag
 MEM_PC      EQU MEM_ORG + 0x24FC ; PC from stack
 MEM_SP2     EQU MEM_ORG + 0x24FA ; SP register to restore
 MEM_SPR     EQU MEM_ORG + 0x24F8 ; stack of registers to restore
+
+ERR_SP      EQU 0x5C3D ; ERR_SP system variable
+FLAGS       EQU 0x5C3B ; FLAGS system variable
 ; ------------------------------------------+----------------------------------
 ; initial set-up
 ; ------------------------------------------+----------------------------------
@@ -743,8 +746,8 @@ _compressedBlank:
     defb 0xff,0x1f,0xff,0x9f,0xff,0xff,0xff,0xff,0xff,0xff,0x99,0xff,0x9a,0x00,0x03,0x06,0x01,0x03,0x03,0x80
 _nmiIntModeDetect:
     push hl
-    ld hl,MEM_IM2
-    set 0,(hl)
+    ld hl, MEM_IM2
+    set 0, (hl)
     pop hl
     ret
 _nmiMenuEntry:
@@ -829,16 +832,28 @@ _nmiMenuExit:
     inc hl
     ld (hl), d
     ; restore screen from scratch RAM
-    ld hl,MEM_SCR2
-    ld de,MEM_SCR
-    ld bc,0x1B00
+    ld hl, MEM_SCR2
+    ld de, MEM_SCR
+    ld bc, 0x1B00
     ldir
     ; restore screen
-    ld a,(MEM_BANK1)
-    ld bc,0x7FFD
-    out (c),a
+    ld a, (MEM_BANK1)
+    ld bc, 0x7FFD
+    out (c), a
+    ; restore BASIC
+    ld a, (MEM_IM2)
+    bit 1, a
+    jr z, _nmiMenuExit2
+    ld hl, (ERR_SP)
+    ld de, 0x1303 ; MAIN-4 in 48K ROM
+    ld (hl), e
+    inc hl
+    ld (hl), d
+    ld hl, FLAGS
+    res 5, (hl) ; clear keypress in FLAGS
+_nmiMenuExit2:
     ; restore registers
-    ld sp,(MEM_SPR)
+    ld sp, (MEM_SPR)
     pop iy
     pop ix
     exx
@@ -851,6 +866,12 @@ _nmiMenuExit:
     ex af,af'
     pop bc
     pop de
+    ; restore interrupt mode 2
+    ld a, (MEM_IM2)
+    bit 0, a
+    jr z, _nmiMenuExit3
+    im 2
+_nmiMenuExit3:
     pop af
     ld r,a
     pop af
@@ -858,24 +879,12 @@ _nmiMenuExit:
     ; detect if IFF2 was reset, so interrupts disabled
     jp po, _nmiMenuExitDI
     pop hl
-    ; restore interrupt mode 2
-    ld a, (MEM_IM2)
-    or a
-    jr z, _nmiMenuExit2
-    im 2
-_nmiMenuExit2:
     pop af
     ld sp,(MEM_SP2)
     ; page out with interrupts enabled
     jp _nmiMenuPageOut
 _nmiMenuExitDI :
     pop hl
-    ; restore interrupt mode 2
-    ld a, (MEM_IM2)
-    or a
-    jr z, _nmiMenuExitDI2
-    im 2
-_nmiMenuExitDI2:
     pop af
     ld sp,(MEM_SP2)
     ; page out with interrupts disabled

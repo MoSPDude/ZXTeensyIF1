@@ -1903,9 +1903,7 @@ FASTRUN void loop()
                 {
                     case MENU_ACTION_IN_GAME_EXIT_BASIC :
                         menuInGameExitBasic();
-                        updateRomIndex(true);
                         nmiRomTarget = ROM_ROM0;
-                        menuBuffer.write(MENU_ROM_CMD_IN_GAME_EXIT);
                         break;
                     case MENU_ACTION_IN_GAME_EXIT_TAPE :
                         if (tzxEnabled)
@@ -1918,19 +1916,15 @@ FASTRUN void loop()
                             }
                         }
                         nmiRomTarget = ROM_ROM0;
-                        menuBuffer.write(MENU_ROM_CMD_IN_GAME_EXIT);
                         break;
                     case MENU_ACTION_IN_GAME_EXIT :
                         nmiRomTarget = ROM_ROM0;
-                        menuBuffer.write(MENU_ROM_CMD_IN_GAME_EXIT);
                         break;
                     case MENU_ACTION_IN_GAME_MF128 :
                         nmiRomTarget = ROM_MF128;
-                        menuBuffer.write(MENU_ROM_CMD_IN_GAME_EXIT);
                         break;
                     case MENU_ACTION_IN_GAME_DIVMMC :
                         nmiRomTarget = ROM_DIVMMC;
-                        menuBuffer.write(MENU_ROM_CMD_IN_GAME_EXIT);
                         break;
                     case MENU_ACTION_IN_GAME_RESET :
                         // Reset into the main menu
@@ -1942,6 +1936,13 @@ FASTRUN void loop()
                         // reload ROMs, update FW etc.
                         setState(STATE_RESET_MENU);
                         break;
+                }
+
+                // Update ROM indexes, and exit the menu
+                if (!isGlobalStateReset())
+                {
+                    updateRomIndex(true);
+                    menuBuffer.write(MENU_ROM_CMD_IN_GAME_EXIT);
                 }
             } else {
                 // Perform in-game actions
