@@ -527,26 +527,35 @@ char* menuGenerateInGame(char* ptr)
     ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_OPEN_BROWSER,
         ptr, MENU_STRINGS[STRING_OPEN_BROWSER], 0);
     ptr = menuInsertSpacer(ptr);
+    bool needSpacer = false;
     if (interface1Present && divMmcPresent)
     {
         ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_IN_GAME_TOGGLE_IF1, 
             ptr, MENU_STRINGS[STRING_ENABLE_IF1], interface1Enabled);
+        needSpacer = true;
     }
     if (mf128Present && ((romArrayPresent & BANK_MF128) != 0))
     {
         ptr = menuInsertSetting(MENU_ACTION_IN_GAME_MF128, 0, ptr,
             MENU_STRINGS[STRING_IN_GAME_MF128], 0);
+        needSpacer = true;
     }
     if (divMmcRomEnabled && ((romArrayPresent & BANK_DIVMMC) != 0))
     {
         ptr = menuInsertSetting(MENU_ACTION_IN_GAME_DIVMMC, 0, ptr,
             MENU_STRINGS[STRING_IN_GAME_DIVMMC], 0);
+        needSpacer = true;
     }
-    ptr = menuInsertSpacer(ptr);
-    ptr = menuInsertSetting(MENU_ACTION_IN_GAME_RESET, 0, ptr,
-        MENU_STRINGS[STRING_IN_GAME_RESET], 0);
+    if (needSpacer)
+    {
+        ptr = menuInsertSpacer(ptr);
+    }
     ptr = menuInsertSetting(MENU_ACTION_IN_GAME_EXIT_BASIC, 0, ptr,
         MENU_STRINGS[STRING_IN_GAME_EXIT_BASIC], 0);
+    ptr = menuInsertSetting(MENU_ACTION_IN_GAME_RESET, 0, ptr,
+        MENU_STRINGS[STRING_IN_GAME_RESET], 0);
+    ptr = menuInsertSetting(MENU_ACTION_IN_GAME_HARD_RESET, 0, ptr,
+        MENU_STRINGS[STRING_IN_GAME_HARD_RESET], 0);
 
     // Add debug and status
     ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_OPEN_DEBUG,
@@ -708,34 +717,40 @@ char* menuGenerateBrowserOpen(char* ptr)
 
 char* menuGenerateBrowser(char* ptr)
 {
-    File directory = SD.open(browserPath, FILE_READ);
-    if (directory)
+    if (beginSdfsSd())
     {
-        if (directory.isDirectory())
+        File directory = SD.open(browserPath, FILE_READ);
+        if (directory)
         {
-            uint8_t index = 0;
-            ptr = menuInsertSetting(MENU_ACTION_BROWSER_CD, 0xFF, ptr, "..", 0);
-            while (true)
+            if (directory.isDirectory())
             {
-                File entry = directory.openNextFile();
-                if (entry)
+                uint8_t index = 0;
+                ptr = menuInsertSetting(MENU_ACTION_BROWSER_CD, 0xFF, ptr, "..", 0);
+                while (true)
                 {
-                    ptr = menuAddBrowserFile(index, ptr, entry);
-                    entry.close();
-                    ++index;
-                } else {
-                    // End of listing
-                    break;
-                }
+                    File entry = directory.openNextFile();
+                    if (entry)
+                    {
+                        ptr = menuAddBrowserFile(index, ptr, entry);
+                        entry.close();
+                        ++index;
+                    } else {
+                        // End of listing
+                        break;
+                    }
 
-                // End of menu check
-                if ((ptr > menuEndPtr) || (menuEntries == 255))
-                {
-                    break;
+                    // End of menu check
+                    if ((ptr > menuEndPtr) || (menuEntries == 255))
+                    {
+                        break;
+                    }
                 }
             }
+            directory.close();
         }
-        directory.close();
+    } else {
+        ptr = menuInsertSetting(MENU_ACTION_TOP_MENU, 0, ptr,
+            MENU_STRINGS[STRING_CANCEL], 0);
     }
     return ptr;
 }
@@ -1506,6 +1521,7 @@ bool menuPerformSelection(uint8_t index)
         case MENU_ACTION_IN_GAME_MF128 :
         case MENU_ACTION_IN_GAME_DIVMMC :
         case MENU_ACTION_IN_GAME_RESET :
+        case MENU_ACTION_IN_GAME_HARD_RESET :
             // These actions require additional NMI or reset handling
             return true;
     }

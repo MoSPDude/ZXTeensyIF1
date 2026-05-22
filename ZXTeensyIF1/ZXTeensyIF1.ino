@@ -52,7 +52,8 @@ typedef enum {
     MENU_ACTION_IN_GAME_SEEK_TAPE,
     MENU_ACTION_IN_GAME_MF128,
     MENU_ACTION_IN_GAME_DIVMMC,
-    MENU_ACTION_IN_GAME_RESET
+    MENU_ACTION_IN_GAME_RESET,
+    MENU_ACTION_IN_GAME_HARD_RESET
 } menu_action_t;
 
 typedef enum {
@@ -1880,8 +1881,7 @@ FASTRUN void loop()
         }
 
         // Trigger NMI to enter the menu, when requested
-        if (menuTriggerNMI && (divMmcDrive == DIVMMC_NONE) &&
-            beginSdfsSd())
+        if (menuTriggerNMI && (divMmcDrive == DIVMMC_NONE))
         {
             // Prepare the in-game menu
             menuBeginInGame();
@@ -1930,6 +1930,9 @@ FASTRUN void loop()
                         // Reset into the main menu
                         menuEnterOnReset = true;
                         setState(STATE_RESET);
+                        break;
+                    case MENU_ACTION_IN_GAME_HARD_RESET :
+                        performHardReset();
                         break;
                     default :
                         // The menu needs the Spectrum in reset to access the SD card,
@@ -2493,7 +2496,7 @@ FASTRUN void isrPinButton()
 
         // Perform NMI when not already handling previous NMI
         if (!isGlobalStateReset() && (IS_ROM_PAGED(ROM_MENU) == 0) &&
-            !nmiPending && !mf128ActiveNMI && !menuTriggerNMI)
+            !nmiPending && !menuTriggerNMI)
         {
             if (menuEnableInGame)
             {
@@ -2962,7 +2965,7 @@ FASTRUN void isrRdEvent()
             } else if (address == 0x66)
             {
                 // Send the NMI to the menu ROM, or Multiface 128
-                if (nmiPending && !mf128ActiveNMI)
+                if (nmiPending)
                 {
                     if (nmiRomTarget == ROM_MENU)
                     {
@@ -2976,24 +2979,23 @@ FASTRUN void isrRdEvent()
                         romSelected = ROM_MENU;
                         romArraySelected = BANK_MENU;
                         updateRomPtr(true);
-                    } else if (mf128Present && (nmiRomTarget != ROM_DIVMMC))
+                    } else if (mf128Present && !mf128ActiveNMI &&
+                        (nmiRomTarget != ROM_DIVMMC) &&
+                        ((romArraySelected & (BANK_ROM0 | BANK_ROM1 | BANK_ROM3 |
+                            BANK_MF128)) != 0))
                     {
-                        if ((romArraySelected & (BANK_ROM0 | BANK_ROM1 | BANK_ROM3 |
-                            BANK_MF128)) != 0)
-                        {
-                            // Send the NMI to the Multiface 128
-                            mf128Enabled = true;
-                            mf128ActiveNMI = true;
-                            divMmcEnabled = false;
-                            divMmcRomEnabled = false;
-                            interface1Enabled = interface1Present;
+                        // Send the NMI to the Multiface 128
+                        mf128Enabled = true;
+                        mf128ActiveNMI = true;
+                        divMmcEnabled = false;
+                        divMmcRomEnabled = false;
+                        interface1Enabled = interface1Present;
 
-                            // Directly page in the Multiface 128 from ROM 0/1/3
-                            PAGE_IN_ROM(ROM_MF128);
-                            romSelected = ROM_MF128;
-                            romArraySelected = BANK_MF128;
-                            updateRomPtr(true);
-                        }
+                        // Directly page in the Multiface 128 from ROM 0/1/3
+                        PAGE_IN_ROM(ROM_MF128);
+                        romSelected = ROM_MF128;
+                        romArraySelected = BANK_MF128;
+                        updateRomPtr(true);
                     }
                 }
 
