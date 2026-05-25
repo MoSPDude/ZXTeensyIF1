@@ -137,7 +137,6 @@ typedef enum {
 
 typedef enum {
     SD_SPI_WRITE,
-    SD_SPI_READ,
     SD_SPI_SELECT
 } sd_spi_action_t;
 
@@ -329,7 +328,6 @@ volatile uint8_t* menuRamPtr;
 // DivMMC SPI/SD
 static const size_t READ_BUFFER_SIZE = 1024;
 static const size_t WRITE_BUFFER_SIZE = 16;
-RingBuffer<READ_BUFFER_SIZE> sdSpiReadBuffer;
 RingBuffer<WRITE_BUFFER_SIZE> sdSpiWriteBuffer;
 RingBuffer<WRITE_BUFFER_SIZE> sdSpiFlagsBuffer;
 SdSdioZXTeensy<READ_BUFFER_SIZE> divMmcSpi;
@@ -536,11 +534,13 @@ inline __attribute__((always_inline)) sd_spi_action_t readSdSpiWriteBuffer(uint8
     return spiAction;
 }
 
-inline __attribute__((always_inline)) void flushSdSpiBuffers()
+inline __attribute__((always_inline)) void resetSdSpi()
 {
-    sdSpiReadBuffer.clear();
     sdSpiFlagsBuffer.clear();
     sdSpiWriteBuffer.clear();
+    divMmcSpi.reset(false);
+    divMmcHdf.reset(false);
+    divMmcSecondHdf.reset(false);
 }
 
 // NOTE: sdSpiOnTick is main loop, so optimize
@@ -587,13 +587,13 @@ inline void sdSpiOnTick()
                 switch (divMmcDrive)
                 {
                     case DIVMMC_SDHC :
-                        divMmcSpi.performTick(true, data);
+                        divMmcSpi.performTick(data);
                         break;
                     case DIVMMC_HDF_A :
-                        divMmcHdf.performTick(true, data);
+                        divMmcHdf.performTick(data);
                         break;
                     case DIVMMC_HDF_B :
-                        divMmcSecondHdf.performTick(true, data);
+                        divMmcSecondHdf.performTick(data);
                         break;
                     default :
                         break;
@@ -887,7 +887,7 @@ bool beginDivMmcSd()
     {
         if (detectSdCard() && SD.sdfs.cardBegin(SdioConfig(FIFO_SDIO)))
         {
-            divMmcSpi.begin(&sdSpiReadBuffer, SD.sdfs.card());
+            divMmcSpi.begin(SD.sdfs.card());
         } else {
             return false;
         }
@@ -1390,12 +1390,10 @@ void handleStateResetEntry()
         // Load the ROMs
         loadRomSets = true;
 
-        // Ensure the DivMMC images are closed
-        if (sdCardPresent)
-        {
-            divMmcHdf.end();
-            divMmcSecondHdf.end();
-        }
+        // Ensure the DivMMC is closed and idle
+        divMmcHdf.reset(true);
+        divMmcSecondHdf.reset(true);
+        divMmcSpi.reset(true);
 
         // Clear the menu action
         menuResetAction();
@@ -1639,6 +1637,9 @@ void handleStateReset()
     mousePresent = false;
     joystickPresent = false;
 
+    // Reset the SD SPI state
+    resetSdSpi();
+
     // Perform specific actions
     switch (globalState)
     {
@@ -1717,22 +1718,20 @@ void handleStateReset()
             if ((sdaPath == 0) && (sdbPath != 0))
             {
                 divMmcDriveSlot[0] = (hasSdAccess ? DIVMMC_NONE : DIVMMC_SDHC);
-                if (divMmcSecondHdf.begin(&sdSpiReadBuffer, sdbPath))
+                if (divMmcSecondHdf.begin(sdbPath))
                 {
                     divMmcDriveSlot[1] = DIVMMC_HDF_B;
                 } else {
                     divMmcDriveSlot[1] = DIVMMC_NONE;
                 }
             } else {
-                if ((sdbPath != 0) &&
-                    divMmcSecondHdf.begin(&sdSpiReadBuffer, sdbPath))
+                if ((sdbPath != 0) && divMmcSecondHdf.begin(sdbPath))
                 {
                     divMmcDriveSlot[1] = DIVMMC_HDF_B;
                 } else {
                     divMmcDriveSlot[1] = DIVMMC_NONE;
                 }
-                if ((sdaPath != 0) &&
-                    divMmcHdf.begin(&sdSpiReadBuffer, sdaPath))
+                if ((sdaPath != 0) && divMmcHdf.begin(sdaPath))
                 {
                     divMmcDriveSlot[0] = DIVMMC_HDF_A;
                 } else {
@@ -3309,17 +3308,23 @@ FASTRUN void isrRdEvent()
                 } else if (isDivMmcSelected())
                 {
                     // Transfer SD SPI read data to bus
-                    if (sdSpiReadBuffer.canRead())
+                    uint8_t data;
+                    switch (divMmcDrive)
                     {
-                        writeData(sdSpiReadBuffer.readRaw());
-                        if (!sdSpiReadBuffer.canRead())
-                        {
-                            writeSdSpiWriteBuffer(SD_SPI_READ, 0xff);
-                        }
-                    } else {
-                        writeData(0xff);
-                        writeSdSpiWriteBuffer(SD_SPI_READ, 0xff);
+                        case DIVMMC_SDHC :
+                            data = divMmcSpi.readData();
+                            break;
+                        case DIVMMC_HDF_A :
+                            data = divMmcHdf.readData();
+                            break;
+                        case DIVMMC_HDF_B :
+                            data = divMmcSecondHdf.readData();
+                            break;
+                        default :
+                            data = 0xFF;
+                            break;
                     }
+                    writeData(data);
                 }
                 break;
             case 0xfb :

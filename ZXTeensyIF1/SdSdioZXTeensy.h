@@ -38,7 +38,7 @@ template <size_t READ_BUFFER_SIZE> class SdSdioZXTeensy
         } command_t;
 
     protected :
-        RingBuffer<READ_BUFFER_SIZE>* sdSpiReadBuffer;
+        RingBuffer<READ_BUFFER_SIZE> sdSpiReadBuffer;
         
         SdioCard* sdioCard;
         bool isSdIdle;
@@ -49,14 +49,14 @@ template <size_t READ_BUFFER_SIZE> class SdSdioZXTeensy
         bool dataActive;
         uint32_t dataRegister;
         uint32_t dataIndex;
-        uint8_t dataBuffer[528] __attribute__((aligned(16)));
+        volatile uint8_t dataBuffer[528] __attribute__((aligned(16)));
 
         uint32_t currentSector;
         uint32_t numSectors;
 
         inline __attribute__((always_inline)) void writeReadData(uint8_t data)
         {
-            sdSpiReadBuffer->write(data);
+            sdSpiReadBuffer.write(data);
         }
 
         inline __attribute__((always_inline)) void writeStatusData()
@@ -69,9 +69,9 @@ template <size_t READ_BUFFER_SIZE> class SdSdioZXTeensy
             writeReadData(error | (isSdIdle ? 0x01 : 0x00));
         }
 
-        bool processData(bool hasData, uint8_t data)
+        bool processData(uint8_t data)
         {
-            if ((currentCommand == CMD_WRITE_BLOCK) && hasData)
+            if (currentCommand == CMD_WRITE_BLOCK)
             {
                 if (dataActive)
                 {
@@ -85,7 +85,7 @@ template <size_t READ_BUFFER_SIZE> class SdSdioZXTeensy
                         writeReadData(0x00);
 
                         // Write the data
-                        sdioCard->writeSector(currentSector, dataBuffer);
+                        sdioCard->writeSector(currentSector, (uint8_t*)dataBuffer);
                         ++currentSector;
                         currentState = STATE_IDLE;
                         dataActive = false;
@@ -123,10 +123,10 @@ template <size_t READ_BUFFER_SIZE> class SdSdioZXTeensy
                                 writeStatusData();
                                 writeReadData(0xFF);
                                 currentSector = commandArgument;
-                                sdioCard->readSector(currentSector, dataBuffer);
+                                sdioCard->readSector(currentSector, (uint8_t*)dataBuffer);
                                 ++currentSector;
                                 writeReadData(0xFE);
-                                sdSpiReadBuffer->writeBlock(dataBuffer, 512);
+                                sdSpiReadBuffer.writeBlock((uint8_t*)dataBuffer, 512);
 
                                 // Generate the two CRC bytes
                                 writeReadData(0x00);
@@ -213,67 +213,53 @@ template <size_t READ_BUFFER_SIZE> class SdSdioZXTeensy
         }
 
     public :
-        constexpr SdSdioZXTeensy() : sdSpiReadBuffer(0), sdioCard(0),
-            isSdIdle(true), currentState(STATE_IDLE),
+        constexpr SdSdioZXTeensy() : sdioCard(0), isSdIdle(true), currentState(STATE_IDLE),
             currentCommand(CMD_IDLE), commandAppCmd(false), commandArgument(0),
             dataActive(false), dataRegister(0), dataIndex(0), dataBuffer(),
             currentSector(0), numSectors(0)
         {
         }
 
-        inline __attribute__((always_inline)) void performTick(bool hasData, uint8_t data)
+        inline __attribute__((always_inline)) void performTick(uint8_t data)
         {
-            if (hasData || (currentState & STATE_DATA))
+            switch (currentState)
             {
-                switch (currentState)
-                {
-                    case STATE_IDLE :
-                        if ((data & 0xC0) == 0x40)
-                        {
-                            currentCommand = data & 0x3F;
-                            ++currentState;
-                        }
-                        break;
-                    case STATE_CMD_ARG4 :
-                        commandArgument = (data << 24);
+                case STATE_IDLE :
+                    if ((data & 0xC0) == 0x40)
+                    {
+                        currentCommand = data & 0x3F;
                         ++currentState;
-                        break;
-                    case STATE_CMD_ARG3 :
-                        commandArgument |= (data << 16);
-                        ++currentState;
-                        break;
-                    case STATE_CMD_ARG2 :
-                        commandArgument |= (data << 8);
-                        ++currentState;
-                        break;
-                    case STATE_CMD_ARG1 :
-                        commandArgument |= data;
-                        ++currentState;
-                        break;
-                    case STATE_CMD_CRC :
-                        // Consume the command CRC byte, and add one byte spacer
-                        writeReadData(0xFF);
-                        executeCommand();
-                        break;
-                    case STATE_DATA :
-                        processData(hasData, data);
-                        break;
-                }
+                    }
+                    break;
+                case STATE_CMD_ARG4 :
+                    commandArgument = (data << 24);
+                    ++currentState;
+                    break;
+                case STATE_CMD_ARG3 :
+                    commandArgument |= (data << 16);
+                    ++currentState;
+                    break;
+                case STATE_CMD_ARG2 :
+                    commandArgument |= (data << 8);
+                    ++currentState;
+                    break;
+                case STATE_CMD_ARG1 :
+                    commandArgument |= data;
+                    ++currentState;
+                    break;
+                case STATE_CMD_CRC :
+                    // Consume the command CRC byte, and add one byte spacer
+                    writeReadData(0xFF);
+                    executeCommand();
+                    break;
+                case STATE_DATA :
+                    processData(data);
+                    break;
             }
         }
 
-        void begin(RingBuffer<READ_BUFFER_SIZE>* readBuffer, SdCard* card)
+        void begin(SdCard* card)
         {
-            // NOTE: Do NOT clear isSdIdle as the DivMMC can warm reset
-            sdSpiReadBuffer = readBuffer;
-            currentState = SdSdioZXTeensy::STATE_IDLE;
-            currentCommand = SdSdioZXTeensy::CMD_IDLE;
-            commandAppCmd = false;
-            commandArgument = 0;
-            dataActive = false;
-            dataRegister = 0;
-            dataIndex = 0;
-
 #ifdef DEBUG_HDF_OUTPUT
             Serial.begin(115200);
 #endif
@@ -296,6 +282,28 @@ template <size_t READ_BUFFER_SIZE> class SdSdioZXTeensy
                 sdioCard->end();
                 sdioCard = 0;
             }
+        }
+
+        void reset(bool setSdIdle)
+        {
+            // NOTE: Do NOT set isSdIdle as the DivMMC can warm reset
+            sdSpiReadBuffer.clear();
+            currentState = SdSdioZXTeensy::STATE_IDLE;
+            currentCommand = SdSdioZXTeensy::CMD_IDLE;
+            commandAppCmd = false;
+            commandArgument = 0;
+            dataActive = false;
+            dataRegister = 0;
+            dataIndex = 0;
+            if (setSdIdle)
+            {
+                isSdIdle = true;
+            }
+        }
+
+        inline uint8_t readData() __attribute__((always_inline, hot, optimize("O3")))
+        {
+            return (sdSpiReadBuffer.canRead() ? sdSpiReadBuffer.readRaw() : 0xFF);
         }
 };
 
