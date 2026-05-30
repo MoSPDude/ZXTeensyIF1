@@ -212,7 +212,7 @@ static const uint8_t OUTPUT_PINS[] = {
 static const uint32_t ROM_ADDRESS_MASK = (A15_PIN_BITMASK | A14_PIN_BITMASK | MREQ_PIN_BITMASK);
 
 // Number of SD detection retries
-static const uint8_t NUM_SD_RETRIES = 3;
+static const uint8_t NUM_SD_RETRIES = 5;
 
 // Global state
 volatile bool bootIntoMenu = false;
@@ -220,7 +220,7 @@ volatile bool afterFirstReset = false;
 volatile bool isDeviceDisabled = false;
 volatile bool loadRomSets = false;
 volatile bool sdCardPresent = false;
-volatile bool divMmcCardPresent = false;
+volatile bool sdioEnabled = false;
 volatile run_state_t globalState = STATE_RESET;
 volatile bool busRdActive = false;
 volatile bool nmiPending = false;
@@ -840,60 +840,55 @@ void setup()
     NVIC_SET_PRIORITY(IRQ_GPIO6789, 16);
 }
 
-bool detectSdCard()
+bool beginSdCard()
 {
+    // Quick detect the presence of the SD card
     pinMode(SD_CS_PIN, INPUT_PULLDOWN);
     delayMicroseconds(5);
-    return digitalReadFast(SD_CS_PIN);
+    if (digitalReadFast(SD_CS_PIN))
+    {
+        // Permit a number of retries to enable the SD card
+        int retries_ = 0;
+        while (!SD.sdfs.begin(SdioConfig(FIFO_SDIO)))
+        {
+            if (++retries_ >= NUM_SD_RETRIES)
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+    return false;
 }
 
 bool beginSdfsSd()
 {
-    if (divMmcCardPresent)
+    if (sdioEnabled)
     {
+        // Ensure SDIO accesses are finished before continuing
         divMmcSpi.end();
-        divMmcCardPresent = false;
+        while (SD.sdfs.card()->isBusy()) { yield(); };
+        sdioEnabled = false;
     }
-    if (!sdCardPresent)
-    {
-        if (detectSdCard())
-        {
-            uint8_t retries_ = 0;
-            while (!SD.sdfs.begin(SdioConfig(FIFO_SDIO)))
-            {
-                if (++retries_ > NUM_SD_RETRIES)
-                {
-                    return false;
-                }
-            }
-            sdCardPresent = true;
-        } else {
-            return false;
-        }
-    }
-    return true;
+    return !sdioEnabled;
 }
 
 bool beginDivMmcSd()
 {
-    if (sdCardPresent)
+    if (!sdioEnabled)
     {
+        // Close disk images
         divMmcHdf.end();
         divMmcSecondHdf.end();
-        SD.sdfs.end();
-        sdCardPresent = false;
+
+        // Ensure sdfs accesses are finished before continuing
+        while (SD.sdfs.card()->isBusy()) { yield(); };
+
+        // Enable DivMMC over SDIO
+        divMmcSpi.begin(SD.sdfs.card());
+        sdioEnabled = true;
     }
-    if (!divMmcCardPresent)
-    {
-        if (detectSdCard() && SD.sdfs.cardBegin(SdioConfig(FIFO_SDIO)))
-        {
-            divMmcSpi.begin(SD.sdfs.card());
-        } else {
-            return false;
-        }
-        divMmcCardPresent = true;
-    }
-    return true;
+    return sdioEnabled;
 }
 
 uint16_t loadRomImage(const char* filename, char* ptr, const uint16_t size)
@@ -1433,8 +1428,14 @@ void handleStateResetEntry()
             romArrayPresent |= BANK_IF1;
 #endif
 
+            // Detect the SD card
+            if (!sdCardPresent)
+            {
+                sdCardPresent = beginSdCard();
+            }
+
             // Load ROMs from the SD card
-            if (beginSdfsSd())
+            if (sdCardPresent && beginSdfsSd())
             {
                 // Load initial configuration
                 if (!afterFirstReset)
@@ -1684,18 +1685,15 @@ void handleStateReset()
         menuBeginMain();
     } else {
         // Enable DSK, MDR and TZX peripherals, and prevent direct SD card access
-        bool hasSdAccess = false;
         if (dskPresent && beginSdfsSd())
         {
             dskEnabled = true;
-            hasSdAccess = true;
             dskController.begin(menuGetFdcFdaPath(), menuGetFdcFdbPath());
         }
         if (mdrPresent && beginSdfsSd() &&
             loadMdrEmulatorFile(menuGetBrowserPath()))
         {
             mdrEnabled = true;
-            hasSdAccess = true;
         }
         if (tzxPresent && beginSdfsSd())
         {
@@ -1715,28 +1713,19 @@ void handleStateReset()
             divMmcRomEnabled = divMmcRomPresent;
             char* sdaPath = menuGetDivMmcSdaPath();
             char* sdbPath = menuGetDivMmcSdbPath();
-            if ((sdaPath == 0) && (sdbPath != 0))
+            if ((sdaPath != 0) && divMmcHdf.begin(sdaPath))
             {
-                divMmcDriveSlot[0] = (hasSdAccess ? DIVMMC_NONE : DIVMMC_SDHC);
-                if (divMmcSecondHdf.begin(sdbPath))
-                {
-                    divMmcDriveSlot[1] = DIVMMC_HDF_B;
-                } else {
-                    divMmcDriveSlot[1] = DIVMMC_NONE;
-                }
+                divMmcDriveSlot[0] = DIVMMC_HDF_A;
             } else {
-                if ((sdbPath != 0) && divMmcSecondHdf.begin(sdbPath))
-                {
-                    divMmcDriveSlot[1] = DIVMMC_HDF_B;
-                } else {
-                    divMmcDriveSlot[1] = DIVMMC_NONE;
-                }
-                if ((sdaPath != 0) && divMmcHdf.begin(sdaPath))
-                {
-                    divMmcDriveSlot[0] = DIVMMC_HDF_A;
-                } else {
-                    divMmcDriveSlot[0] = (hasSdAccess ? DIVMMC_NONE : DIVMMC_SDHC);
-                }
+                divMmcDriveSlot[0] = DIVMMC_SDHC;
+            }
+            if ((sdbPath != 0) && divMmcSecondHdf.begin(sdbPath))
+            {
+                divMmcDriveSlot[1] = DIVMMC_HDF_B;
+            } else {
+                divMmcDriveSlot[1] = ((divMmcRomEnabled &&
+                    (divMmcDriveSlot[0] != DIVMMC_SDHC)) ?
+                        DIVMMC_SDHC : DIVMMC_NONE);
             }
         } else {
             divMmcExtRamEnabled = false;

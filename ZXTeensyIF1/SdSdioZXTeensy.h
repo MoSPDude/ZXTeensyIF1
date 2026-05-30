@@ -276,12 +276,7 @@ template <size_t READ_BUFFER_SIZE> class SdSdioZXTeensy
 
         void end()
         {
-            if (sdioCard != 0)
-            {
-                while (sdioCard->isBusy()) { yield(); };
-                sdioCard->end();
-                sdioCard = 0;
-            }
+            sdioCard = 0;
         }
 
         void reset(bool setSdIdle)
