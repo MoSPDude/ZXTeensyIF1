@@ -1526,12 +1526,11 @@ bool menuPerformSelection(uint8_t index)
             return true;
     }
 
-    // Refresh the menu
+    // Clear the configuration name when changed
     if (menuConfigChanged)
     {
         cfgData.cfgName[0] = 0;
     }
-    menuGenerate();
     return false;
 }
 
@@ -1910,8 +1909,7 @@ void menuInGameExitBasic()
     menuRamArray[1][Z80_BANK1] |= 0x10;
 
     // Page out into 48K ROM
-    romPaged = 0;
-    PAGE_IN_ROM(ROM_MENU);
+    romPaged = (1UL << (ROM_MENU));
     if ((romArrayPresent & BANK_ROM3) != 0)
     {
         PAGE_IN_ROM(ROM_ROM3);

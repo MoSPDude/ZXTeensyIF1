@@ -211,7 +211,7 @@ _menu400:
     in a,(0xeb)
     or a
     jr z,_menu400
-    jp _menu
+    jp _teensyMenuAction
 _menu450:
 ; ------------------------------------------+----------------------------------
 ; Simple beeper routine to simulate basic keyclick
@@ -350,6 +350,10 @@ _left100:
 ; ------------------------------------------+----------------------------------
 ; Write the menu index to the Teensy at port 0xeb, then redraw any changes
 ; ------------------------------------------+----------------------------------
+_teensyMenuAction:
+    ld hl,_compressedBlank  ; blank explorer screen
+    call _decompressScr     ; decompress screen
+    jr _teensyAction
 _romSelected:
     ld hl,_compressedBlank  ; blank explorer screen
     call _decompressScr     ; decompress screen
@@ -361,6 +365,7 @@ _waitForTeensy:
     in a,(0xeb)
     or a
     jr z, _waitForTeensy
+_teensyAction:
 ; detect menu exit
     cp 2
     jp z, _nmiMenuExit

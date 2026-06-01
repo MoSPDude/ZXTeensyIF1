@@ -1947,7 +1947,6 @@ FASTRUN void loop()
                             {
                                 tzxEnabled = true;
                                 tzxPlayer.begin(divMmcExtRamArray[0], size);
-                                menuRedraw = true;
                             }
                         }
                         break;
@@ -1956,18 +1955,14 @@ FASTRUN void loop()
                         if (dskEnabled && !dskController.isMotorOn() && beginSdfsSd())
                         {
                             dskController.begin(menuGetFdcFdaPath(), menuGetFdcFdbPath());
-                            menuRedraw = true;
                         }
                         break;
                     default :
                         break;
                 }
 
-                // Indicate the menu is ready to re-draw
-                if (!menuRedraw)
-                {
-                    menuBuffer.write(MENU_ROM_CMD_REDRAW);
-                }
+                // Refresh the menu
+                menuRedraw = true;
             }
         }
 
@@ -2414,11 +2409,7 @@ inline void writeRomData(uint16_t address)
             writeMenuRomData(address);
             break;
         default :
-            if (romEnabled)
-            {
-                // Transfer soft ROM data to the bus
-                writeData(romPtr[address]);
-            }
+            writePagedRomData(address);
             break;
     }
 }
