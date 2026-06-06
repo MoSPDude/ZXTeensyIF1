@@ -1751,6 +1751,7 @@ void handleStateReset()
             // Wait for WiFi NTP before enabling UART
             if (!wifiNtpEnabled)
             {
+                espUart.end();
                 if (modemPresent)
                 {
                     espUart.begin(0, menuGetModemUrl());
