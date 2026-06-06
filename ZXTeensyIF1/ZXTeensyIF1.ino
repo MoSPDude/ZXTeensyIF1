@@ -1298,6 +1298,7 @@ void performHardReset()
     digitalWriteFast(ESP_ENABLE, 0);
 
     // Clear the UART
+    wifiNtp.end();
     espUart.end();
     wifiNtpEnabled = false;
 
@@ -1578,10 +1579,10 @@ void handleStateReset()
     }
 
     // Reset the UART state, and clear buffers
-    // NOTE: wifiNtpEnabled persists UART across reset
     httpStopServer();
-    if (uartEnabled || modemEnabled)
+    if (!wifiNtpEnabled)
     {
+        // NOTE: wifiNtpEnabled persists UART across reset
         espUart.end();
     }
 
@@ -1660,19 +1661,11 @@ void handleStateReset()
 
     // Start to get time over WiFi, when not already sync'd
     // NOTE: wifiNtpEnabled persists UART across reset
-    if (wifiNtpPresent)
+    espUart.begin(0, 0);
+    if (wifiNtpPresent && !rtcHasTime && !wifiNtpEnabled)
     {
-        if (!rtcHasTime && !wifiNtpEnabled)
-        {
-            espUart.begin(0, 0);
-            wifiNtp.begin(&espUart);
-            wifiNtpEnabled = true;
-        }
-    } else if (wifiNtpEnabled)
-    {
-        wifiNtp.end();
-        espUart.end();
-        wifiNtpEnabled = false;
+        wifiNtp.begin(&espUart);
+        wifiNtpEnabled = true;
     }
 
     // Flag that reset has occurred
@@ -1842,28 +1835,27 @@ FASTRUN void loop()
         tzxPlayer.onTick();
         zxC3OnTick();
         printerPort.onTick();
-        if (wifiNtpEnabled)
+        if (wifiNtpEnabled && wifiNtp.onTick())
         {
-            if (wifiNtp.onTick())
-            {
-                wifiNtpEnabled = false;
-                rtcTeensy.setAscTime(wifiNtp.getAscTime(), wifiNtpTz);
-                rtcHasTime = true;
-                menuRedraw = true;
-                espUart.end();
+            // Update the RTC now time has been received
+            wifiNtpEnabled = false;
+            rtcTeensy.setAscTime(wifiNtp.getAscTime(), wifiNtpTz);
+            rtcHasTime = true;
+            menuRedraw = true;
+            wifiNtp.end();
 
-                // Enable the UART, now time is updated
-                if (uartPresent)
+            // Enable the UART when not in menu, now time is updated
+            if (uartPresent && (IS_ROM_PAGED(ROM_MENU) == 0))
+            {
+                espUart.end();
+                if (modemPresent)
                 {
-                    if (modemPresent)
-                    {
-                        espUart.begin(0, menuGetModemUrl());
-                        modemOnReset = true;
-                        modemEnabled = true;
-                    } else {
-                        espUart.begin(0, 0);
-                        uartEnabled = true;
-                    }
+                    espUart.begin(0, menuGetModemUrl());
+                    modemOnReset = true;
+                    modemEnabled = true;
+                } else {
+                    espUart.begin(0, 0);
+                    uartEnabled = true;
                 }
             }
         }
