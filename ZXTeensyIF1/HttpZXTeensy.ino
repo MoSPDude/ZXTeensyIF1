@@ -1,10 +1,11 @@
 
 // Occasionally, receive 2 x MTU into buffer, so size over (2 * 1500)
-static const size_t PKT_BUFFER_SIZE = 3072;
+static const size_t RX_PKT_BUFFER_SIZE = 3072;
+static const size_t TX_PKT_BUFFER_SIZE = 2048;
+uint8_t* const packetBuffer = (uint8_t*)divMmcExtRamArray[0];
 volatile bool httpEnabled = false;
 char connectionId[8];
 bool isReceivingPacket = false;
-DMAMEM uint8_t packetBuffer[PKT_BUFFER_SIZE];
 size_t packetBufferIndex = 0;
 size_t packetLength = 0;
 int packetCount = 0;
@@ -218,7 +219,7 @@ void httpPerformPacket(char action, const char* path, size_t contentLength,
                 httpSendHeader(200, "application/octet-stream", file.size());
                 while (file.available())
                 {
-                    size = file.read(packetBuffer, PKT_BUFFER_SIZE);
+                    size = file.read(packetBuffer, TX_PKT_BUFFER_SIZE);
                     sendData(packetBuffer, size);
                 }
             }
@@ -287,8 +288,8 @@ void httpRunServer()
             if (isReceivingPacket)
             {
                 // Fetch all available into the buffer
-                int size = ((packetLength > PKT_BUFFER_SIZE) ?
-                    PKT_BUFFER_SIZE : packetLength) - packetBufferIndex;
+                int size = ((packetLength > RX_PKT_BUFFER_SIZE) ?
+                    RX_PKT_BUFFER_SIZE : packetLength) - packetBufferIndex;
                 if (size > Serial8.available())
                 {
                     size = Serial8.available();
@@ -301,7 +302,7 @@ void httpRunServer()
 
                 // Decide if a packet has been received
                 if ((packetBufferIndex >= packetLength) ||
-                    (packetBufferIndex >= PKT_BUFFER_SIZE))
+                    (packetBufferIndex >= RX_PKT_BUFFER_SIZE))
                 {
                     httpProcessPacket();
                     packetLength -= packetBufferIndex;
@@ -323,7 +324,7 @@ void httpRunServer()
                 ++packetBufferIndex;
 
                 // Decide if a line or packet has been received
-                if ((packetBufferIndex >= (PKT_BUFFER_SIZE - 1)) ||
+                if ((packetBufferIndex >= (RX_PKT_BUFFER_SIZE - 1)) ||
                     (c == ':') || (c == '\n'))
                 {
                     // Parse for an incoming packet

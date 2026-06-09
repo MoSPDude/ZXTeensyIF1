@@ -241,7 +241,7 @@ volatile rom_select_t romSelected = ROM_ROM0;
 volatile bank_select_t romArraySelected = BANK_ROM0;
 volatile uint32_t romPaged = 0x01;
 volatile uint8_t romArray[ROM_PAGE_COUNT][RAM_PAGE_SIZE] __attribute__((aligned(16)));
-volatile DMAMEM uint8_t lprintRom[LPRINT_ROM_SIZE] __attribute__((aligned(16)));
+volatile uint8_t lprintRom[LPRINT_ROM_SIZE] __attribute__((aligned(16)));
 volatile uint8_t* romPtr = romArray[0];
 volatile uint16_t romArrayPresent = 0;
 volatile bool romEnabled = false;
@@ -313,7 +313,7 @@ volatile bool snaLoaderPresent = false;
 volatile uint8_t snaLoaderBanks = 0;
 
 // Boot menu ROM
-static const uint16_t MENU_PAGE_COUNT = 2;
+static const uint16_t MENU_PAGE_COUNT = 4;
 static const uint16_t MENU_BUFFER_SIZE = 16;
 volatile bool menuEnableInGame = false;
 volatile bool menuEnterOnReset = false;
@@ -322,7 +322,7 @@ volatile bool menuRedraw = false;
 volatile bool menuTriggerNMI = false;
 volatile uint8_t menuSelectedIndex = 0;
 RingBuffer<MENU_BUFFER_SIZE> menuBuffer;
-volatile DMAMEM uint8_t menuRamArray[MENU_PAGE_COUNT][RAM_PAGE_SIZE] __attribute__((aligned(16)));
+volatile uint8_t menuRamArray[MENU_PAGE_COUNT][RAM_PAGE_SIZE] __attribute__((aligned(16)));
 volatile uint8_t* menuRamPtr;
 
 // DivMMC SPI/SD

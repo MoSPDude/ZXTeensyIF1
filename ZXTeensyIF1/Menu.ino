@@ -110,32 +110,32 @@ typedef enum {
 } settings_menu_action_t;
 
 // Configuration data
-DMAMEM cfg_data_t cfgData;
+cfg_data_t cfgData;
 bool menuConfigChanged = false;
 bool menuHasUpdateFw = false;
 bool menuHasMdrEmu = false;
 
 // Menu structure
-DMAMEM char* menuPtr;
-DMAMEM char* menuTxtPtr;
-DMAMEM char* menuEndPtr;
-DMAMEM uint8_t menuEntries;
-DMAMEM menu_type_t menuCurrent;
-DMAMEM menu_type_t menuTopMenu;
-DMAMEM menu_entry_t menu[255];
-volatile DMAMEM menu_action_t menuAction;
+char* menuPtr;
+char* menuTxtPtr;
+char* menuEndPtr;
+uint8_t menuEntries;
+menu_type_t menuCurrent;
+menu_type_t menuTopMenu;
+menu_entry_t menu[255];
+volatile menu_action_t menuAction;
 
 // Menu file browser
-DMAMEM char menuFileName[MAX_PATH];
-DMAMEM char browserPath[MAX_PATH];
+char menuFileName[MAX_PATH];
+char browserPath[MAX_PATH];
 
 // Menu page creation
-DMAMEM uint8_t menuPage;
-DMAMEM uint8_t menuPageLine;
+uint8_t menuPage;
+uint8_t menuPageLine;
 
 // Debug menu text
 static const size_t MENU_DEBUG_SIZE = (21 * MENU_TXT_LEN * 2);
-DMAMEM char menuDebugBuffer[MENU_DEBUG_SIZE];
+char menuDebugBuffer[MENU_DEBUG_SIZE];
 volatile size_t menuDebugIndex = 0;
 volatile bool menuHasDebug = false;
 
