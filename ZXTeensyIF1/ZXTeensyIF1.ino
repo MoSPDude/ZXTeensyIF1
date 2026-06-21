@@ -4,6 +4,7 @@
 #include "USBHost_t36.h"
 #include "if1-2_rom.h"
 #include "RingBuffer.h"
+#include "PrintableString.h"
 #include "SdHdfZXTeensy.h"
 #include "SdSdioZXTeensy.h"
 #include "UartZXTeensy.h"
@@ -322,7 +323,7 @@ volatile bool menuRedraw = false;
 volatile bool menuTriggerNMI = false;
 volatile uint8_t menuSelectedIndex = 0;
 RingBuffer<MENU_BUFFER_SIZE> menuBuffer;
-volatile uint8_t menuRamArray[MENU_PAGE_COUNT][RAM_PAGE_SIZE] __attribute__((aligned(16)));
+volatile DMAMEM uint8_t menuRamArray[MENU_PAGE_COUNT][RAM_PAGE_SIZE] __attribute__((aligned(16)));
 volatile uint8_t* menuRamPtr;
 
 // DivMMC SPI/SD
@@ -814,17 +815,16 @@ void setup()
     setState(STATE_RESET);
 
     // Detect debug and crashes
+    menuClearDebug();
+    if (CrashReport)
+    {
+        PrintableString report;
+        CrashReport.printTo(report);
+        menuPrintDebug(false, "%s", report.c_str());
+    }
 #ifdef DEBUG_OUTPUT
     Serial.begin(115200);
 #endif
-    if (CrashReport)
-    {
-#ifndef DEBUG_OUTPUT
-        Serial.begin(115200);
-#endif
-        Serial.print(CrashReport);
-    }
-    menuClearDebug();
 
     // Configure UART
     Serial8.addMemoryForRead(uartBuffer, UART_BUFFER_SIZE);

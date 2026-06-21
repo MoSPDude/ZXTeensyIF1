@@ -160,18 +160,13 @@ char* menuInsertSetting(menu_action_t action, uint8_t index, char* ptr, const ch
     {
         for (size_t i = 0; i < (MENU_TXT_LEN - 1); ++i)
         {
-            *ptr++ = (label[i] >= 128) ? '?' : label[i];
+            *ptr++ = ((label[i] >= 128) ? '?' : label[i]);
         }
         *ptr++ = '>';
     } else {
         for (size_t i = 0; i < len; ++i)
         {
-            if (label[i] >= 128)
-            {
-                *ptr++ = '?';
-            } else {
-                *ptr++ = label[i];
-            }
+            *ptr++ = ((label[i] >= 128) ? '?' : label[i]);
         }
     }
 
@@ -577,36 +572,38 @@ char* menuGenerateDebug(char* ptr)
 {
     size_t i = 0;
     menuDebugBuffer[(MENU_DEBUG_SIZE - 1)] = 0;
-    while ((i < MENU_DEBUG_SIZE) && (menuDebugBuffer[i] < ' '))
+    while (menuEntries < 255)
     {
-        ++i;
-    }
-    while ((menuEntries < 255) && (i < MENU_DEBUG_SIZE))
-    {
-        menuInsertEntry(MENU_ACTION_TOP_MENU, 0, 0);
-        *ptr++ = CHAR_BORDER;
-        for (size_t j = 0; j < (ROM_NAME_LEN + 3); ++j)
-        {
-            if (menuDebugBuffer[i] >= ' ')
-            {
-                *ptr++ = menuDebugBuffer[i++];
-            } else {
-                ++i;
-                break;
-            }
-        }
         while ((i < MENU_DEBUG_SIZE) && (menuDebugBuffer[i] < ' '))
         {
             ++i;
         }
-        if (menuPageLine < 20)
+        if (i < MENU_DEBUG_SIZE)
         {
-            *ptr++ = 10;
-            ++menuPageLine;
+            menuInsertEntry(MENU_ACTION_TOP_MENU, 0, 0);
+            *ptr++ = CHAR_BORDER;
+            for (size_t j = 0; j < (ROM_NAME_LEN + 3); ++j)
+            {
+                if (menuDebugBuffer[i] >= ' ')
+                {
+                    *ptr++ = ((menuDebugBuffer[i] >= 128) ? '?' : menuDebugBuffer[i]);
+                    ++i;
+                } else {
+                    ++i;
+                    break;
+                }
+            }
+            if (menuPageLine < 20)
+            {
+                *ptr++ = 10;
+                ++menuPageLine;
+            } else {
+                *ptr = 0;
+                menuPageLine = 0;
+                ++menuPage;
+            }
         } else {
-            *ptr = 0;
-            menuPageLine = 0;
-            ++menuPage;
+            break;
         }
     }
     if (menuEntries == 0)
@@ -1551,6 +1548,10 @@ void menuPerformAction()
     switch (menuAction)
     {
         case MENU_ACTION_UPDATE_FW :
+            // Disable the ESP-01S
+            pinMode(ESP_ENABLE, OUTPUT);
+            digitalWriteFast(ESP_ENABLE, 0);
+
             // Flash the firmware update
             flashUpdate(FWUPDATE_HEX_PATH);
             break;
