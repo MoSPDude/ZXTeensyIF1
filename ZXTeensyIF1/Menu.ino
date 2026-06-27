@@ -22,8 +22,8 @@ static const uint16_t MENU_NUM_PAGES = 0x11FE;
 static const uint16_t Z80_BANK1 = 0x4FF;
 static const uint16_t Z80_IM2 = 0x4FE;
 static const uint16_t Z80_PC = 0x4FC;
-static const uint16_t Z80_SP = 0x4FA;
-static const uint16_t AY_Z80_REGS = 0x4F8;
+static const uint16_t Z80_AY_REGS = 0x4FA;
+static const uint16_t Z80_SP = 0x4F8;
 
 typedef enum {
     Z80_REG_IY = 0,
@@ -37,7 +37,7 @@ typedef enum {
     Z80_REG_RF = 16,
     Z80_REG_IF = 18,
     Z80_REG_HL = 20,
-    Z80_REG_AF = 24
+    Z80_REG_AF = 22
 } z80_regs_offset_t;
 
 extern float tempmonGetTemp(void);
@@ -1910,8 +1910,8 @@ void menuInGameExitBasic()
     menuRamArray[1][Z80_PC] = 0x00;
 
     // Set IY to 0x5C3A for BASIC
-    uint16_t baseAddress = (RAM_PAGE_SIZE - 1) & (0x10 +
-        (menuRamArray[1][(AY_Z80_REGS + 1)] << 8) + menuRamArray[1][AY_Z80_REGS]);
+    uint16_t baseAddress = (RAM_PAGE_SIZE - 1) & (0x20 +
+        (menuRamArray[1][(Z80_AY_REGS + 1)] << 8) + menuRamArray[1][Z80_AY_REGS]);
     uint16_t address = (baseAddress + Z80_REG_IY);
     menuRamArray[1][(address + 1)] = 0x5C;
     menuRamArray[1][address] = 0x3A;

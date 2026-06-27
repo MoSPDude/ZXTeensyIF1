@@ -31,8 +31,8 @@ MEM_SCR2    EQU MEM_ORG + 0x2500 ; screen backup
 MEM_BANK1   EQU MEM_ORG + 0x24FF ; 0x7FFD backup
 MEM_IM2     EQU MEM_ORG + 0x24FE ; IM2 and BASIC restore flag
 MEM_PC      EQU MEM_ORG + 0x24FC ; PC from stack
-MEM_SP2     EQU MEM_ORG + 0x24FA ; SP register to restore
-MEM_SPR     EQU MEM_ORG + 0x24F8 ; stack of registers to restore
+MEM_SPR     EQU MEM_ORG + 0x24FA ; pointer to AY and Z80 register stack
+MEM_SP2     EQU MEM_ORG + 0x24F8 ; saved SP register
 
 ERR_SP      EQU 0x5C3D ; ERR_SP system variable
 FLAGS       EQU 0x5C3B ; FLAGS system variable
