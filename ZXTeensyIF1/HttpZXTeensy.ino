@@ -1627,12 +1627,13 @@ void httpStopServer()
         Serial8.println(HTTP_STRINGS[HTTP_STR_AT_SERVER_STOP]);
         httpWaitFor(HTTP_STRINGS[HTTP_STR_AT_OK]);
         Serial8.end();
+    }
 
-        // Close any partial uploads
-        if (httpUploadFile)
-        {
-            httpUploadFile.close();
-        }
+    // Close any partial upload even if the server has already transitioned
+    // out of its enabled state.
+    if (httpUploadFile)
+    {
+        httpUploadFile.close();
     }
     httpServerStatus.remove(0);
     httpEnabled = false;

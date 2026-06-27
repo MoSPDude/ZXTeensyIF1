@@ -53,6 +53,9 @@ A Teensy 4.1 powered DivMMC and ZX Interface 1 clone for the ZX Spectrum 48K/128
 * Menu ROM derived from TomDDGs ZXPicoIF2Lite ROMExplorer
 * Z80 snapshot loading from TomDDGs ZXPicoIF2Lite
     * Integrated "z80torom" for loading 'z80' and 'sna' files
+* Save and restore states
+    * Uses the Z80 snapshot loader to restore state on power-on
+    * Hold the button to disable the power-on restore
 * MDR microdrive loading with Paul Farrows SPECTRA Microdrive Emulator
     * http://www.fruitcake.plus.com/Sinclair/Interface2/Cartridges/Interface2_RC_New_Microdrive_Emulator.htm
     * Supports MDR images with up to 90KB of data
@@ -258,19 +261,6 @@ ESXDOS has trouble loading if it is not "early" on the SD card,
     * Teensy 4.1 and level shifters on Veroboard
         * Soft ROM and Multiface 128 behaviour working
     * Modded ZX Interface 1 to add "nIORQ inhibit" (see below)
-
-### Firmware
-
-* 20260322
-    * ZX LPRINT III and +3 Centronics support
-* 20260319
-    * Added Prism VTX5000 through the ESP-01S UART-WiFi passthrough mode
-    * Added configuration selection to the menu
-* 20260316
-    * Added lib765 and +3 DSK support
-* 20260312
-    * Updated for v0.7 PCB
-    * Added ZXC3 and MDR emulator support
 
 ## Building the firmware
 

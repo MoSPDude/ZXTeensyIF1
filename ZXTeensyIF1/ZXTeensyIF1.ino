@@ -47,10 +47,12 @@ typedef enum {
     MENU_ACTION_BROWSER_MOUNT_FDB,
     MENU_ACTION_START_SERVER,
     MENU_ACTION_STOP_SERVER,
+    MENU_ACTION_SELECT_STATE_SLOT,
     MENU_ACTION_IN_GAME_EXIT,
     MENU_ACTION_IN_GAME_EXIT_TAPE,
     MENU_ACTION_IN_GAME_EXIT_BASIC,
     MENU_ACTION_IN_GAME_SEEK_TAPE,
+    MENU_ACTION_IN_GAME_SAVE_STATE,
     MENU_ACTION_IN_GAME_MF128,
     MENU_ACTION_IN_GAME_DIVMMC,
     MENU_ACTION_IN_GAME_RESET,
@@ -158,7 +160,12 @@ typedef enum {
 typedef enum {
     MENU_ROM_CMD_IDLE = 0,
     MENU_ROM_CMD_REDRAW = 1,
-    MENU_ROM_CMD_IN_GAME_EXIT = 2
+    MENU_ROM_CMD_IN_GAME_EXIT = 2,
+    MENU_ROM_CMD_STATE_CAPTURE_48 = 3,
+    MENU_ROM_CMD_STATE_CAPTURE_128 = 4,
+    MENU_ROM_CMD_STATE_BLOCK_DONE = 5,
+    MENU_ROM_CMD_STATE_COMPLETE = 6,
+    MENU_ROM_CMD_STATE_FAILED = 7
 } menu_rom_action_t;
 
 // I/O pin assignments
@@ -226,6 +233,11 @@ volatile run_state_t globalState = STATE_RESET;
 volatile bool busRdActive = false;
 volatile bool nmiPending = false;
 volatile rom_select_t nmiRomTarget = ROM_ROM0;
+
+// State save and load
+volatile int8_t stateActiveSlot = -1;
+volatile int8_t stateSaveSlot = 0;
+volatile bool stateStartLoad = false;
 
 // Reset and NMI debouncing
 volatile trigger_state_t resetTrigState = TRIGGER_ACTIVE;
@@ -394,6 +406,10 @@ volatile bool lprintPresent = false;
 volatile bool lprintEnabled = false;
 volatile bool printerStrobe = false;
 volatile uint8_t printerByte = 0x00;
+
+// Spectrum state tracked for save state
+volatile uint8_t spectrumBorder = 0;
+volatile uint8_t spectrumPort1ffd = 0;
 
 // SPI and UART tick cycle counter
 volatile uint32_t globalCycleCount;
@@ -1496,24 +1512,30 @@ void handleStateResetEntry()
                 // Load Spectrum ROM
                 loadSpectrumRomFile();
 
-                // Load foreground ROM
-                if (!loadForegroundRom())
+                // Attempt to restore directly into any active save state
+                if (!isButtonHeld && (stateActiveSlot >= 0) &&
+                    !digitalReadFast(ROMCS_IN_PIN))
                 {
-                    if (afterFirstReset)
+                    stateStartLoad = stateLoadOnStartup();
+                }
+                if (!stateStartLoad)
+                {
+                    // Load the configured foreground ROM
+                    if (!loadForegroundRom() && afterFirstReset)
                     {
                         afterFirstReset = false;
                         handleStateResetEntry();
                         return;
                     }
-                }
 
-                // Page in the menu ROM on startup
-                if ((menuEnterOnReset || (!afterFirstReset && bootIntoMenu)) &&
-                    !digitalReadFast(ROMCS_IN_PIN) &&
-                    ((romArrayPresent & BANK_MENU) != 0))
-                {
-                    PAGE_IN_ROM(ROM_MENU);
-                    menuRamPtr = menuRamArray[0];
+                    // Page in the menu ROM on startup
+                    if ((menuEnterOnReset || (!afterFirstReset && bootIntoMenu)) &&
+                        !digitalReadFast(ROMCS_IN_PIN) &&
+                        ((romArrayPresent & BANK_MENU) != 0))
+                    {
+                        PAGE_IN_ROM(ROM_MENU);
+                        menuRamPtr = menuRamArray[0];
+                    }
                 }
             } else if (!isButtonHeld)
             {
@@ -1634,6 +1656,7 @@ void handleStateReset()
     lprintEnabled = false;
     romSelected = ROM_ROM0;
     romArraySelected = BANK_ROM0;
+    stateStartLoad = false;
 
     // Reset the USB detection state
     mousePresent = false;
@@ -1725,8 +1748,6 @@ void handleStateReset()
         }
 
         // Enable the Interface 1 when DivMMC is not enabled
-        // NOTE: When DivMMC enabled, the Interface 1 can be enabled by switching
-        // back into 128k mode (".128") or enabling the Multiface 128
         if (!divMmcEnabled && interface1Present)
         {
             interface1Enabled = true;
@@ -1765,7 +1786,11 @@ void handleStateReset()
         }
 
         // Page in the ZXC2 cartridge, or snapshot loader ROM
-        if (zxC2Present)
+        if (stateStartLoad)
+        {
+            PAGE_IN_ROM(ROM_SNA);
+            stateStartLoad = false;
+        } else if (zxC2Present)
         {
             if (!zxC2ShadowRom)
             {
@@ -1898,6 +1923,12 @@ FASTRUN void loop()
                         }
                         nmiRomTarget = ROM_ROM0;
                         break;
+                    case MENU_ACTION_IN_GAME_SAVE_STATE :
+                        if (!stateBeginSave(stateSaveSlot))
+                        {
+                            menuBuffer.write(MENU_ROM_CMD_STATE_FAILED);
+                        }
+                        break;
                     case MENU_ACTION_IN_GAME_EXIT :
                         nmiRomTarget = ROM_ROM0;
                         break;
@@ -1925,8 +1956,11 @@ FASTRUN void loop()
                 // Update ROM indexes, and exit the menu
                 if (!isGlobalStateReset())
                 {
-                    updateRomIndex(true);
-                    menuBuffer.write(MENU_ROM_CMD_IN_GAME_EXIT);
+                    if (menuGetInGameAction() != MENU_ACTION_IN_GAME_SAVE_STATE)
+                    {
+                        updateRomIndex(true);
+                        menuBuffer.write(MENU_ROM_CMD_IN_GAME_EXIT);
+                    }
                 }
             } else {
                 // Perform in-game actions
@@ -2042,6 +2076,9 @@ FASTRUN void loop()
 
     // Run FDC actions
     dskController.onTick();
+
+    // Run save/restore state actions
+    stateOnTick();
 
     // Perform USB host functions
     if (usbEnabled)
@@ -2237,6 +2274,8 @@ inline void updateRomPtr(bool pageNow)
                 break;
             case ROM_MODEM :
             case ROM_ZXC2 :
+                romPtr = divMmcExtRamArray[zxC2BankPtr];
+                break;
             case ROM_SNA :
                 romPtr = divMmcExtRamArray[zxC2BankPtr];
                 break;
@@ -2620,6 +2659,7 @@ FASTRUN void isrWrEvent()
                         }
                     } else {
                         PAGE_OUT_ROM(ROM_SNA);
+                        stateLoaderFinished();
                     }
                     updateRomIndex(true);
                 }
@@ -2686,6 +2726,7 @@ FASTRUN void isrWrEvent()
                 } else if ((gpioSix & A12_PIN_BITMASK) != 0x0)
                 {
                     // Detect 0x1ffd write access for +3 ROMs
+                    spectrumPort1ffd = data;
                     if (rom1Present && rom23Present)
                     {
                         rom23Paged = ((data & 0x04) != 0);
@@ -2827,10 +2868,14 @@ FASTRUN void isrWrEvent()
                 case 0xeb :
                     if (IS_ROM_PAGED(ROM_MENU))
                     {
-                        if (!menuSelected)
+                        uint8_t data = readData();
+                        if (isStateSaveActive() && ((data & 0x80) != 0))
+                        {
+                            stateSaveBlock(data);
+                        } else if (!menuSelected)
                         {
                             menuSelected = true;
-                            menuSelectedIndex = readData();
+                            menuSelectedIndex = data;
                         }
                     } else if (isDivMmcSelected())
                     {
@@ -2843,6 +2888,9 @@ FASTRUN void isrWrEvent()
                     {
                         printerByte = readData();
                     }
+                    break;
+                case 0xfe :
+                    spectrumBorder = readData() & 0x07;
                     break;
                 case 0xff :
                     if (modemEnabled)
@@ -3172,6 +3220,7 @@ FASTRUN void isrRdEvent()
                     updateRomPtr(false);
                 } else {
                     PAGE_OUT_ROM(ROM_SNA);
+                    stateLoaderFinished();
                     updateRomIndex(false);
                 }
             }

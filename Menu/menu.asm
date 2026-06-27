@@ -33,6 +33,7 @@ MEM_IM2     EQU MEM_ORG + 0x24FE ; IM2 and BASIC restore flag
 MEM_PC      EQU MEM_ORG + 0x24FC ; PC from stack
 MEM_SPR     EQU MEM_ORG + 0x24FA ; pointer to AY and Z80 register stack
 MEM_SP2     EQU MEM_ORG + 0x24F8 ; saved SP register
+MEM_STATE_MODE EQU MEM_ORG + 0x24BE
 
 ERR_SP      EQU 0x5C3D ; ERR_SP system variable
 FLAGS       EQU 0x5C3B ; FLAGS system variable
@@ -369,6 +370,11 @@ _teensyAction:
 ; detect menu exit
     cp 2
     jp z, _nmiMenuExit
+; capture a 48K or 128K state
+    cp 3
+    jp z, _stateCapture48
+    cp 4
+    jp z, _stateCapture128
 ; otherwise, menu redraw
 _menuRedraw:
     ld a,(_maxroms+1)
@@ -382,6 +388,118 @@ _menuRedraw:
     ld (MEM_PAGE),a
 _doneSelected:
     jp _menu2
+
+; ------------------------------------------+----------------------------------
+; State capture. Each 16K bank is copied into menu scratch pages 2 and 3. The
+; Teensy writes both pages to SD and returns command 5 before the next bank is
+; copied.
+; ------------------------------------------+----------------------------------
+_stateSendBlock:
+    push af
+    push bc
+    push de
+    push hl
+    ; change scratch RAM
+    ld a,2
+    out (0xBF),a
+    ld de,0x2000
+    ld bc,0x2000
+    ldir
+    ; change scratch RAM
+    ld a,3
+    out (0xBF),a
+    ld de,0x2000
+    ld bc,0x2000
+    ldir
+    ; restore menu RAM
+    xor a
+    out (0xBF),a
+    pop hl
+    pop de
+    pop bc
+    pop af
+    or 0x80
+    out (0xEB),a
+_stateWaitBlock:
+    in a,(0xEB)
+    cp 5
+    jr z,_stateBlockDone
+    cp 7
+    jp z,_stateCaptureFailed
+    jr _stateWaitBlock
+_stateBlockDone:
+    ret
+
+_stateCapture48:
+    di
+    xor a
+    ld (MEM_STATE_MODE),a
+    ld hl,0x4000
+    call _stateSendBlock
+    ld a,1
+    ld hl,0x8000
+    call _stateSendBlock
+    ld a,2
+    ld hl,0xC000
+    call _stateSendBlock
+    jr _stateCaptureFinish
+
+_stateCapture128:
+    di
+    ; Read the saved paging register from state page 1, then return to menu
+    ; page 0 so the stack remains valid while scratch pages 2 and 3 are used.
+    ld a,1
+    out (0xBF),a
+    ld a,(MEM_BANK1)
+    ld e,a
+    xor a
+    out (0xBF),a
+    ld a,1
+    ld (MEM_STATE_MODE),a
+    xor a
+    ld d,a
+_stateCaptureBank:
+    ld a,e
+    and 0xF8
+    or d
+    ld bc,0x7FFD
+    out (c),a
+    ld a,d
+    ld hl,0xC000
+    call _stateSendBlock
+    inc d
+    ld a,d
+    cp 8
+    jr nz,_stateCaptureBank
+    ld a,e
+    ld bc,0x7FFD
+    out (c),a
+
+_stateCaptureFinish:
+    ld a,0xC0
+    out (0xEB),a
+_stateWaitComplete:
+    in a,(0xEB)
+    cp 6
+    jr z,_stateCaptureDone
+    cp 7
+    jr nz,_stateWaitComplete
+_stateCaptureDone:
+    ld a,0
+    out (0xBF),a
+    ei
+    jp _menuRedraw
+_stateCaptureFailed:
+    ; The failure response jumps out of _stateSendBlock, so discard its return
+    ; address before resuming the menu.
+    pop hl
+    ld a,(MEM_STATE_MODE)
+    or a
+    jr z,_stateCaptureDone
+    ld a,e
+    ld bc,0x7FFD
+    out (c),a
+    jp _stateCaptureDone
 ; ------------------------------------------+----------------------------------
 ; Find correct MEM_ROMTXT start depending on page and load into MEM_TXT
 ; ------------------------------------------+----------------------------------

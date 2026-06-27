@@ -55,6 +55,8 @@ typedef enum {
     MENU_TYPE_HTTP_SERVER,
     MENU_TYPE_IN_GAME,
     MENU_TYPE_TAPE_BROWSER,
+    MENU_TYPE_SAVE_STATE_SLOT,
+    MENU_TYPE_LOAD_STATE_SLOT,
     MENU_TYPE_DEBUG
 } menu_type_t;
 
@@ -100,7 +102,9 @@ typedef enum {
     SETTING_ACTION_UNMOUNT_FDB,
     SETTING_ACTION_IN_GAME_TOGGLE_IF1,
     SETTING_ACTION_IN_GAME_TOGGLE_USB,
-    SETTING_ACTION_OPEN_DEBUG = 0xF8,
+    SETTING_ACTION_OPEN_DEBUG = 0xF6,
+    SETTING_ACTION_OPEN_SAVE_STATE_SLOT = 0xF7,
+    SETTING_ACTION_OPEN_LOAD_STATE_SLOT = 0xF8,
     SETTING_ACTION_OPEN_TAPE_BROWSER = 0xF9,
     SETTING_ACTION_OPEN_SERVER = 0xFA,
     SETTING_ACTION_OPEN_ROMS = 0xFB,
@@ -510,6 +514,24 @@ char* menuGenerateTapeBrowser(char* ptr)
     return ptr;
 }
 
+char* menuGenerateSelectStateSlot(char* ptr, bool loadNotSave)
+{
+    ptr = menuInsertSetting(MENU_ACTION_TOP_MENU, 0, ptr, MENU_STRINGS[STRING_CANCEL], 0);
+    for (int8_t slot = 0; slot < STATE_SLOT_COUNT; ++slot)
+    {
+        char label[MENU_STR_LEN + 1];
+        uint8_t index = slot + (loadNotSave ? 0x10 : 0);
+        if (snprintf(label, (MENU_STR_LEN + 1), "%s state %d",
+            (loadNotSave ? "Load" : "Select save"), slot) >= (MENU_STR_LEN + 1))
+        {
+            label[MENU_STR_LEN] = 0;
+        }
+        ptr = menuInsertSetting(MENU_ACTION_SELECT_STATE_SLOT, index, ptr, label,
+            (slot == stateSaveSlot));
+    }
+    return ptr;
+}
+
 char* menuGenerateInGame(char* ptr)
 {
     ptr = menuInsertSetting(MENU_ACTION_IN_GAME_EXIT, 0, ptr, MENU_STRINGS[STRING_CANCEL], 0);
@@ -522,11 +544,35 @@ char* menuGenerateInGame(char* ptr)
     }
     ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_OPEN_BROWSER,
         ptr, MENU_STRINGS[STRING_OPEN_BROWSER], 0);
+    char label[(MENU_STR_LEN + 1)];
+    int8_t slot = ((stateSaveSlot >= 0) ? stateSaveSlot : 0);
+    if (snprintf(label, (MENU_STR_LEN + 1), "Save state %d", slot) >= (MENU_STR_LEN + 1))
+    {
+        label[MENU_STR_LEN] = 0;
+    }
+    ptr = menuInsertSetting(MENU_ACTION_IN_GAME_SAVE_STATE, slot, ptr, label,
+        (slot == stateActiveSlot));
+    ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_OPEN_SAVE_STATE_SLOT,
+        ptr, MENU_STRINGS[STRING_OPEN_SAVE_STATE_SLOT], 0);
+    ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_OPEN_LOAD_STATE_SLOT,
+        ptr, MENU_STRINGS[STRING_OPEN_LOAD_STATE_SLOT], 0);
     ptr = menuInsertSpacer(ptr);
     bool needSpacer = false;
+    if (mf128Present && ((romArrayPresent & BANK_MF128) != 0))
+    {
+        ptr = menuInsertSetting(MENU_ACTION_IN_GAME_MF128, 0, ptr,
+            MENU_STRINGS[STRING_IN_GAME_MF128], 0);
+        needSpacer = true;
+    }
+    if (divMmcRomEnabled && ((romArrayPresent & BANK_DIVMMC) != 0))
+    {
+        ptr = menuInsertSetting(MENU_ACTION_IN_GAME_DIVMMC, 0, ptr,
+            MENU_STRINGS[STRING_IN_GAME_DIVMMC], 0);
+        needSpacer = true;
+    }
     if (interface1Present && divMmcPresent)
     {
-        ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_IN_GAME_TOGGLE_IF1, 
+        ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_IN_GAME_TOGGLE_IF1,
             ptr, MENU_STRINGS[STRING_ENABLE_IF1], interface1Enabled);
         needSpacer = true;
     }
@@ -539,18 +585,6 @@ char* menuGenerateInGame(char* ptr)
             ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_FIRE_BUTTONS,
                 ptr, MENU_STRINGS[STRING_ENABLE_FIRE_BUTTONS], gamepadButtons);
         }
-        needSpacer = true;
-    }
-    if (mf128Present && ((romArrayPresent & BANK_MF128) != 0))
-    {
-        ptr = menuInsertSetting(MENU_ACTION_IN_GAME_MF128, 0, ptr,
-            MENU_STRINGS[STRING_IN_GAME_MF128], 0);
-        needSpacer = true;
-    }
-    if (divMmcRomEnabled && ((romArrayPresent & BANK_DIVMMC) != 0))
-    {
-        ptr = menuInsertSetting(MENU_ACTION_IN_GAME_DIVMMC, 0, ptr,
-            MENU_STRINGS[STRING_IN_GAME_DIVMMC], 0);
         needSpacer = true;
     }
     if (needSpacer)
@@ -1009,6 +1043,8 @@ char* menuGenerateMain(char* ptr)
         ptr, MENU_STRINGS[STRING_OPEN_BROWSER], 0);
     ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_OPEN_ROMS,
         ptr, MENU_STRINGS[STRING_OPEN_ROMS], 0);
+    ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_OPEN_LOAD_STATE_SLOT,
+        ptr, MENU_STRINGS[STRING_OPEN_LOAD_STATE_SLOT], 0);
     ptr = menuInsertSpacer(ptr);
 
     // List stored configurations for quick selection
@@ -1115,6 +1151,12 @@ void menuGenerate()
             break;
         case MENU_TYPE_TAPE_BROWSER :
             textPtr = menuGenerateTapeBrowser(textPtr);
+            break;
+        case MENU_TYPE_SAVE_STATE_SLOT :
+            textPtr = menuGenerateSelectStateSlot(textPtr, false);
+            break;
+        case MENU_TYPE_LOAD_STATE_SLOT :
+            textPtr = menuGenerateSelectStateSlot(textPtr, true);
             break;
         case MENU_TYPE_DEBUG :
             textPtr = menuGenerateDebug(textPtr);
@@ -1331,6 +1373,14 @@ bool menuPerformSelection(uint8_t index)
                     tzxPlayer.scanTape();
                     menuCurrent = MENU_TYPE_TAPE_BROWSER;
                     break;
+                case SETTING_ACTION_OPEN_SAVE_STATE_SLOT :
+                    // Open the state slot selector
+                    menuCurrent = MENU_TYPE_SAVE_STATE_SLOT;
+                    break;
+                case SETTING_ACTION_OPEN_LOAD_STATE_SLOT :
+                    // Open the state slot selector
+                    menuCurrent = MENU_TYPE_LOAD_STATE_SLOT;
+                    break;
                 case SETTING_ACTION_OPEN_SERVER :
                     // Configure HTTP server
                     menuCurrent = MENU_TYPE_HTTP_SERVER;
@@ -1528,6 +1578,23 @@ bool menuPerformSelection(uint8_t index)
             tzxPlayer.seek(entryIndex);
             menuCurrent = menuTopMenu;
             break;
+        case MENU_ACTION_SELECT_STATE_SLOT :
+            if (entryIndex >= 0x10)
+            {
+                // Load the selected slot
+                stateActiveSlot = (entryIndex & 0x0F);
+                menuConfigChanged = true;
+                menuSaveConfiguration();
+                return true;
+            } else if (stateSaveSlot != entryIndex)
+            {
+                stateSaveSlot = entryIndex;
+                menuConfigChanged = true;
+            } else {
+                menuAction = MENU_ACTION_IN_GAME_SAVE_STATE;
+                return true;
+            }
+            break;
         case MENU_ACTION_IN_GAME_EXIT :
         case MENU_ACTION_IN_GAME_EXIT_TAPE :
         case MENU_ACTION_IN_GAME_EXIT_BASIC :
@@ -1536,6 +1603,9 @@ bool menuPerformSelection(uint8_t index)
         case MENU_ACTION_IN_GAME_RESET :
         case MENU_ACTION_IN_GAME_HARD_RESET :
             // These actions require additional NMI or reset handling
+            return true;
+        case MENU_ACTION_IN_GAME_SAVE_STATE :
+            stateSaveSlot = entryIndex;
             return true;
     }
 
@@ -1940,6 +2010,7 @@ void menuInGameExitBasic()
 
 void menuClearConfiguration()
 {
+    stateActiveSlot = -1;
     divMmcPresent = false;
     divMmcExtRamPresent = true;
     divMmcRomPresent = false;
@@ -2048,6 +2119,22 @@ void menuLoadConfiguration(const char* cfgCfgName)
                         ++count;
                     }
                     break;
+                case 's' :
+                    if ((cfgCfgName == 0) &&
+                        (strncmp("stateActiveSlot = ", cfgPtr, 18) == 0))
+                    {
+                        long slot = atol(&(cfgPtr[18]));
+                        stateActiveSlot = ((slot >= 0) &&
+                            (slot < STATE_SLOT_COUNT)) ? slot : -1;
+                        ++count;
+                    } else if (strncmp("stateSaveSlot = ", cfgPtr, 16) == 0)
+                    {
+                        long slot = atol(&(cfgPtr[16]));
+                        stateSaveSlot = ((slot >= 0) &&
+                            (slot < STATE_SLOT_COUNT)) ? slot : -1;
+                        ++count;
+                    }
+                    break;
                 case 'u' :
                     if (strncmp("uartPresent = ", cfgPtr, 14) == 0)
                     {
@@ -2137,6 +2224,8 @@ void menuSaveConfiguration()
 
             // Write configuration to file
             cfgFile.truncate();
+            cfgFile.printf("stateActiveSlot = %0d\n", stateActiveSlot);
+            cfgFile.printf("stateSaveSlot = %0d\n", stateSaveSlot);
             cfgFile.printf("divMmcPresent = %0d\n", divMmcPresent);
             cfgFile.printf("divMmcExtRamPresent = %0d\n", divMmcExtRamPresent);
             cfgFile.printf("divMmcRomPresent = %0d\n", divMmcRomPresent);
