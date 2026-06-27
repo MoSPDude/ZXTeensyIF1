@@ -56,8 +56,9 @@ A Teensy 4.1 powered DivMMC and ZX Interface 1 clone for the ZX Spectrum 48K/128
 * MDR microdrive loading with Paul Farrows SPECTRA Microdrive Emulator
     * http://www.fruitcake.plus.com/Sinclair/Interface2/Cartridges/Interface2_RC_New_Microdrive_Emulator.htm
     * Supports MDR images with up to 90KB of data
-* Small HTTP server for WiFi file access over ESP-01S
-    * Use HTTP PUT to send files eg. "curl -T FILENAME.ROM http://192.168.0.254/FILENAME.ROM"
+* Small WebDAV class 1 HTTP server for WiFi file access over ESP-01S
+    * Use WinSCP to send files, or HTTP PUT to send files eg. "curl -T FILENAME.ROM http://192.168.0.254/FILENAME.ROM"
+        * Windows native support requires LOCK (and UNLOCK) which is Not Implemented
     * Use web browser to list files, and download
 * Nihirash's Network Manager for WiFi configuration
     * Small bugfix to clear the BASIC keypress on load
@@ -425,3 +426,18 @@ The following ports are decoded by the Interface 1 ULA when not inhibited by the
 | 0xXXE7 (0bXXX00XXX) | R/W | Interface 1 microdrive data | Halts Z80 on read |
 | 0xXXEF (0bXXX01XXX) | R/W | Interface 1 control register | |
 | 0xXXF7 (0bXXX10XXX) | R/W | Interface 1 RS232/network data | |
+
+## WebDAV class 1 support
+
+The HTTP server only supports a single connection.
+
+Windows 11 seems to still send a LOCK command when sending a file to the server,
+though it is not presented in the server Allow list or required by WebDAV class 1.
+It then ignores the "501 Not Implemented" or the "405 Method Not Allowed", and
+fails to send the file.
+
+WinSCP seems to work fine - you may need to change the preferences to ensure only
+a single upload connection.
+
+OpenAI Codex helped to provide the additional WebDAV class 1 implementation over
+just the basic HTTP PUT and GET that I'd implemented.
