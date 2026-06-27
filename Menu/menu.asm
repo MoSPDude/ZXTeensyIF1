@@ -778,6 +778,27 @@ _nmiMenuEntry:
     exx
     push ix
     push iy
+    ; backup AY registers
+    ld de, 0x0F10
+    ld c, 0xFD
+_nmiAySaveLoop:
+    ld b, 0xFF
+    out (c), d
+    in a, (c)
+    push af
+    ld a, d
+    ; mute AY volume registers
+    and 0x0C
+    cp 0x08
+    jr nz, _nmiAySaveNext
+    ld b, 0xBF
+    xor a
+    out (c), a
+_nmiAySaveNext:
+    dec d
+    dec e
+    jr nz, _nmiAySaveLoop
+    ; save the stack pointer to restore AY and Z80 registers
     ld (MEM_SPR),sp
     ; capture PC
     ld hl, (MEM_SP2)
@@ -857,8 +878,21 @@ _nmiMenuExit:
     ld hl, FLAGS
     res 5, (hl) ; clear keypress in FLAGS
 _nmiMenuExit2:
-    ; restore registers
+    ; set stack pointer to restore AY and Z80 registers
     ld sp, (MEM_SPR)
+    ; restore AY registers
+    ld de, 0x0010
+    ld c, 0xFD
+_nmiAyLoadLoop:
+    ld b, 0xFF
+    out (c), d
+    ld b, 0xBF
+    pop af
+    out (c), a
+    inc d
+    dec e
+    jr nz, _nmiAyLoadLoop
+    ; restore registers and SP
     pop iy
     pop ix
     exx

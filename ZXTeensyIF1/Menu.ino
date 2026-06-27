@@ -23,7 +23,7 @@ static const uint16_t Z80_BANK1 = 0x4FF;
 static const uint16_t Z80_IM2 = 0x4FE;
 static const uint16_t Z80_PC = 0x4FC;
 static const uint16_t Z80_SP = 0x4FA;
-static const uint16_t Z80_REGS = 0x4F8;
+static const uint16_t AY_Z80_REGS = 0x4F8;
 
 typedef enum {
     Z80_REG_IY = 0,
@@ -99,6 +99,7 @@ typedef enum {
     SETTING_ACTION_UNMOUNT_FDA,
     SETTING_ACTION_UNMOUNT_FDB,
     SETTING_ACTION_IN_GAME_TOGGLE_IF1,
+    SETTING_ACTION_IN_GAME_TOGGLE_USB,
     SETTING_ACTION_OPEN_DEBUG = 0xF8,
     SETTING_ACTION_OPEN_TAPE_BROWSER = 0xF9,
     SETTING_ACTION_OPEN_SERVER = 0xFA,
@@ -527,6 +528,17 @@ char* menuGenerateInGame(char* ptr)
     {
         ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_IN_GAME_TOGGLE_IF1, 
             ptr, MENU_STRINGS[STRING_ENABLE_IF1], interface1Enabled);
+        needSpacer = true;
+    }
+    if (usbPresent)
+    {
+        ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_IN_GAME_TOGGLE_USB, ptr,
+            MENU_STRINGS[STRING_ENABLE_USB], usbEnabled);
+        if (usbEnabled)
+        {
+            ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_FIRE_BUTTONS,
+                ptr, MENU_STRINGS[STRING_ENABLE_FIRE_BUTTONS], gamepadButtons);
+        }
         needSpacer = true;
     }
     if (mf128Present && ((romArrayPresent & BANK_MF128) != 0))
@@ -1306,6 +1318,10 @@ bool menuPerformSelection(uint8_t index)
                     }
                     divMmcRomEnabled = (divMmcEnabled && divMmcRomPresent);
                     break;
+                case SETTING_ACTION_IN_GAME_TOGGLE_USB :
+                    // Toggle active USB
+                    usbEnabled = !usbEnabled;
+                    break;
                 case SETTING_ACTION_OPEN_DEBUG :
                     // Open debug menu
                     menuCurrent = MENU_TYPE_DEBUG;
@@ -1894,14 +1910,14 @@ void menuInGameExitBasic()
     menuRamArray[1][Z80_PC] = 0x00;
 
     // Set IY to 0x5C3A for BASIC
-    uint16_t baseAddress = (RAM_PAGE_SIZE - 1) & 
-        ((menuRamArray[1][(Z80_REGS + 1)] << 8) + menuRamArray[1][Z80_REGS]);
+    uint16_t baseAddress = (RAM_PAGE_SIZE - 1) & (0x10 +
+        (menuRamArray[1][(AY_Z80_REGS + 1)] << 8) + menuRamArray[1][AY_Z80_REGS]);
     uint16_t address = (baseAddress + Z80_REG_IY);
     menuRamArray[1][(address + 1)] = 0x5C;
     menuRamArray[1][address] = 0x3A;
 
     // Restore BASIC with IM1, enable interrupts, and I to 0x3F
-     address = (baseAddress + Z80_REG_IF);
+    address = (baseAddress + Z80_REG_IF);
     menuRamArray[1][(address + 1)] = 0x3F;
     menuRamArray[1][address] |= 0x02;
     menuRamArray[1][Z80_IM2] = 0x02;
