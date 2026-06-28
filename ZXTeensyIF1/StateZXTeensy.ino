@@ -80,6 +80,8 @@ typedef struct __attribute__((packed)) {
     uint8_t modemEnabled;
     uint8_t modemOnReset;
     uint8_t usbEnabled;
+    uint8_t mousePresent;
+    uint8_t joystickPresent;
     uint8_t printerStrobe;
     uint8_t printerByte;
 } state_device_data_t;
@@ -301,6 +303,8 @@ void stateCaptureDeviceData(void* data)
     state->modemEnabled = modemEnabled;
     state->modemOnReset = modemOnReset;
     state->usbEnabled = usbEnabled;
+    state->mousePresent = mousePresent;
+    state->joystickPresent = joystickPresent;
     state->printerStrobe = printerStrobe;
     state->printerByte = printerByte;
     state->divMmcPresent = divMmcPresent;
@@ -343,11 +347,13 @@ bool stateBeginSave(uint8_t slot)
 {
     if (!stateSaveActive && (slot < STATE_SLOT_COUNT))
     {
-        // Detect 128K mode, and if the paging is locked or +3 AllRam
-        stateSave128 = ((romArrayPresent & BANK_ROM1) != 0);
-        if (stateSave128 && (((mf128VideoRam & 0x20) != 0) ||
-            ((spectrumPort1ffd & 0x01) != 0)))
+        // The menu ROM probes whether 0x7FFD changes the RAM at 0xC000, to
+        // determine if a 48K or 128K snapshot is needed
+        uint8_t stateMode = menuRamArray[0][Z80_MODE];
+        stateSave128 = (stateMode == Z80_MODE_128);
+        if ((spectrumPort1ffd & 0x01) != 0)
         {
+            // +3 All-Ram mode is not supported
             return false;
         }
 
@@ -398,6 +404,7 @@ void stateSaveBlock(uint8_t block)
 
 uint8_t statePageForBlock(uint8_t block)
 {
+    // Return Z80 file "page" for the given block number
     static const uint8_t pages48[3] = { 8, 4, 5 };
     return stateSave128 ? (3 + block) : pages48[block];
 }
@@ -516,6 +523,8 @@ void stateApplyDeviceData()
     modemEnabled = stateRestoreDevice.modemEnabled;
     modemOnReset = stateRestoreDevice.modemOnReset;
     usbEnabled = stateRestoreDevice.usbEnabled;
+    mousePresent = stateRestoreDevice.mousePresent;
+    joystickPresent = stateRestoreDevice.joystickPresent;
     printerStrobe = stateRestoreDevice.printerStrobe;
     printerByte = stateRestoreDevice.printerByte;
     snaLoaderPresent = false;
@@ -654,22 +663,21 @@ void stateOnTick()
             {
                 stateFinishSave(false);
             } else {
-                uint8_t blockHeader[3] = { 0xFF, 0xFF, statePageForBlock(block) };
+                uint8_t page = statePageForBlock(block);
+                uint8_t blockHeader[3] = { 0xFF, 0xFF, page };
                 if (!stateWriteBytes(blockHeader, sizeof(blockHeader)))
                 {
                     stateFinishSave(false);
                     return;
                 }
 
-                // The in-game menu replaced the visible screen. Patch bank 5 from the
-                // copy made by the NMI entry code before writing the bank.
-                bool isBank5 = stateSave128 ? (block == 5) : (block == 0);
-                if (isBank5)
+                // The in-game menu replaced the visible screen - patch "page 8"
+                // with address 0x4000 with the shadow copy from scratch RAM
+                if (page == 8)
                 {
                     memcpy((void*)menuRamArray[2], (void*)&menuRamArray[1][0x500], 0x1B00);
                 }
-                if (stateWriteBytes((const void*)menuRamArray[2], RAM_PAGE_SIZE) &&
-                    stateWriteBytes((const void*)menuRamArray[3], RAM_PAGE_SIZE))
+                if (stateWriteBytes((const void*)menuRamArray[2], ROM_PAGE_SIZE))
                 {
                     ++stateSaveExpectedBlock;
                     menuBuffer.write(MENU_ROM_CMD_STATE_BLOCK_DONE);

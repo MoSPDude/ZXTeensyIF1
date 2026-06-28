@@ -19,7 +19,8 @@ MEM_LTBL    EQU MEM_ORG + 0x1000 ; lookup table MEM_LTBLP-512
 MEM_LTBLP   EQU MEM_LTBL + 0x200 ; lookup table start
 MEM_OFFSET  EQU MEM_LTBLP - 9;
 
-MEM_SP      EQU MEM_ORG + 0x3FF8  ; stack pointer start
+MEM_SP      EQU MEM_ORG + 0x3FF6  ; stack pointer start
+MEM_MODE    EQU MEM_ORG + 0x3FF8  ; detected state mode: 0=48K, 1=128K, 2=unknown
 MEM_KEYR    EQU MEM_ORG + 0x3FF9  ; key repeat
 MEM_KEYL    EQU MEM_ORG + 0x3FFA  ; last key
 MEM_TXT     EQU MEM_ORG + 0x3FFB  ; text start
@@ -33,7 +34,6 @@ MEM_IM2     EQU MEM_ORG + 0x24FE ; IM2 and BASIC restore flag
 MEM_PC      EQU MEM_ORG + 0x24FC ; PC from stack
 MEM_SPR     EQU MEM_ORG + 0x24FA ; pointer to AY and Z80 register stack
 MEM_SP2     EQU MEM_ORG + 0x24F8 ; saved SP register
-MEM_STATE_MODE EQU MEM_ORG + 0x24BE
 
 ERR_SP      EQU 0x5C3D ; ERR_SP system variable
 FLAGS       EQU 0x5C3B ; FLAGS system variable
@@ -411,7 +411,7 @@ _stateSendBlock:
     ld de,0x2000
     ld bc,0x2000
     ldir
-    ; restore menu RAM
+    ; restore menu RAM before stack
     xor a
     out (0xBF),a
     pop hl
@@ -432,13 +432,17 @@ _stateBlockDone:
 
 _stateCapture48:
     di
+    ; set MEM_MODE to 48k
     xor a
-    ld (MEM_STATE_MODE),a
+    ld (MEM_MODE),a
+    ; save "page 8"
     ld hl,0x4000
     call _stateSendBlock
+    ; save "page 4"
     ld a,1
     ld hl,0x8000
     call _stateSendBlock
+    ; save "page 5"
     ld a,2
     ld hl,0xC000
     call _stateSendBlock
@@ -446,16 +450,16 @@ _stateCapture48:
 
 _stateCapture128:
     di
-    ; Read the saved paging register from state page 1, then return to menu
-    ; page 0 so the stack remains valid while scratch pages 2 and 3 are used.
+    ; Read MEM_BANK1 from scratch RAM
     ld a,1
     out (0xBF),a
     ld a,(MEM_BANK1)
     ld e,a
+    ; restore menu RAM, and set MEM_MODE to 128k
     xor a
     out (0xBF),a
     ld a,1
-    ld (MEM_STATE_MODE),a
+    ld (MEM_MODE),a
     xor a
     ld d,a
 _stateCaptureBank:
@@ -464,6 +468,7 @@ _stateCaptureBank:
     or d
     ld bc,0x7FFD
     out (c),a
+    ; save page banked into 0xC000
     ld a,d
     ld hl,0xC000
     call _stateSendBlock
@@ -485,21 +490,21 @@ _stateWaitComplete:
     cp 7
     jr nz,_stateWaitComplete
 _stateCaptureDone:
-    ld a,0
-    out (0xBF),a
     ei
     jp _menuRedraw
 _stateCaptureFailed:
     ; The failure response jumps out of _stateSendBlock, so discard its return
     ; address before resuming the menu.
     pop hl
-    ld a,(MEM_STATE_MODE)
+    ld a,(MEM_MODE)
     or a
     jr z,_stateCaptureDone
-    ld a,e
-    ld bc,0x7FFD
-    out (c),a
+    ; restore paging register
+    ld a, e
+    ld bc, 0x7FFD
+    out (c), a
     jp _stateCaptureDone
+
 ; ------------------------------------------+----------------------------------
 ; Find correct MEM_ROMTXT start depending on page and load into MEM_TXT
 ; ------------------------------------------+----------------------------------
@@ -957,11 +962,48 @@ _nmiAySaveNext:
     in a,(0xBF)
     ld (MEM_BANK1),a
     res 3,a
+    ld d,a
     ld bc,0x7FFD
     out (c),a
+    ; detect machine type
+    ; detect if paging has been locked, and treat as unknown/48k
+    ld e,2
+    bit 5,d
+    jr nz,_nmiMachineDetected
+    ; read a byte, invert and write to different page
+    ld a,(0xC000)
+    ld h,a
+    ld a,d
+    xor 1
+    out (c),a
+    ld a,(0xC000)
+    cpl
+    ld e,a
+    ld a,d
+    out (c),a
+    ld a,e
+    ld (0xC000),a
+    ld a,d
+    xor 1
+    out (c),a
+    ld a,(0xC000)
+    ; determine if the bytes are the same, to detect if banking is working
+    ; if they are the same, then no banking, so treat as 48k
+    cp e
+    ld e,0
+    jr z,_nmiMachineRestore
+    inc e
+_nmiMachineRestore:
+    ld a,d
+    out (c),a
+    ld a,h
+    ld (0xC000),a
+_nmiMachineDetected:
     ; change scratch RAM
     xor a
     out (0xBF),a
+    ld a,e
+    ld (MEM_MODE),a
     ; enter menu
     jp _nmiMenuStart
 _nmiMenuExit:

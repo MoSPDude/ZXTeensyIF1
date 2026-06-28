@@ -24,6 +24,10 @@ static const uint16_t Z80_IM2 = 0x4FE;
 static const uint16_t Z80_PC = 0x4FC;
 static const uint16_t Z80_AY_REGS = 0x4FA;
 static const uint16_t Z80_SP = 0x4F8;
+static const uint16_t Z80_MODE = 0x1FF8;
+static const uint8_t Z80_MODE_48 = 0;
+static const uint8_t Z80_MODE_128 = 1;
+static const uint8_t Z80_MODE_UNKNOWN = 2;
 
 typedef enum {
     Z80_REG_IY = 0,
@@ -519,15 +523,18 @@ char* menuGenerateSelectStateSlot(char* ptr, bool loadNotSave)
     ptr = menuInsertSetting(MENU_ACTION_TOP_MENU, 0, ptr, MENU_STRINGS[STRING_CANCEL], 0);
     for (int8_t slot = 0; slot < STATE_SLOT_COUNT; ++slot)
     {
-        char label[MENU_STR_LEN + 1];
-        uint8_t index = slot + (loadNotSave ? 0x10 : 0);
-        if (snprintf(label, (MENU_STR_LEN + 1), "%s state %d",
-            (loadNotSave ? "Load" : "Select save"), slot) >= (MENU_STR_LEN + 1))
+        if (!loadNotSave || stateReadDeviceData(slot))
         {
-            label[MENU_STR_LEN] = 0;
+            char label[MENU_STR_LEN + 1];
+            uint8_t index = slot + (loadNotSave ? 0x10 : 0);
+            if (snprintf(label, (MENU_STR_LEN + 1), "%s State %d",
+                (loadNotSave ? "Load" : "Select Save"), slot) >= (MENU_STR_LEN + 1))
+            {
+                label[MENU_STR_LEN] = 0;
+            }
+            ptr = menuInsertSetting(MENU_ACTION_SELECT_STATE_SLOT, index, ptr, label,
+                (slot == stateSaveSlot));
         }
-        ptr = menuInsertSetting(MENU_ACTION_SELECT_STATE_SLOT, index, ptr, label,
-            (slot == stateSaveSlot));
     }
     return ptr;
 }

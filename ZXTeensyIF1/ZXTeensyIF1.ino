@@ -2890,7 +2890,10 @@ FASTRUN void isrWrEvent()
                     }
                     break;
                 case 0xfe :
-                    spectrumBorder = readData() & 0x07;
+                    if (!IS_ROM_PAGED(ROM_MENU))
+                    {
+                        spectrumBorder = readData() & 0x07;
+                    }
                     break;
                 case 0xff :
                     if (modemEnabled)
