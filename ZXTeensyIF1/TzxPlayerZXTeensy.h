@@ -293,8 +293,23 @@ class TzxPlayerZXTeensy
 
         inline size_t getPosition(size_t* length)
         {
-            *length = tapeLength;
+            if (length != 0)
+            {
+                *length = tapeLength;
+            }
             return tapePosition;
+        }
+
+        inline void setPosition(size_t position)
+        {
+            isPlaying = false;
+            isPaused = false;
+            isBuffering = false;
+            tapeBufferEnded = false;
+            dataBlockSize = 0;
+            currentBlock = BLOCK_IDLE;
+            dataBuffer.clear();
+            tapePosition = ((position <= tapeLength) ? position : tapeLength);
         }
 };
 

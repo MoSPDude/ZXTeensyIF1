@@ -19,12 +19,14 @@ static const uint16_t MENU_VERSION_STR = 0x11F8;
 static const uint16_t MENU_NUM_ENTRIES = 0x11FB;
 static const uint16_t MENU_NUM_PAGES = 0x11FE;
 
-static const uint16_t Z80_BANK1 = 0x4FF;
-static const uint16_t Z80_IM2 = 0x4FE;
-static const uint16_t Z80_PC = 0x4FC;
-static const uint16_t Z80_AY_REGS = 0x4FA;
-static const uint16_t Z80_SP = 0x4F8;
-static const uint16_t Z80_MODE = 0x1FF8;
+static const uint16_t MEM_BANK1 = 0x4FF;
+static const uint16_t MEM_IM2 = 0x4FE;
+static const uint16_t MEM_PC = 0x4FC;
+static const uint16_t MEM_SPR = 0x4FA;
+static const uint16_t MEM_UNUSED = 0x4F9;
+static const uint16_t MEM_BORDER = 0x4F8;
+static const uint16_t MEM_SP2 = 0x4F6;
+static const uint16_t MEM_MODE = 0x1FF8;
 static const uint8_t Z80_MODE_48 = 0;
 static const uint8_t Z80_MODE_128 = 1;
 static const uint8_t Z80_MODE_UNKNOWN = 2;
@@ -527,8 +529,10 @@ char* menuGenerateSelectStateSlot(char* ptr, bool loadNotSave)
         {
             char label[MENU_STR_LEN + 1];
             uint8_t index = slot + (loadNotSave ? 0x10 : 0);
-            if (snprintf(label, (MENU_STR_LEN + 1), "%s State %d",
-                (loadNotSave ? "Load" : "Select Save"), slot) >= (MENU_STR_LEN + 1))
+            if (snprintf(label, (MENU_STR_LEN + 1), "%s %d",
+                (loadNotSave ? MENU_STRINGS[STRINGS_LOAD_STATE] :
+                    MENU_STRINGS[STRINGS_SELECT_STATE]),
+                slot) >= (MENU_STR_LEN + 1))
             {
                 label[MENU_STR_LEN] = 0;
             }
@@ -553,7 +557,8 @@ char* menuGenerateInGame(char* ptr)
         ptr, MENU_STRINGS[STRING_OPEN_BROWSER], 0);
     char label[(MENU_STR_LEN + 1)];
     int8_t slot = ((stateSaveSlot >= 0) ? stateSaveSlot : 0);
-    if (snprintf(label, (MENU_STR_LEN + 1), "Save state %d", slot) >= (MENU_STR_LEN + 1))
+    if (snprintf(label, (MENU_STR_LEN + 1), "%s %d", MENU_STRINGS[STRINGS_SAVE_STATE],
+        slot) >= (MENU_STR_LEN + 1))
     {
         label[MENU_STR_LEN] = 0;
     }
@@ -1195,6 +1200,10 @@ void menuBeginInGame()
     menuTopMenu = MENU_TYPE_IN_GAME;
     menuAction = MENU_ACTION_LOAD_ROM;
 
+    // Store border colour and bank selection
+    menuRamArray[1][MEM_BORDER] = spectrumBorder;
+    menuRamArray[1][MEM_BANK1] = mf128VideoRam;
+
     // Generate the menu
     menuGenerate();
 }
@@ -1607,9 +1616,12 @@ bool menuPerformSelection(uint8_t index)
         case MENU_ACTION_IN_GAME_EXIT_BASIC :
         case MENU_ACTION_IN_GAME_MF128 :
         case MENU_ACTION_IN_GAME_DIVMMC :
+            // These actions require additional NMI or reset handling
+            return true;
         case MENU_ACTION_IN_GAME_RESET :
         case MENU_ACTION_IN_GAME_HARD_RESET :
             // These actions require additional NMI or reset handling
+            stateActiveSlot = -1;
             return true;
         case MENU_ACTION_IN_GAME_SAVE_STATE :
             stateSaveSlot = entryIndex;
@@ -1983,12 +1995,12 @@ File menuGetSpectrumRomFile()
 void menuInGameExitBasic()
 {
     // Return to REPORT-D in 48K ROM
-    menuRamArray[1][(Z80_PC + 1)] = 0x0D;
-    menuRamArray[1][Z80_PC] = 0x00;
+    menuRamArray[1][(MEM_PC + 1)] = 0x0D;
+    menuRamArray[1][MEM_PC] = 0x00;
 
     // Set IY to 0x5C3A for BASIC
     uint16_t baseAddress = (RAM_PAGE_SIZE - 1) & (0x20 +
-        (menuRamArray[1][(Z80_AY_REGS + 1)] << 8) + menuRamArray[1][Z80_AY_REGS]);
+        (menuRamArray[1][(MEM_SPR + 1)] << 8) + menuRamArray[1][MEM_SPR]);
     uint16_t address = (baseAddress + Z80_REG_IY);
     menuRamArray[1][(address + 1)] = 0x5C;
     menuRamArray[1][address] = 0x3A;
@@ -1997,10 +2009,10 @@ void menuInGameExitBasic()
     address = (baseAddress + Z80_REG_IF);
     menuRamArray[1][(address + 1)] = 0x3F;
     menuRamArray[1][address] |= 0x02;
-    menuRamArray[1][Z80_IM2] = 0x02;
+    menuRamArray[1][MEM_IM2] = 0x02;
 
     // Set to bank in ROM1/3
-    menuRamArray[1][Z80_BANK1] |= 0x10;
+    menuRamArray[1][MEM_BANK1] |= 0x10;
 
     // Page out into 48K ROM
     romPaged = (1UL << (ROM_MENU));

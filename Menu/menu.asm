@@ -33,7 +33,10 @@ MEM_BANK1   EQU MEM_ORG + 0x24FF ; 0x7FFD backup
 MEM_IM2     EQU MEM_ORG + 0x24FE ; IM2 and BASIC restore flag
 MEM_PC      EQU MEM_ORG + 0x24FC ; PC from stack
 MEM_SPR     EQU MEM_ORG + 0x24FA ; pointer to AY and Z80 register stack
-MEM_SP2     EQU MEM_ORG + 0x24F8 ; saved SP register
+MEM_UNUSED  EQU MEM_ORG + 0x24F9 ; (free byte)
+MEM_BORDER  EQU MEM_ORG + 0x24F8 ; border colour backup
+MEM_SP2     EQU MEM_ORG + 0x24F6 ; saved SP register
+
 
 ERR_SP      EQU 0x5C3D ; ERR_SP system variable
 FLAGS       EQU 0x5C3B ; FLAGS system variable
@@ -451,10 +454,10 @@ _stateCapture48:
 _stateCapture128:
     di
     ; Read MEM_BANK1 from scratch RAM
-    ld a,1
-    out (0xBF),a
-    ld a,(MEM_BANK1)
-    ld e,a
+    ld a, 1
+    out (0xBF), a
+    ld a, (MEM_BANK1)
+    ld e, a
     ; restore menu RAM, and set MEM_MODE to 128k
     xor a
     out (0xBF),a
@@ -954,17 +957,16 @@ _nmiAySaveNext:
     halt
     di
     ; copy screen to scratch RAM
-    ld hl,MEM_SCR
-    ld de,MEM_SCR2
-    ld bc,0x1B00
+    ld hl, MEM_SCR
+    ld de, MEM_SCR2
+    ld bc, 0x1B00
     ldir
     ; setup screen
-    in a,(0xBF)
-    ld (MEM_BANK1),a
-    res 3,a
-    ld d,a
-    ld bc,0x7FFD
-    out (c),a
+    ld a, (MEM_BANK1)
+    res 3, a
+    ld d, a
+    ld bc, 0x7FFD
+    out (c), a
     ; detect machine type
     ; detect if paging has been locked, and treat as unknown/48k
     ld e,2
@@ -1038,6 +1040,9 @@ _nmiMenuExit:
     ld hl, FLAGS
     res 5, (hl) ; clear keypress in FLAGS
 _nmiMenuExit2:
+    ; restore border colour
+    ld a, (MEM_BORDER)
+    out (0xFE), a
     ; set stack pointer to restore AY and Z80 registers
     ld sp, (MEM_SPR)
     ; restore AY registers

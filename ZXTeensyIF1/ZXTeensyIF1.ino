@@ -410,6 +410,7 @@ volatile uint8_t printerByte = 0x00;
 // Spectrum state tracked for save state
 volatile uint8_t spectrumBorder = 0;
 volatile uint8_t spectrumPort1ffd = 0;
+volatile uint8_t spectrumPortfffd = 0;
 
 // SPI and UART tick cycle counter
 volatile uint32_t globalCycleCount;
@@ -2761,6 +2762,11 @@ FASTRUN void isrWrEvent()
                     // Detect 0x0ffd write access for Centronics printer
                     printerByte = data;
                 }
+            } else if (((gpioSix & A14_PIN_BITMASK) != 0x0) &&
+                !IS_ROM_PAGED(ROM_MENU))
+            {
+                // Capture 0xfffd last selected AY register
+                spectrumPortfffd = readData();
             }
         } else {
             switch (port_)
@@ -2892,6 +2898,7 @@ FASTRUN void isrWrEvent()
                 case 0xfe :
                     if (!IS_ROM_PAGED(ROM_MENU))
                     {
+                        // Capture last border colour
                         spectrumBorder = readData() & 0x07;
                     }
                     break;
@@ -3295,10 +3302,7 @@ FASTRUN void isrRdEvent()
                 }
                 break;
             case 0xbf :
-                if (IS_ROM_PAGED(ROM_MENU))
-                {
-                    writeData(mf128VideoRam);
-                } else if (mf128Enabled)
+                if (mf128Enabled)
                 {
                     writeData(((mf128VideoRam & 0x08) != 0) ? 0x80 : 0x00);
                     if (IS_ROM_PAGED(ROM_MF128) == 0)

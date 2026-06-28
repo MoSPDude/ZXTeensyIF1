@@ -374,6 +374,16 @@ template <size_t READ_BUFFER_SIZE> class SdHdfZXTeensy
         {
             return (sdSpiReadBuffer.canRead() ? sdSpiReadBuffer.readRaw() : 0xFF);
         }
+
+        inline bool getSdIdle() const
+        {
+            return isSdIdle;
+        }
+
+        inline void setSdIdle(bool idle)
+        {
+            isSdIdle = idle;
+        }
 };
 
 #endif

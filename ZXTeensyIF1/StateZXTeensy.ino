@@ -84,6 +84,13 @@ typedef struct __attribute__((packed)) {
     uint8_t joystickPresent;
     uint8_t printerStrobe;
     uint8_t printerByte;
+    uint8_t divMmcSpiSdIdle;
+    uint8_t divMmcHdfSdIdle;
+    uint8_t divMmcSecondHdfSdIdle;
+    uint32_t mouseX;
+    uint32_t mouseY;
+    uint32_t tapePosition;
+    uint32_t tapeLength;
 } state_device_data_t;
 
 File stateSaveFile;
@@ -115,10 +122,10 @@ bool stateWriteZ80Header()
 {
     // MEM_SPR points below the 16 saved AY words. The Z80 register frame starts
     // 32 bytes above it: IY, IX, BC', DE', HL', AF', BC, DE, RF, IF, HL, AF.
-    uint16_t frame = (stateReadWord(menuRamArray[1], Z80_AY_REGS) + 0x20) &
+    uint16_t frame = (stateReadWord(menuRamArray[1], MEM_SPR) + 0x20) &
         (RAM_PAGE_SIZE - 1);
-    uint16_t pc = stateReadWord(menuRamArray[1], Z80_PC);
-    uint16_t sp = stateReadWord(menuRamArray[1], Z80_SP) + 2;
+    uint16_t pc = stateReadWord(menuRamArray[1], MEM_PC);
+    uint16_t sp = stateReadWord(menuRamArray[1], MEM_SP2) + 2;
     uint8_t header[87] = {};
 
     header[0] = stateRegisterByte(frame, 23); // A
@@ -150,24 +157,24 @@ bool stateWriteZ80Header()
     bool interruptsEnabled = (stateRegisterByte(frame, 18) & 0x04) != 0;
     header[27] = interruptsEnabled ? 1 : 0;
     header[28] = interruptsEnabled ? 1 : 0;
-    header[29] = ((menuRamArray[1][Z80_IM2] & 0x01) != 0) ? 2 : 1;
+    header[29] = ((menuRamArray[1][MEM_IM2] & 0x01) != 0) ? 2 : 1;
 
     // Z80 v3 additional header.
     header[30] = 55;
     header[31] = 0;
     header[32] = pc;
     header[33] = pc >> 8;
-    header[34] = stateSave128 ? 4 : 0; // 128K or 48K Spectrum
+    header[34] = (stateSave128 ? 4 : 0); // 128K or 48K Spectrum
     header[35] = mf128VideoRam;
-    header[36] = 0;                    // Interface 1 ROM not paged
-    header[37] = 0;                    // hardware modification
-    header[38] = 0;                    // selected AY register
-    uint16_t ayStack = stateReadWord(menuRamArray[1], Z80_AY_REGS);
+    header[36] = (IS_ROM_PAGED(ROM_IF1) ? 0xFF : 0x00); // Interface 1 ROM paged
+    header[37] = 0; // hardware modification
+    header[38] = spectrumPortfffd; // selected AY register
+    uint16_t ayStack = stateReadWord(menuRamArray[1], MEM_SPR) &
+        (RAM_PAGE_SIZE - 1);
     for (uint8_t reg = 0; reg < 16; ++reg)
     {
         // Registers were pushed 15..0, so register 0 is the first stack word.
-        header[39 + reg] = menuRamArray[1][(ayStack + (reg * 2) + 1) &
-            (RAM_PAGE_SIZE - 1)];
+        header[39 + reg] = menuRamArray[1][(ayStack + (reg * 2) + 1)];
     }
     header[86] = spectrumPort1ffd;
     return stateWriteBytes(header, sizeof(header));
@@ -307,6 +314,14 @@ void stateCaptureDeviceData(void* data)
     state->joystickPresent = joystickPresent;
     state->printerStrobe = printerStrobe;
     state->printerByte = printerByte;
+    state->divMmcSpiSdIdle = divMmcSpi.getSdIdle();
+    state->divMmcHdfSdIdle = divMmcHdf.getSdIdle();
+    state->divMmcSecondHdfSdIdle = divMmcSecondHdf.getSdIdle();
+    state->mouseX = mouseX;
+    state->mouseY = mouseY;
+    size_t tapeLength;
+    state->tapePosition = tzxPlayer.getPosition(&tapeLength);
+    state->tapeLength = tapeLength;
     state->divMmcPresent = divMmcPresent;
     state->divMmcExtRamPresent = divMmcExtRamPresent;
     state->divMmcRomPresent = divMmcRomPresent;
@@ -349,7 +364,7 @@ bool stateBeginSave(uint8_t slot)
     {
         // The menu ROM probes whether 0x7FFD changes the RAM at 0xC000, to
         // determine if a 48K or 128K snapshot is needed
-        uint8_t stateMode = menuRamArray[0][Z80_MODE];
+        uint8_t stateMode = menuRamArray[0][MEM_MODE];
         stateSave128 = (stateMode == Z80_MODE_128);
         if ((spectrumPort1ffd & 0x01) != 0)
         {
@@ -525,8 +540,13 @@ void stateApplyDeviceData()
     usbEnabled = stateRestoreDevice.usbEnabled;
     mousePresent = stateRestoreDevice.mousePresent;
     joystickPresent = stateRestoreDevice.joystickPresent;
+    mouseX = stateRestoreDevice.mouseX;
+    mouseY = stateRestoreDevice.mouseY;
     printerStrobe = stateRestoreDevice.printerStrobe;
     printerByte = stateRestoreDevice.printerByte;
+    divMmcSpi.setSdIdle(stateRestoreDevice.divMmcSpiSdIdle);
+    divMmcHdf.setSdIdle(stateRestoreDevice.divMmcHdfSdIdle);
+    divMmcSecondHdf.setSdIdle(stateRestoreDevice.divMmcSecondHdfSdIdle);
     snaLoaderPresent = false;
 
     // Restore ROM banking and peripheral state
@@ -560,7 +580,14 @@ void stateApplyDeviceData()
     mdrEnabled = stateRestoreDevice.mdrEnabled;
     mdrMaxSector = stateRestoreDevice.mdrMaxSector;
     tzxPresent = stateRestoreDevice.tzxPresent;
-    tzxEnabled = false;
+    if (stateRestoreDevice.tzxEnabled && (stateRestoreDevice.tapeLength > 0))
+    {
+        tzxPlayer.begin(divMmcExtRamArray[0], stateRestoreDevice.tapeLength);
+        tzxPlayer.setPosition(stateRestoreDevice.tapePosition);
+        tzxEnabled = true;
+    } else {
+        tzxEnabled = false;
+    }
 
     // Restore the DivMMC RAM pointer
     uint8_t bank = stateRestoreDevice.divMmcRamBank;

@@ -155,6 +155,9 @@ the DivMMC and enable the Interface 1.
 * ZXTEENSY/
     * CONFIGS/
         * <NAME>.CFG (Saved configurations that appear as "NAME" in the Menu ROM for quick selection)
+    * STATE/<SLOT>/
+        * STATE.Z80 (Z80 v3 snapshot for the save state)
+        * (Additional saved state files for the save slot)
     * MENU.ROM
     * MF128.ROM (MD5SUM: ca8c9d97c8aedd718d1081fad2e3af8d)
     * ESXMMC.BIN (MD5SUM: fa50b0258e52b8d72bd83cc2fb6e1013)
@@ -389,7 +392,7 @@ The following ports are decoded by the Teensy,
 | 0xXX7B | R | LPRINT III page out | Returns status |
 | 0xXX7B | W | LPRINT III data with strobe | |
 | 0xXX7F | R/W | VTX5000 data | |
-| 0xXXBF | R | Multiface 128 page in | Returns bit 7 as the Current Screen. Menu ROM returns last 128K Memory Control write |
+| 0xXXBF | R | Multiface 128 page in | Returns bit 7 as the Current Screen |
 | 0xXXBF | W | Multiface 128 NMI clear | Menu ROM RAM banking |
 | 0xFADF | R | Kempston mouse buttons | |
 | 0xFBDF | R | Kempston mouse X axis | |
