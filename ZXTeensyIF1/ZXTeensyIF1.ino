@@ -281,6 +281,7 @@ volatile bool divMmcToggle = false;
 volatile bool divMmcAutoMap = false;
 volatile bool divMmcConMem = false;
 volatile bool divMmcMapRam = false;
+volatile uint8_t divMmcRamBank = 0;
 volatile bool divMmcRamBankThree = false;
 volatile bool divMmcPreserveRam = false;
 volatile bool divMmcExtRamEnabled = false;
@@ -289,7 +290,6 @@ volatile uint8_t* divMmcRamPtr;
 // Multiface 128
 volatile bool mf128Present = false;
 volatile bool mf128Enabled = false;
-volatile uint8_t mf128VideoRam = 0x00;
 volatile bool mf128ActiveNMI = false;
 
 // Interface 1
@@ -407,10 +407,11 @@ volatile bool lprintEnabled = false;
 volatile bool printerStrobe = false;
 volatile uint8_t printerByte = 0x00;
 
-// Spectrum state tracked for save state
-volatile uint8_t spectrumBorder = 0;
-volatile uint8_t spectrumPort1ffd = 0;
-volatile uint8_t spectrumPortfffd = 0;
+// Spectrum read-only port state
+volatile uint8_t spectrumBorder = 0x00;
+volatile uint8_t spectrumBankM = 0x00;
+volatile uint8_t spectrumBank678 = 0x00;
+volatile uint8_t spectrumAyReg = 0x00;
 
 // SPI and UART tick cycle counter
 volatile uint32_t globalCycleCount;
@@ -1636,9 +1637,10 @@ void handleStateReset()
     divMmcConMem = false;
     divMmcAutoMap = false;
     divMmcMapRam = false;
+    divMmcRamBank = 0;
     divMmcRamPtr = divMmcRamArray[0];
+    divMmcRamBankThree = false;
     mf128Enabled = false;
-    mf128VideoRam = 0x00;
     mf128ActiveNMI = false;
     menuTriggerNMI = false;
     zxC2Lock = false;
@@ -1657,6 +1659,10 @@ void handleStateReset()
     lprintEnabled = false;
     romSelected = ROM_ROM0;
     romArraySelected = BANK_ROM0;
+    spectrumBorder = 0x00;
+    spectrumBankM = 0x00;
+    spectrumBank678 = 0x00;
+    spectrumAyReg = 0x00;
     stateStartLoad = false;
 
     // Reset the USB detection state
@@ -2073,7 +2079,7 @@ FASTRUN void loop()
     }
 
     // Run HTTP server actions
-    httpRunServer();
+    httpOnTick();
 
     // Run FDC actions
     dskController.onTick();
@@ -2689,11 +2695,17 @@ FASTRUN void isrWrEvent()
                 if (!rom1Present)
                 {
                     // Record 0x7ffd write access for Internal ROMs
-                    mf128VideoRam = data;
+                    if (!IS_ROM_PAGED(ROM_MENU))
+                    {
+                        spectrumBankM = data;
+                    }
                 } else if (!rom23Present || isPort7F)
                 {
                     // Detect 0x7ffd write access for 128k ROMs
-                    mf128VideoRam = data;
+                    if (!IS_ROM_PAGED(ROM_MENU))
+                    {
+                        spectrumBankM = data;
+                    }
                     if ((data & 0x20) != 0)
                     {
                         rom1Present = false;
@@ -2727,7 +2739,7 @@ FASTRUN void isrWrEvent()
                 } else if ((gpioSix & A12_PIN_BITMASK) != 0x0)
                 {
                     // Detect 0x1ffd write access for +3 ROMs
-                    spectrumPort1ffd = data;
+                    spectrumBank678 = data;
                     if (rom1Present && rom23Present)
                     {
                         rom23Paged = ((data & 0x04) != 0);
@@ -2766,7 +2778,7 @@ FASTRUN void isrWrEvent()
                 !IS_ROM_PAGED(ROM_MENU))
             {
                 // Capture 0xfffd last selected AY register
-                spectrumPortfffd = readData();
+                spectrumAyReg = readData();
             }
         } else {
             switch (port_)
@@ -2846,6 +2858,7 @@ FASTRUN void isrWrEvent()
 
                         // DivMMC RAM banking
                         data &= (EXT_RAM_PAGE_COUNT + RAM_PAGE_COUNT - 1);
+                        divMmcRamBank = data;
                         if (divMmcExtRamEnabled && (data >= RAM_PAGE_COUNT))
                         {
                             divMmcRamPtr = divMmcExtRamArray[(data - RAM_PAGE_COUNT)];
@@ -3279,7 +3292,7 @@ FASTRUN void isrRdEvent()
             case 0x3f :
                 if (mf128Enabled)
                 {
-                    writeData(((mf128VideoRam & 0x08) != 0) ? 0x80 : 0x00);
+                    writeData(((spectrumBankM & 0x08) != 0) ? 0x80 : 0x00);
                 }
                 if (IS_ROM_PAGED(ROM_MF128))
                 {
@@ -3304,7 +3317,7 @@ FASTRUN void isrRdEvent()
             case 0xbf :
                 if (mf128Enabled)
                 {
-                    writeData(((mf128VideoRam & 0x08) != 0) ? 0x80 : 0x00);
+                    writeData(((spectrumBankM & 0x08) != 0) ? 0x80 : 0x00);
                     if (IS_ROM_PAGED(ROM_MF128) == 0)
                     {
                         PAGE_IN_ROM(ROM_MF128);

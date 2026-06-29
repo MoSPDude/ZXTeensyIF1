@@ -1499,7 +1499,7 @@ void httpProcessPacket()
     }
 }
 
-void httpRunServer()
+void httpOnTick()
 {
     if (httpEnabled)
     {

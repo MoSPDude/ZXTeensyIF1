@@ -1202,7 +1202,7 @@ void menuBeginInGame()
 
     // Store border colour and bank selection
     menuRamArray[1][MEM_BORDER] = spectrumBorder;
-    menuRamArray[1][MEM_BANK1] = mf128VideoRam;
+    menuRamArray[1][MEM_BANK1] = spectrumBankM;
 
     // Generate the menu
     menuGenerate();

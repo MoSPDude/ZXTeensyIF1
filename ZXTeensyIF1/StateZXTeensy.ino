@@ -43,9 +43,8 @@ typedef struct __attribute__((packed)) {
     // Runtime device state.
     uint32_t romPaged;
     uint16_t romArrayPresent;
-    uint8_t divMmcRamBank;
-    uint8_t mf128VideoRam;
-    uint8_t spectrumPort1ffd;
+    uint8_t spectrumBankM;
+    uint8_t spectrumBank678;
     uint8_t spectrumBorder;
     uint8_t rom1Paged;
     uint8_t rom23Paged;
@@ -56,7 +55,7 @@ typedef struct __attribute__((packed)) {
     uint8_t divMmcAutoMap;
     uint8_t divMmcConMem;
     uint8_t divMmcMapRam;
-    uint8_t divMmcRamBankThree;
+    uint8_t divMmcRamBank;
     uint8_t divMmcExtRamEnabled;
     uint8_t mf128Enabled;
     uint8_t mf128ActiveNMI;
@@ -99,7 +98,7 @@ volatile bool stateSaveBlockPending = false;
 volatile uint8_t stateSaveBlockValue = 0;
 bool stateSave128 = false;
 uint8_t stateSaveExpectedBlock = 0;
-state_device_data_t stateRestoreDevice;
+DMAMEM state_device_data_t stateRestoreDevice;
 volatile bool stateLoadActive = false;
 volatile bool stateLoadFinalStage = false;
 
@@ -165,10 +164,10 @@ bool stateWriteZ80Header()
     header[32] = pc;
     header[33] = pc >> 8;
     header[34] = (stateSave128 ? 4 : 0); // 128K or 48K Spectrum
-    header[35] = mf128VideoRam;
+    header[35] = spectrumBankM;
     header[36] = (IS_ROM_PAGED(ROM_IF1) ? 0xFF : 0x00); // Interface 1 ROM paged
     header[37] = 0; // hardware modification
-    header[38] = spectrumPortfffd; // selected AY register
+    header[38] = spectrumAyReg; // selected AY register
     uint16_t ayStack = stateReadWord(menuRamArray[1], MEM_SPR) &
         (RAM_PAGE_SIZE - 1);
     for (uint8_t reg = 0; reg < 16; ++reg)
@@ -176,7 +175,7 @@ bool stateWriteZ80Header()
         // Registers were pushed 15..0, so register 0 is the first stack word.
         header[39 + reg] = menuRamArray[1][(ayStack + (reg * 2) + 1)];
     }
-    header[86] = spectrumPort1ffd;
+    header[86] = spectrumBank678;
     return stateWriteBytes(header, sizeof(header));
 }
 
@@ -245,25 +244,6 @@ bool stateReadFile(uint8_t slot, const char* filename,
     return success;
 }
 
-uint8_t stateGetDivMmcRamBank()
-{
-    for (uint8_t bank = 0; bank < RAM_PAGE_COUNT; ++bank)
-    {
-        if (divMmcRamPtr == divMmcRamArray[bank])
-        {
-            return bank;
-        }
-    }
-    for (uint8_t bank = 0; bank < EXT_RAM_PAGE_COUNT; ++bank)
-    {
-        if (divMmcRamPtr == divMmcExtRamArray[bank])
-        {
-            return RAM_PAGE_COUNT + bank;
-        }
-    }
-    return 0;
-}
-
 void stateCaptureDeviceData(void* data)
 {
     state_device_data_t* state = (state_device_data_t*)data;
@@ -273,9 +253,8 @@ void stateCaptureDeviceData(void* data)
     state->size = sizeof(*state);
     state->romPaged = romPaged & ~((1UL << ROM_MENU) | (1UL << ROM_SNA));
     state->romArrayPresent = romArrayPresent;
-    state->divMmcRamBank = stateGetDivMmcRamBank();
-    state->mf128VideoRam = mf128VideoRam;
-    state->spectrumPort1ffd = spectrumPort1ffd;
+    state->spectrumBankM = spectrumBankM;
+    state->spectrumBank678 = spectrumBank678;
     state->spectrumBorder = spectrumBorder;
     state->rom1Paged = rom1Paged;
     state->rom23Paged = rom23Paged;
@@ -286,7 +265,7 @@ void stateCaptureDeviceData(void* data)
     state->divMmcAutoMap = divMmcAutoMap;
     state->divMmcConMem = divMmcConMem;
     state->divMmcMapRam = divMmcMapRam;
-    state->divMmcRamBankThree = divMmcRamBankThree;
+    state->divMmcRamBank = divMmcRamBank;
     state->divMmcExtRamEnabled = divMmcExtRamEnabled;
     state->mf128Enabled = mf128Enabled;
     state->mf128ActiveNMI = mf128ActiveNMI;
@@ -366,7 +345,7 @@ bool stateBeginSave(uint8_t slot)
         // determine if a 48K or 128K snapshot is needed
         uint8_t stateMode = menuRamArray[0][MEM_MODE];
         stateSave128 = (stateMode == Z80_MODE_128);
-        if ((spectrumPort1ffd & 0x01) != 0)
+        if ((spectrumBank678 & 0x01) != 0)
         {
             // +3 All-Ram mode is not supported
             return false;
@@ -555,7 +534,7 @@ void stateApplyDeviceData()
     romPaged = stateRestoreDevice.romPaged;
     rom1Paged = stateRestoreDevice.rom1Paged;
     rom23Paged = stateRestoreDevice.rom23Paged;
-    spectrumPort1ffd = stateRestoreDevice.spectrumPort1ffd;
+    spectrumBank678 = stateRestoreDevice.spectrumBank678;
     spectrumBorder = stateRestoreDevice.spectrumBorder;
     interface1Enabled = stateRestoreDevice.interface1Enabled;
     divMmcEnabled = stateRestoreDevice.divMmcEnabled;
@@ -566,7 +545,7 @@ void stateApplyDeviceData()
     divMmcMapRam = stateRestoreDevice.divMmcMapRam;
     divMmcExtRamEnabled = stateRestoreDevice.divMmcExtRamEnabled;
     mf128Enabled = stateRestoreDevice.mf128Enabled;
-    mf128VideoRam = stateRestoreDevice.mf128VideoRam;
+    spectrumBankM = stateRestoreDevice.spectrumBankM;
     mf128ActiveNMI = stateRestoreDevice.mf128ActiveNMI;
     zxC2Present = stateRestoreDevice.zxC2Present;
     zxC3Present = stateRestoreDevice.zxC3Present;
@@ -590,14 +569,14 @@ void stateApplyDeviceData()
     }
 
     // Restore the DivMMC RAM pointer
-    uint8_t bank = stateRestoreDevice.divMmcRamBank;
-    divMmcRamBankThree = (bank == 3);
-    if ((bank >= RAM_PAGE_COUNT) &&
-        (bank < (RAM_PAGE_COUNT + EXT_RAM_PAGE_COUNT)))
+    divMmcRamBank = stateRestoreDevice.divMmcRamBank;
+    if (divMmcExtRamEnabled && (divMmcRamBank >= RAM_PAGE_COUNT))
     {
-        divMmcRamPtr = divMmcExtRamArray[bank - RAM_PAGE_COUNT];
+        divMmcRamPtr = divMmcExtRamArray[(divMmcRamBank - RAM_PAGE_COUNT)];
+        divMmcRamBankThree = false;
     } else {
-        divMmcRamPtr = divMmcRamArray[bank & (RAM_PAGE_COUNT - 1)];
+        divMmcRamPtr = divMmcRamArray[divMmcRamBank & (RAM_PAGE_COUNT - 1)];
+        divMmcRamBankThree = ((divMmcRamBank == 0x03) ? 1 : 0);
     }
 
     // Page in ROMs
@@ -679,7 +658,7 @@ void stateOnTick()
         stateLoadActive = false;
     }
 
-    if (stateSaveActive && stateSaveBlockPending)
+    if (stateSaveBlockPending)
     {
         stateSaveBlockPending = false;
         uint8_t block = stateSaveBlockValue;
