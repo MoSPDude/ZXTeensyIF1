@@ -2739,7 +2739,10 @@ FASTRUN void isrWrEvent()
                 } else if ((gpioSix & A12_PIN_BITMASK) != 0x0)
                 {
                     // Detect 0x1ffd write access for +3 ROMs
-                    spectrumBank678 = data;
+                    if (!IS_ROM_PAGED(ROM_MENU))
+                    {
+                        spectrumBank678 = data;
+                    }
                     if (rom1Present && rom23Present)
                     {
                         rom23Paged = ((data & 0x04) != 0);
@@ -2865,7 +2868,7 @@ FASTRUN void isrWrEvent()
                             divMmcRamBankThree = false;
                         } else {
                             divMmcRamPtr = divMmcRamArray[data & (RAM_PAGE_COUNT - 1)];
-                            divMmcRamBankThree = ((data == 0x03) ? 1 : 0);
+                            divMmcRamBankThree = ((data == 0x03) ? true : false);
                         }
                         updateRomIndex(true);
                     }

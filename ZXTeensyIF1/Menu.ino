@@ -1598,6 +1598,8 @@ bool menuPerformSelection(uint8_t index)
             if (entryIndex >= 0x10)
             {
                 // Load the selected slot
+                // Clear the configuration name as this changes configuration
+                cfgData.cfgName[0] = 0;
                 stateActiveSlot = (entryIndex & 0x0F);
                 menuConfigChanged = true;
                 menuSaveConfiguration();
@@ -1622,6 +1624,8 @@ bool menuPerformSelection(uint8_t index)
         case MENU_ACTION_IN_GAME_HARD_RESET :
             // These actions require additional NMI or reset handling
             stateActiveSlot = -1;
+            menuConfigChanged = true;
+            menuSaveConfiguration();
             return true;
         case MENU_ACTION_IN_GAME_SAVE_STATE :
             stateSaveSlot = entryIndex;

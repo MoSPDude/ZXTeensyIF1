@@ -498,13 +498,15 @@ void stateApplyConfiguration()
     bootIntoMenu = stateRestoreDevice.bootIntoMenu;
     menuEnableInGame = stateRestoreDevice.menuEnableInGame;
     memcpy(&cfgData, &stateRestoreDevice.cfgData, sizeof(cfgData));
-    cfgData.cfgName[MAX_PATH - 1] = 0;
     cfgData.romName[MAX_PATH - 1] = 0;
     cfgData.divMmcSdaPath[MAX_PATH - 1] = 0;
     cfgData.divMmcSdbPath[MAX_PATH - 1] = 0;
     cfgData.dskFdaPath[MAX_PATH - 1] = 0;
     cfgData.dskFdbPath[MAX_PATH - 1] = 0;
     cfgData.modemUrl[MAX_PATH - 1] = 0;
+
+    // Clear the configuration name as this changes configuration
+    cfgData.cfgName[0] = 0;
 }
 
 void stateApplyDeviceData()
@@ -576,7 +578,7 @@ void stateApplyDeviceData()
         divMmcRamBankThree = false;
     } else {
         divMmcRamPtr = divMmcRamArray[divMmcRamBank & (RAM_PAGE_COUNT - 1)];
-        divMmcRamBankThree = ((divMmcRamBank == 0x03) ? 1 : 0);
+        divMmcRamBankThree = ((divMmcRamBank == 0x03) ? true : false);
     }
 
     // Page in ROMs
@@ -648,9 +650,10 @@ void stateOnTick()
             restored = true;
         }
 
-        // Clear the restore slot on success
+        // Update the quick save slot, and clear the restore slot
         if (restored)
         {
+            stateSaveSlot = stateActiveSlot;
             stateActiveSlot = -1;
             menuConfigChanged = true;
             menuSaveConfiguration();
