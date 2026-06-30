@@ -134,55 +134,63 @@ uint32_t simplelz(uint8_t* fload, uint8_t* store, uint32_t filesize) {
     return store_p - store;
 }
 
-uint8_t convertZ80toROM(File file, uint8_t* store, uint8_t* main, bool snap)
-{
-    int i = 0;
     // loader machine code
-#define romReg_brd 34    // Border Colour
-#define romReg_ffff 87    // restore 0xffff
-#define romReg_fffd 121    // last OUT to 0xfffd
-#define romReg_out 127    // last OUT to 0x7ffd
-#define romReg_sp 147    // SP
-#define romReg_jp 152    // jump into screen or stack
-#define romReg_ay 154    // 16 AY Registers (39 - 54)
-#define romReg_bca 170    // BC'
-#define romReg_dea 172    // DE'
-#define romReg_hla 174    // HL'
-#define romReg_ix 176    // IX
-#define romReg_iy 178    // IY
-#define romReg_afa 180    // AF' (F',A')
-#define romReg_hl 182    // HL
-#define romReg_de 184    // DE
-#define romReg_bc 186    // BC
+#define romReg_brd 34   // Border Colour
+#define romReg_ffff 87  // restore 0xffff
+#define romReg_fffd 121 // last OUT to 0xfffd
+#define romReg_out 127  // last OUT to 0x7ffd
+#define romReg_sp 147   // SP
+#define romReg_jp 152   // Hard coded to 0x3FF4, as z80FinalLoader location
+#define romReg_ay 154   // 16 AY Registers (39 - 54)
+#define romReg_bca 170  // BC'
+#define romReg_dea 172  // DE'
+#define romReg_hla 174  // HL'
+#define romReg_ix 176   // IX
+#define romReg_iy 178   // IY
+#define romReg_afa 180  // AF' (F',A')
+#define romReg_hl 182   // HL
+#define romReg_de 184   // DE
+#define romReg_bc 186   // BC
 #define romReg_f 188    // F
 #define romReg_r 189    // R
 #define romReg_bnks 229 // 128k banks if needed
 #define romReg_len 236
-    uint8_t romReg[] = { 0xf3,0x3e,0x80,0xed,0x47,0xaf,0xd3,0xfe,0x21,0x00,0x58,0x77,0x54,0x1e,0x01,0x01,
-                         0xff,0x02,0xed,0xb0,0x21,0xbe,0x00,0x16,0x60,0x01,0x2e,0x00,0xed,0xb0,0xc3,0x00,
-                         0x60,0x3e,0x00,0xd3,0xfe,0x31,0x00,0x00,0x21,0xec,0x00,0x11,0x00,0x40,0x43,0x18,
-                         0x0d,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0xed,0x4d,0x3c,0x4f,0xed,0xb0,0x7e,0x23,
-                         0xfe,0x80,0x28,0x12,0x38,0xf4,0xd6,0x7e,0x4e,0x23,0xe5,0x62,0x6b,0xed,0x42,0x2b,
-                         0x4f,0xed,0xb0,0xe1,0x18,0xe8,0x21,0x00,0x00,0xe5,0x31,0x9a,0x00,0x01,0xfd,0xff,
-                         0xaf,0xe1,0xed,0x79,0x3c,0x06,0xbf,0xed,0x69,0x06,0xff,0xed,0x79,0x3c,0x06,0xbf,
-                         0xed,0x61,0xfe,0x10,0x06,0xff,0x20,0xe9,0x3e,0x00,0xed,0x79,0x06,0x7f,0x3e,0x30,
-                         0xed,0x79,0xd9,0xc1,0xd1,0xe1,0xd9,0xdd,0xe1,0xfd,0xe1,0x08,0xf1,0x08,0xe1,0xd1,
-                         0xc1,0xf1,0x31,0x00,0x00,0xed,0x4f,0xc3,0xf5,0x57,0x00,0x00,0x00,0x00,0x00,0x00,
-                         0x00,0xff,0x00,0x00,0x00,0x00,0x00,0x00,0xbf,0x00,0x00,0xff,0x00,0xff,0x1a,0xf8,
-                         0xf1,0xe3,0x3a,0x5c,0x8a,0x00,0x4c,0x10,0xcc,0x43,0x00,0x00,0x00,0x02,0x3a,0xff,
-                         0x3f,0xd9,0x11,0x00,0x80,0x01,0x00,0x40,0x61,0x6c,0xed,0xb0,0xd9,0x21,0x27,0x60,
-                         0x01,0xfd,0x7f,0x7e,0x23,0xb7,0xca,0x21,0x00,0xed,0x79,0xd9,0x44,0x65,0x16,0xc0,
-                         0xed,0xb0,0xd9,0x18,0xee,0x30,0x00,0x13,0x14,0x16,0x17,0x00 };
- // 236bytes
-// small code either in stack or screen
-#define pcReg_im 6    // Interupt Mode
-#define pcReg_a 8     // A
-#define pcReg_ei 9    // DI or EI
-#define pcReg_jp 11    // PC
-#define pcReg_len 13
-    uint8_t pcReg[] = { 0x3a,0xff,0x3f,0xed,0x47,0xed,0x5e,0x3e,0x00,0xfb,0xc3,0xb7,0xd9 };
-    uint8_t romReg_i = 0x00;
-//
+const uint8_t PROGMEM z80FirstLoader[romReg_len] = {
+    0xf3,0x3e,0x80,0xed,0x47,0xaf,0xd3,0xfe,0x21,0x00,0x58,0x77,0x54,0x1e,0x01,0x01,
+    0xff,0x02,0xed,0xb0,0x21,0xbe,0x00,0x16,0x60,0x01,0x2e,0x00,0xed,0xb0,0xc3,0x00,
+    0x60,0x3e,0x00,0xd3,0xfe,0x31,0x00,0x00,0x21,0xec,0x00,0x11,0x00,0x40,0x43,0x18,
+    0x0d,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0xed,0x4d,0x3c,0x4f,0xed,0xb0,0x7e,0x23,
+    0xfe,0x80,0x28,0x12,0x38,0xf4,0xd6,0x7e,0x4e,0x23,0xe5,0x62,0x6b,0xed,0x42,0x2b,
+    0x4f,0xed,0xb0,0xe1,0x18,0xe8,0x21,0x00,0x00,0xe5,0x31,0x9a,0x00,0x01,0xfd,0xff,
+    0xaf,0xe1,0xed,0x79,0x3c,0x06,0xbf,0xed,0x69,0x06,0xff,0xed,0x79,0x3c,0x06,0xbf,
+    0xed,0x61,0xfe,0x10,0x06,0xff,0x20,0xe9,0x3e,0x00,0xed,0x79,0x06,0x7f,0x3e,0x30,
+    0xed,0x79,0xd9,0xc1,0xd1,0xe1,0xd9,0xdd,0xe1,0xfd,0xe1,0x08,0xf1,0x08,0xe1,0xd1,
+    0xc1,0xf1,0x31,0x00,0x00,0xed,0x4f,0xc3,0xf4,0x3f,0x00,0x00,0x00,0x00,0x00,0x00,
+    0x00,0xff,0x00,0x00,0x00,0x00,0x00,0x00,0xbf,0x00,0x00,0xff,0x00,0xff,0x1a,0xf8,
+    0xf1,0xe3,0x3a,0x5c,0x8a,0x00,0x4c,0x10,0xcc,0x43,0x00,0x00,0x00,0x02,0x3a,0xff,
+    0x3f,0xd9,0x11,0x00,0x80,0x01,0x00,0x40,0x61,0x6c,0xed,0xb0,0xd9,0x21,0x27,0x60,
+    0x01,0xfd,0x7f,0x7e,0x23,0xb7,0xca,0x21,0x00,0xed,0x79,0xd9,0x44,0x65,0x16,0xc0,
+    0xed,0xb0,0xd9,0x18,0xee,0x30,0x00,0x13,0x14,0x16,0x17,0x00 };
+
+#define pcReg_i 1
+#define pcReg_im 5    // Interupt Mode
+#define pcReg_a 7     // A
+#define pcReg_ei 8    // DI or EI
+#define pcReg_jp 10    // PC
+#define pcReg_len 12
+const uint8_t PROGMEM z80FinalLoader[pcReg_len] = {
+    0x3e,0x3f,0xed,0x47,0xed,0x5e,0x3e,0x00,0xfb,0xc3,0xb7,0xd9 };
+
+uint8_t convertZ80toROM(File file, uint8_t* store, uint8_t* main, bool snap)
+{
+    // Transfer the first and final loader directly into the ROM
+    int i = 0;
+    uint8_t* const romReg = store;
+    uint8_t* const pcReg = &(store[(ROM_PAGE_SIZE - pcReg_len)]); // 0x3FF4
+    memcpy(romReg, z80FirstLoader, romReg_len);
+    memcpy(pcReg, z80FinalLoader, pcReg_len);
+
+    // Start to load the snapshot
     file.seek(0, SeekEnd); // jump to the end of the file to get the length
     int filesize = file.position(); // get the file size
     file.seek(0, SeekSet);
@@ -197,7 +205,7 @@ uint8_t convertZ80toROM(File file, uint8_t* store, uint8_t* main, bool snap)
         if (filesize < 49179) return 0;
         if (filesize >= 131103) otek = 1; // 128k snapshot
         //    $00  I    Interrupt register
-        romReg_i = file.read();
+        pcReg[pcReg_i] = file.read();
         //    $01  HL'
         romReg[romReg_hla] = file.read();
         romReg[romReg_hla + 1] = file.read();
@@ -205,9 +213,9 @@ uint8_t convertZ80toROM(File file, uint8_t* store, uint8_t* main, bool snap)
         romReg[romReg_dea] = file.read();
         romReg[romReg_dea + 1] = file.read();
         // check this is a SNA snapshot
-        if (romReg_i == 'M' && romReg[romReg_hla] == 'V' &&
+        if (pcReg[pcReg_i] == 'M' && romReg[romReg_hla] == 'V' &&
             romReg[romReg_hla + 1] == ' ' && romReg[romReg_dea] == '-') return 0;
-        if (romReg_i == 'Z' && romReg[romReg_hla] == 'X' &&
+        if (pcReg[pcReg_i] == 'Z' && romReg[romReg_hla] == 'X' &&
             romReg[romReg_hla + 1] == '8' && romReg[romReg_dea] == '2') return 0;
         //    $05  BC'
         romReg[romReg_bca] = file.read();
@@ -282,7 +290,7 @@ uint8_t convertZ80toROM(File file, uint8_t* store, uint8_t* main, bool snap)
         romReg[romReg_sp] = file.read();
         romReg[romReg_sp + 1] = file.read();
         //    10      1       Interrupt register
-        romReg_i = file.read();
+        pcReg[pcReg_i] = file.read();
         //    11      1       Refresh register (Bit 7 is not significant!)
         c = file.read();
         romReg[romReg_r] = c;
@@ -556,70 +564,22 @@ uint8_t convertZ80toROM(File file, uint8_t* store, uint8_t* main, bool snap)
             bankend--;
         } while (bankend);
     }
-    //
-    //              12345678901234567890123456789012345678901234567890123456789012345678901234567890
-    //                         1         2         3         4         5         6         7         8
-    //fprintf(stdout,"  /----------------------------------------------------------------------------\\\n");
-    /*fprintf(stdout," /|af$%02x%02x af'$%02x%02x hl$%02x%02x hl'$%02x%02x bc$%02x%02x bc'$%02x%02x de$%02x%02x de'$%02x%02x ix$%02x%02x |\n",
-        pcReg[pcReg_a],romReg[romReg_f],romReg[romReg_afa+1],romReg[romReg_afa],
-        romReg[romReg_hl+1],romReg[romReg_hl],romReg[romReg_hla+1],romReg[romReg_hla],
-        romReg[romReg_bc+1],romReg[romReg_bc],romReg[romReg_bca+1],romReg[romReg_bca],
-        romReg[romReg_de+1],romReg[romReg_de],romReg[romReg_dea+1],romReg[romReg_dea],
-        romReg[romReg_ix+1],romReg[romReg_ix]);*/
-    /*fprintf(stdout,"/ |iy$%02x%02x brd$%02x ",romReg[romReg_iy+1],romReg[romReg_iy],romReg[romReg_brd]);
-    if (pcReg[pcReg_ei] == 0xf3) fprintf(stdout,"di ");    //di
-    else fprintf(stdout,"ei ");    //ei
-    if (pcReg[pcReg_im] == 0x46) fprintf(stdout,"im0 "); //im 0
-    else if (pcReg[pcReg_im] == 0x56) fprintf(stdout,"im1 "); //im 1
-    else fprintf(stdout,"im2 "); // im 2*/
-    //fprintf(stdout,"ir$%02x%02x pc$%02x%02x sp$%02x%02x ",romReg_i,romReg[romReg_r],pcReg[pcReg_jp + 1],pcReg[pcReg_jp],romReg[romReg_sp+1],romReg[romReg_sp]);
-    if (romReg[romReg_r] < 9)
+
+    // Compress Bank 5 to check for room for loaders
+    rrrr cmsize;
+    cmsize.rrrr = simplelz(main, &store[romReg_len], ROM_PAGE_SIZE);
+    if (cmsize.rrrr >= (ROM_PAGE_SIZE - (romReg_len + pcReg_len + 1)))
     {
-        romReg[romReg_r] += 119;
-    } else {
-        romReg[romReg_r] -= 9; // so it is correct on launch
+        return 0;
     }
-    // where to put the final loader?
-    uint16_t stackPos = (romReg[romReg_sp + 1] << 8) + romReg[romReg_sp];
-    uint16_t pcPos = (pcReg[pcReg_jp + 1] << 8) + pcReg[pcReg_jp];
-    if ((stackPos > pcPos) && ((stackPos - pcPos) < 32))
-    {
-        if ((stackPos < ROM_PAGE_SIZE) && (stackPos >= (ROM_PAGE_SIZE - pcReg_len)))
-        {
-            // Final loader at 0x4000, in screen
-            for (i = 0; i < pcReg_len; i++) {
-                main[i] = pcReg[i];
-            }
-            romReg[romReg_jp + 1] = 0x40;
-            romReg[romReg_jp] = 0x00;
-        }
-        else {
-            // Final loader under 0x5800, in screen
-            for (i = 0; i < pcReg_len; i++) {
-                main[(0x1800 - pcReg_len) + i] = pcReg[i];
-            }
-            romReg[romReg_jp + 1] = 0x57;
-            romReg[romReg_jp] = (0x100 - pcReg_len);
-        }
-    } else {
-        // Final loader in stack
-        stackPos -= pcReg_len;
-        for (i = 0; i < pcReg_len; i++) {
-            main[stackPos - ROM_PAGE_SIZE + i] = pcReg[i];
-        }
-        romReg[romReg_jp + 1] = (stackPos >> 8);
-        romReg[romReg_jp] = stackPos - (romReg[romReg_jp] << 8);
-    }
-    /*if(otek) {
-        fprintf(stdout,"  |128k -> 7ffd$%02x fffd$%02x ay",romReg[romReg_out],romReg[romReg_fffd]);
-        for(i=0;i<16;i++) fprintf(stdout,"$%02x",romReg[romReg_ay+i]);
-        fprintf(stdout,"  |\n");
-    }*/
-    //fprintf(stdout,"  |----------------------------------------------------------------------------|\n");
-    //              12345678901234567890123456789012345678901234567890123456789012345678901234567890
-    //                         1         2         3         4         5         6         7         8
-    //
-    // compress every page and write out with
+
+    // Correct R by the 9 cycles to perform "LD R, A"
+    // NOTE: Bits 6:0 are the counter, preserve bit 7 as read
+    uint8_t regMSB = romReg[romReg_r] & 0x80;
+    romReg[romReg_r] = (romReg[romReg_r] - 9) & 0x7F;
+    romReg[romReg_r] |= regMSB;
+
+    // Update first loader with number of banks
     uint8_t banks = 3;
     if (otek) {
         banks = 8;
@@ -629,20 +589,8 @@ uint8_t convertZ80toROM(File file, uint8_t* store, uint8_t* main, bool snap)
     uint32_t size = banks * ROM_PAGE_SIZE;
     romReg[romReg_ffff] = main[size - 2];
     romReg[romReg_ffff + 1] = main[size - 1];
-    //
-    rrrr cmsize;
-    memcpy(store, romReg, romReg_len);
-    cmsize.rrrr = simplelz(main, &store[romReg_len], 16384);
-    //fprintf(stdout, "  |ROM 0   (16384- 32767) Compressing Bank 5 (%5dbytes) + Loader (%3dbytes)  |\n", cmsize.rrrr, romReg_len);
-    if (cmsize.rrrr >= (16384 - (romReg_len+1)))
-    {
-        return 0;
-    }
-    store[0x3fff] = romReg_i; // put i at end of ROM
-    //
-    //fprintf(stdout, "  |ROM 1,2 (32768- 65535) Copying Banks 2 & 0                                  |\n");
-    //if (otek) fprintf(stdout, "  |ROM 3-7 (65536-131071) Copying Banks 1,3,4,6 & 7                            |\n");
-    //fprintf(stdout,"\\ |----------------------------------------------------------------------------|\n");
+
+    // Store remaining banks
     for (i = 1; i < banks; i++) {
         memcpy(&(store[(ROM_PAGE_SIZE * i)]), &(main[(ROM_PAGE_SIZE * i)]), ROM_PAGE_SIZE);
     }
