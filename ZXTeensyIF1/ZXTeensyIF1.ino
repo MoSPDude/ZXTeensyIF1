@@ -1008,14 +1008,16 @@ bool loadSnapshotFile(File RomFile, bool isSnaFile)
     if (RomFile)
     {
         snaLoaderBanks = convertZ80toROM(RomFile, (uint8_t*)divMmcExtRamArray[0],
-            (uint8_t*)divMmcExtRamArray[(EXT_RAM_PAGE_COUNT - RAM_PAGE_COUNT)],
-            isSnaFile);
+            (uint8_t*)divMmcExtRamArray[RAM_PAGE_COUNT], isSnaFile);
         if (snaLoaderBanks > 0)
         {
             snaLoaderBanks <<= 1;
             snaLoaderPresent = true;
             divMmcExtRamEnabled = false;
             romArrayPresent |= BANK_RAM;
+
+            // Copy the loader for final stage into scratch RAM
+            memcpy((void*)menuRamArray[2], (void*)divMmcExtRamArray[0], ROM_PAGE_SIZE);
         }
         RomFile.close();
     }

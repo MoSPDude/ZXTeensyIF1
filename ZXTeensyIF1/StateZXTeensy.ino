@@ -657,9 +657,6 @@ bool stateLoadOnStartup()
             stateApplyConfiguration();
             stateLoadActive = true;
             restored = true;
-
-            // Copy the loader into scratch RAM
-            memcpy((void*)menuRamArray[2], (void*)divMmcExtRamArray[0], ROM_PAGE_SIZE);
         }
     }
     if (!restored)
