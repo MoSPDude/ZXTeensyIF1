@@ -427,6 +427,7 @@ inline void sdSpiOnTick() __attribute__((always_inline, hot, optimize("O3")));
 inline void zxC3OnTick() __attribute__((always_inline, hot, optimize("O3")));
 
 // Optimised read ISR ROM functions
+void stateLoaderFinished(bool onPageOut) __attribute__((optimize("O3")));
 inline void updateRomPtr(bool pageNow) __attribute__((always_inline, hot, optimize("O3")));
 inline void updateRomIndex(bool pageNow) __attribute__((always_inline, hot, optimize("O3")));
 inline void writeRomData(uint16_t address) __attribute__((always_inline, hot, optimize("O3")));
@@ -1511,15 +1512,15 @@ void handleStateResetEntry()
                     menuEnableInGame = false;
                 }
 
-                // Load Spectrum ROM
-                loadSpectrumRomFile();
-
-                // Attempt to restore directly into any active save state
+                // Attempt to restore directly into any active saved state
                 if (!isButtonHeld && (stateActiveSlot >= 0) &&
                     !digitalReadFast(ROMCS_IN_PIN))
                 {
                     stateStartLoad = stateLoadOnStartup();
                 }
+
+                // Load Spectrum ROM
+                loadSpectrumRomFile();
                 if (!stateStartLoad)
                 {
                     // Load the configured foreground ROM
@@ -2284,7 +2285,12 @@ inline void updateRomPtr(bool pageNow)
                 romPtr = divMmcExtRamArray[zxC2BankPtr];
                 break;
             case ROM_SNA :
-                romPtr = divMmcExtRamArray[zxC2BankPtr];
+                if (snaLoaderBanks > 0)
+                {
+                    romPtr = divMmcExtRamArray[zxC2BankPtr];
+                } else {
+                    romPtr = menuRamArray[2];
+                }
                 break;
             case ROM_MENU :
                 romPtr = romArray[ROM_PAGE_MENU];
@@ -2663,10 +2669,12 @@ FASTRUN void isrWrEvent()
                         {
                             zxC2BankPtr = 0;
                             snaLoaderBanks = 0;
+                            stateLoaderFinished(false);
                         }
                     } else {
                         PAGE_OUT_ROM(ROM_SNA);
-                        stateLoaderFinished();
+                        stateLoaderFinished(true);
+                        snaLoaderPresent = false;
                     }
                     updateRomIndex(true);
                 }
@@ -3242,11 +3250,13 @@ FASTRUN void isrRdEvent()
                     {
                         zxC2BankPtr = 0;
                         snaLoaderBanks = 0;
+                        stateLoaderFinished(false);
                     }
                     updateRomPtr(false);
                 } else {
                     PAGE_OUT_ROM(ROM_SNA);
-                    stateLoaderFinished();
+                    stateLoaderFinished(true);
+                    snaLoaderPresent = false;
                     updateRomIndex(false);
                 }
             }

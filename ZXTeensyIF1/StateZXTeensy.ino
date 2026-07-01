@@ -244,6 +244,31 @@ bool stateReadFile(uint8_t slot, const char* filename,
     return success;
 }
 
+bool stateReadDivMmcExtRam(uint8_t slot)
+{
+    // NOTE: The Z80 loader resides in the first 128K of divMmcExtRamArray,
+    // and will be replaced in the final loader stage
+    static const size_t preservedSize = (RAM_PAGE_COUNT * RAM_PAGE_SIZE);
+    static const size_t restoreSize = (RAM_PAGE_SIZE *
+        (EXT_RAM_PAGE_COUNT - RAM_PAGE_COUNT));
+
+    bool success = false;
+    char path[MAX_PATH];
+    stateBuildSlotPath(path, slot, "DIVEXT.BIN");
+    File file = SD.open(path, FILE_READ);
+    if (file)
+    {
+        if (file.seek(preservedSize, SeekSet) &&
+            (file.read((uint8_t*)divMmcExtRamArray[RAM_PAGE_COUNT],
+                restoreSize) >= restoreSize))
+        {
+            success = true;
+        }
+        file.close();
+    }
+    return success;
+}
+
 void stateCaptureDeviceData(void* data)
 {
     state_device_data_t* state = (state_device_data_t*)data;
@@ -528,12 +553,8 @@ void stateApplyDeviceData()
     divMmcSpi.setSdIdle(stateRestoreDevice.divMmcSpiSdIdle);
     divMmcHdf.setSdIdle(stateRestoreDevice.divMmcHdfSdIdle);
     divMmcSecondHdf.setSdIdle(stateRestoreDevice.divMmcSecondHdfSdIdle);
-    snaLoaderPresent = false;
 
-    // Restore ROM banking and peripheral state
-    romArrayPresent = (romArrayPresent & ~BANK_RAM) |
-        (stateRestoreDevice.romArrayPresent & BANK_RAM);
-    romPaged = stateRestoreDevice.romPaged;
+    // Restore peripheral stated
     rom1Paged = stateRestoreDevice.rom1Paged;
     rom23Paged = stateRestoreDevice.rom23Paged;
     spectrumBank678 = stateRestoreDevice.spectrumBank678;
@@ -580,9 +601,6 @@ void stateApplyDeviceData()
         divMmcRamPtr = divMmcRamArray[divMmcRamBank & (RAM_PAGE_COUNT - 1)];
         divMmcRamBankThree = ((divMmcRamBank == 0x03) ? true : false);
     }
-
-    // Page in ROMs
-    updateRomIndex(true);
 }
 
 bool stateReadDeviceData(uint8_t slot)
@@ -598,11 +616,24 @@ bool stateReadDeviceData(uint8_t slot)
     return false;
 }
 
-void stateLoaderFinished()
+void stateLoaderFinished(bool onPageOut)
 {
     if (stateLoadActive)
     {
-        stateLoadFinalStage = true;
+        if (onPageOut)
+        {
+            // Restore final ROM banking state
+            // Snapshot loader is being paged out, as fully completed
+            romArrayPresent = (romArrayPresent & ~BANK_RAM) |
+                (stateRestoreDevice.romArrayPresent & BANK_RAM);
+            romPaged = stateRestoreDevice.romPaged;
+
+            // Snapshot loader completed
+            stateLoadActive = false;
+        } else {
+            // Loader is entering final stage
+            stateLoadFinalStage = true;
+        }
     }
 }
 
@@ -619,11 +650,16 @@ bool stateLoadOnStartup()
             stateReadFile(stateActiveSlot, "DIVRAM.BIN", divMmcRamArray,
                 (RAM_PAGE_COUNT * RAM_PAGE_SIZE)) &&
             stateReadFile(stateActiveSlot, "MFRAM.BIN",
-                &romArray[ROM_PAGE_MF128][RAM_PAGE_SIZE], RAM_PAGE_SIZE))
+                &romArray[ROM_PAGE_MF128][RAM_PAGE_SIZE], RAM_PAGE_SIZE) &&
+            stateReadDivMmcExtRam(stateActiveSlot))
         {
+            // Apply the saved configuration
             stateApplyConfiguration();
             stateLoadActive = true;
             restored = true;
+
+            // Copy the loader into scratch RAM
+            memcpy((void*)menuRamArray[2], (void*)divMmcExtRamArray[0], ROM_PAGE_SIZE);
         }
     }
     if (!restored)
@@ -640,25 +676,33 @@ void stateOnTick()
         bool restored = false;
         stateLoadFinalStage = false;
 
-        // Restore the DivMMC RAM used by the Z80 loader, then restore ROM
-        // banking and peripheral state
+        // Restore the DivMMC RAM used by the Z80 loader
         if (beginSdfsSd() &&
             stateReadFile(stateActiveSlot, "DIVEXT.BIN", divMmcExtRamArray,
-                (EXT_RAM_PAGE_COUNT * RAM_PAGE_SIZE)))
+                (RAM_PAGE_COUNT * RAM_PAGE_SIZE)))
         {
-            stateApplyDeviceData();
             restored = true;
         }
 
-        // Update the quick save slot, and clear the restore slot
+        // Update the quick save slot on success
         if (restored)
         {
             stateSaveSlot = stateActiveSlot;
-            stateActiveSlot = -1;
-            menuConfigChanged = true;
-            menuSaveConfiguration();
         }
-        stateLoadActive = false;
+
+        // Clear the restore saved state slot
+        stateActiveSlot = -1;
+        menuConfigChanged = true;
+
+        // Restore the banking and peripheral state
+        if (restored)
+        {
+            menuSaveConfiguration();
+            stateApplyDeviceData();
+        } else {
+            // Return to menu on final stage failure
+            setState(STATE_RESET_MENU);
+        }
     }
 
     if (stateSaveBlockPending)
