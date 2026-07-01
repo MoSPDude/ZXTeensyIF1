@@ -2002,6 +2002,13 @@ void menuInGameExitBasic()
     menuRamArray[1][(MEM_PC + 1)] = 0x0D;
     menuRamArray[1][MEM_PC] = 0x00;
 
+    // Ensure SP is in RAM, and not peripheral RAM
+    if (menuRamArray[1][(MEM_SP2 + 1)] <= 0x3F)
+    {
+        menuRamArray[1][(MEM_SP2 + 1)] = 0x7F;
+        menuRamArray[1][MEM_SP2] = 0x00;
+    }
+
     // Set IY to 0x5C3A for BASIC
     uint16_t baseAddress = (RAM_PAGE_SIZE - 1) & (0x20 +
         (menuRamArray[1][(MEM_SPR + 1)] << 8) + menuRamArray[1][MEM_SPR]);

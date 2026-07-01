@@ -337,6 +337,8 @@ volatile uint8_t menuSelectedIndex = 0;
 RingBuffer<MENU_BUFFER_SIZE> menuBuffer;
 volatile DMAMEM uint8_t menuRamArray[MENU_PAGE_COUNT][RAM_PAGE_SIZE] __attribute__((aligned(16)));
 volatile uint8_t* menuRamPtr;
+volatile rom_select_t menuPrevRomSelected = ROM_ROM0;
+volatile uint8_t* menuPrevRomPtr;
 
 // DivMMC SPI/SD
 static const size_t READ_BUFFER_SIZE = 1024;
@@ -1538,6 +1540,8 @@ void handleStateResetEntry()
                         !digitalReadFast(ROMCS_IN_PIN) &&
                         ((romArrayPresent & BANK_MENU) != 0))
                     {
+                        menuPrevRomPtr = romArray[ROM_ROM0];
+                        menuPrevRomSelected = romSelected;
                         PAGE_IN_ROM(ROM_MENU);
                         menuRamPtr = menuRamArray[0];
                     }
@@ -2843,7 +2847,25 @@ FASTRUN void isrWrEvent()
                     if (IS_ROM_PAGED(ROM_MENU))
                     {
                         uint8_t data = readData();
-                        menuRamPtr = menuRamArray[data & (MENU_PAGE_COUNT - 1)];
+                        if (data < MENU_PAGE_COUNT)
+                        {
+                            menuRamPtr = menuRamArray[data];
+                        } else {
+                            // Menu scratch RAM page 4 is "paged out" to capture
+                            // PC in stack in peripheral RAM
+                            switch (menuPrevRomSelected)
+                            {
+                                case ROM_DIVMMC :
+                                    menuRamPtr = divMmcRamPtr;
+                                    break;
+                                case ROM_LPRINT :
+                                case ROM_MENU:
+                                    break;
+                                default :
+                                    menuRamPtr = &(menuPrevRomPtr[RAM_PAGE_SIZE]);
+                                    break;
+                            }
+                        }
                     } else {
                         mf128ActiveNMI = false;
                     }
@@ -3031,6 +3053,8 @@ FASTRUN void isrRdEvent()
 
                         // Directly page in the menu from any ROM, as highest
                         // priority
+                        menuPrevRomPtr = romPtr;
+                        menuPrevRomSelected = romSelected;
                         PAGE_IN_ROM(ROM_MENU);
                         romSelected = ROM_MENU;
                         romArraySelected = BANK_MENU;

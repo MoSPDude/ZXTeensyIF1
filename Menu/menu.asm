@@ -928,9 +928,13 @@ _nmiAySaveNext:
     ld (MEM_SPR),sp
     ; capture PC
     ld hl, (MEM_SP2)
+    ld a, 4
+    out (0xBF), a
     ld e, (hl)
     inc hl
     ld d, (hl)
+    ld a, 1
+    out (0xBF), a
     ld (MEM_PC), de
     ; detect interrupt mode 2
     xor a
@@ -1003,7 +1007,7 @@ _nmiMachineRestore:
 _nmiMachineDetected:
     ; change scratch RAM
     xor a
-    out (0xBF),a
+    out (0xBF), a
     ld a,e
     ld (MEM_MODE),a
     ; enter menu
@@ -1011,14 +1015,18 @@ _nmiMachineDetected:
 _nmiMenuExit:
     di
     ; change scratch RAM
-    ld a,1
-    out (0xBF),a
+    ld a, 1
+    out (0xBF), a
     ; modify PC
     ld hl, (MEM_SP2)
     ld de, (MEM_PC)
+    ld a, 4
+    out (0xBF), a
     ld (hl), e
     inc hl
     ld (hl), d
+    ld a, 1
+    out (0xBF), a
     ; restore screen from scratch RAM
     ld hl, MEM_SCR2
     ld de, MEM_SCR
