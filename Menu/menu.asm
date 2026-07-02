@@ -51,9 +51,9 @@ FLAGS       EQU 0x5C3B ; FLAGS system variable
     ld bc, 0x4000
     ld (hl), 0x00
     ldir
+_nmiMenuStart:
     ld a, %00000111 ; white border
     out (0xfe), a
-_nmiMenuStart:
     ld a, 0x80      ; set i to 0x80
     ld i, a
     ld sp, MEM_SP   ; stack pointer
