@@ -68,8 +68,7 @@ typedef enum {
 
 typedef struct {
     menu_action_t action;
-    uint8_t index;
-    const char* ptr;
+    uint32_t index;
 } menu_entry_t;
 
 typedef struct {
@@ -139,6 +138,18 @@ volatile menu_action_t menuAction;
 // Menu file browser
 char menuFileName[MAX_PATH];
 char browserPath[MAX_PATH];
+static const uint8_t BROWSER_ENTRY_LIMIT = 254;
+static const uint32_t BROWSER_PARENT_INDEX = 0xFFFFFFFFUL;
+
+typedef struct {
+    uint32_t dirIndex;
+    char sortKey[ROM_NAME_LEN];
+    bool isDirectory;
+} browser_sort_entry_t;
+
+int menuCompareBrowserFiles(const browser_sort_entry_t* first,
+    const browser_sort_entry_t* second);
+void menuSortBrowserFiles(browser_sort_entry_t* entries, uint8_t count);
 
 // Menu page creation
 uint8_t menuPage;
@@ -150,21 +161,17 @@ char menuDebugBuffer[MENU_DEBUG_SIZE];
 volatile size_t menuDebugIndex = 0;
 volatile bool menuHasDebug = false;
 
-void menuInsertEntry(menu_action_t action, uint8_t index, const char* ptr)
+void menuInsertEntry(menu_action_t action, uint32_t index)
 {
     menu[menuEntries].action = action;
     menu[menuEntries].index = index;
-
-    // The label pointer will be zero if the label has been truncated, or
-    // cannot be used (eg. non-printable characters)
-    menu[menuEntries].ptr = ptr;
     ++menuEntries;
 }
 
-char* menuInsertSetting(menu_action_t action, uint8_t index, char* ptr, const char* label,
+char* menuInsertSetting(menu_action_t action, uint32_t index, char* ptr, const char* label,
     bool checked)
 {
-    menuInsertEntry(action, index, 0);
+    menuInsertEntry(action, index);
     *ptr++ = (checked ? CHAR_TICK : CHAR_BORDER);
     unsigned int len = strlen(label);
     if (len > MENU_TXT_LEN)
@@ -344,30 +351,24 @@ char* menuInsertStatus(char* ptr)
         ptr, label, 0);
 }
 
-char* menuInsertFile(menu_action_t action, icon_type_t icon, uint8_t index, char* ptr,
+char* menuInsertFile(menu_action_t action, icon_type_t icon, uint32_t index, char* ptr,
     const char* filename)
 {
     // Truncate the file name
-    // NOTE: labelPtr will be zero if the name is truncated, or contains non-printable
-    // characters
     unsigned int len = strlen(filename);
-    const char* labelPtr;
     if (len > ROM_NAME_LEN)
     {
-        labelPtr = 0;
         for (size_t i = 0; i < (ROM_NAME_LEN - 1); ++i)
         {
             *ptr++ = (filename[i] >= 128) ? '?' : filename[i];
         }
         *ptr++ = '>';
     } else {
-        labelPtr = ptr;
         for (size_t i = 0; i < len; ++i)
         {
             if (filename[i] >= 128)
             {
                 *ptr++ = '?';
-                labelPtr = 0;
             } else {
                 *ptr++ = filename[i];
             }
@@ -375,7 +376,7 @@ char* menuInsertFile(menu_action_t action, icon_type_t icon, uint8_t index, char
     }
 
     // Add menu entry
-    menuInsertEntry(action, index, labelPtr);
+    menuInsertEntry(action, index);
 
     // Add icon
     switch (icon)
@@ -422,7 +423,7 @@ char* menuInsertFile(menu_action_t action, icon_type_t icon, uint8_t index, char
     return (ptr + 1);
 }
 
-char* menuAddLoadRomFile(uint8_t index, char* ptr, const char* filename)
+char* menuAddLoadRomFile(uint32_t index, char* ptr, const char* filename)
 {
     // Add check mark against active ROM
     *ptr++ = ((stricmp(filename, cfgData.romName) == 0) ? CHAR_TICK : CHAR_BORDER);
@@ -447,7 +448,7 @@ char* menuAddLoadRomFile(uint8_t index, char* ptr, const char* filename)
     return menuInsertFile(action, icon, index, ptr, filename);
 }
 
-char* menuAddMainFile(uint8_t index, char* ptr, const char* filename)
+char* menuAddMainFile(uint32_t index, char* ptr, const char* filename)
 {
     char name[MAX_PATH];
     strncpy(name, filename, MAX_PATH);
@@ -467,13 +468,13 @@ char* menuAddMainFile(uint8_t index, char* ptr, const char* filename)
     return ptr;
 }
 
-char* menuAddBrowserFile(uint8_t index, char* ptr, File entry)
+char* menuAddBrowserFile(uint32_t index, char* ptr, const char* filename,
+    bool isDirectory)
 {
     // Add directory icons, and find the file extension
     icon_type_t icon;
     menu_action_t action;
-    const char* filename = entry.name();
-    if (entry.isDirectory())
+    if (isDirectory)
     {
         *ptr++ = CHAR_DIR;
         icon = ICON_TYPE_NONE;
@@ -662,7 +663,7 @@ char* menuGenerateDebug(char* ptr)
         }
         if (i < MENU_DEBUG_SIZE)
         {
-            menuInsertEntry(MENU_ACTION_TOP_MENU, 0, 0);
+            menuInsertEntry(MENU_ACTION_TOP_MENU, 0);
             *ptr++ = CHAR_BORDER;
             for (size_t j = 0; j < (ROM_NAME_LEN + 3); ++j)
             {
@@ -749,7 +750,8 @@ char* menuGenerateNtpTz(char* ptr)
 
 char* menuGenerateBrowserOpenZXC2(char* ptr)
 {
-    ptr = menuInsertSetting(MENU_ACTION_BROWSER_CD, 0xFF, ptr, MENU_STRINGS[STRING_CANCEL], 0);
+    ptr = menuInsertSetting(MENU_ACTION_BROWSER_CD, BROWSER_PARENT_INDEX,
+        ptr, MENU_STRINGS[STRING_CANCEL], 0);
     ptr = menuInsertSetting(MENU_ACTION_BROWSER_LOAD_CART, 0, ptr, MENU_STRINGS[STRING_LOAD_ROM], 0);
     ptr = menuInsertSetting(MENU_ACTION_BROWSER_LOAD_ZXC2, 0, ptr, MENU_STRINGS[STRING_LOAD_ZXC2], 0);
     ptr = menuInsertSetting(MENU_ACTION_BROWSER_LOAD_ZXC3, 0, ptr, MENU_STRINGS[STRING_LOAD_ZXC3], 0);
@@ -758,7 +760,8 @@ char* menuGenerateBrowserOpenZXC2(char* ptr)
 
 char* menuGenerateBrowserMountDsk(char* ptr)
 {
-    ptr = menuInsertSetting(MENU_ACTION_BROWSER_CD, 0xFF, ptr, MENU_STRINGS[STRING_CANCEL], 0);
+    ptr = menuInsertSetting(MENU_ACTION_BROWSER_CD, BROWSER_PARENT_INDEX,
+        ptr, MENU_STRINGS[STRING_CANCEL], 0);
     ptr = menuInsertSetting(MENU_ACTION_BROWSER_MOUNT_FDA, 0, ptr, MENU_STRINGS[STRING_MOUNT_FDA], 0);
     ptr = menuInsertSetting(MENU_ACTION_BROWSER_MOUNT_FDB, 0, ptr, MENU_STRINGS[STRING_MOUNT_FDB], 0);
     return ptr;
@@ -766,7 +769,8 @@ char* menuGenerateBrowserMountDsk(char* ptr)
 
 char* menuGenerateBrowserMountHdf(char* ptr)
 {
-    ptr = menuInsertSetting(MENU_ACTION_BROWSER_CD, 0xFF, ptr, MENU_STRINGS[STRING_CANCEL], 0);
+    ptr = menuInsertSetting(MENU_ACTION_BROWSER_CD, BROWSER_PARENT_INDEX,
+        ptr, MENU_STRINGS[STRING_CANCEL], 0);
     ptr = menuInsertSetting(MENU_ACTION_BROWSER_MOUNT_SDA, 0, ptr, MENU_STRINGS[STRING_MOUNT_SDA], 0);
     ptr = menuInsertSetting(MENU_ACTION_BROWSER_MOUNT_SDB, 0, ptr, MENU_STRINGS[STRING_MOUNT_SDB], 0);
     return ptr;
@@ -774,7 +778,8 @@ char* menuGenerateBrowserMountHdf(char* ptr)
 
 char* menuGenerateBrowserOpen(char* ptr)
 {
-    ptr = menuInsertSetting(MENU_ACTION_BROWSER_CD, 0xFF, ptr, MENU_STRINGS[STRING_CANCEL], 0);
+    ptr = menuInsertSetting(MENU_ACTION_BROWSER_CD, BROWSER_PARENT_INDEX,
+        ptr, MENU_STRINGS[STRING_CANCEL], 0);
     ptr = menuInsertSetting(MENU_ACTION_BROWSER_LOAD_CART, 0, ptr, MENU_STRINGS[STRING_LOAD_ROM], 0);
     ptr = menuInsertSetting(MENU_ACTION_BROWSER_LOAD_ZXC2, 0, ptr, MENU_STRINGS[STRING_LOAD_ZXC2], 0);
     ptr = menuInsertSetting(MENU_ACTION_BROWSER_LOAD_ZXC3, 0, ptr, MENU_STRINGS[STRING_LOAD_ZXC3], 0);
@@ -794,38 +799,112 @@ char* menuGenerateBrowserOpen(char* ptr)
     return ptr;
 }
 
+int menuCompareBrowserFiles(const browser_sort_entry_t* first,
+    const browser_sort_entry_t* second)
+{
+    // Keep directories together at the start of the listing
+    if (first->isDirectory != second->isDirectory)
+    {
+        return first->isDirectory ? -1 : 1;
+    }
+
+    // Entries with matching visible file names retain directory order
+    return memcmp(first->sortKey, second->sortKey, sizeof(first->sortKey));
+}
+
+void menuSortBrowserFiles(browser_sort_entry_t* entries, uint8_t count)
+{
+    // Insertion sort is stable and only moves the compact metadata
+    for (uint8_t index = 1; index < count; ++index)
+    {
+        browser_sort_entry_t entry = entries[index];
+        uint8_t position = index;
+        while ((position > 0) &&
+            (menuCompareBrowserFiles(&entry, &(entries[position - 1])) < 0))
+        {
+            entries[position] = entries[position - 1];
+            --position;
+        }
+        entries[position] = entry;
+    }
+}
+
 char* menuGenerateBrowser(char* ptr)
 {
+    browser_sort_entry_t browserSortEntries[BROWSER_ENTRY_LIMIT];
+    char browserDisplayName[MAX_PATH];
+
     if (beginSdfsSd())
     {
-        File directory = SD.open(browserPath, FILE_READ);
+        FsFile directory = SD.sdfs.open(browserPath, O_RDONLY);
         if (directory)
         {
             if (directory.isDirectory())
             {
-                uint8_t index = 0;
-                ptr = menuInsertSetting(MENU_ACTION_BROWSER_CD, 0xFF, ptr, "..", 0);
-                while (true)
+                ptr = menuInsertSetting(MENU_ACTION_BROWSER_CD,
+                    BROWSER_PARENT_INDEX, ptr, "..", 0);
+
+                // Store only the visible file name and directory index needed
+                // to sort, render and later resolve each entry.
+                uint8_t count = 0;
+                while (count < BROWSER_ENTRY_LIMIT)
                 {
-                    File entry = directory.openNextFile();
+                    FsFile entry = directory.openNextFile(O_RDONLY);
                     if (entry)
                     {
-                        ptr = menuAddBrowserFile(index, ptr, entry);
+                        browser_sort_entry_t* browserEntry =
+                            &(browserSortEntries[count]);
+                        browserEntry->dirIndex = entry.dirIndex();
+                        browserEntry->isDirectory = entry.isDirectory();
+                        memset(browserEntry->sortKey, 0,
+                            sizeof(browserEntry->sortKey));
+                        if (entry.getName(browserDisplayName, MAX_PATH))
+                        {
+                            for (size_t index = 0;
+                                (index < sizeof(browserEntry->sortKey)) &&
+                                    (browserDisplayName[index] != 0);
+                                ++index)
+                            {
+                                char value = browserDisplayName[index];
+                                if ((value >= 'a') && (value <= 'z'))
+                                {
+                                    value -= ('a' - 'A');
+                                }
+                                browserEntry->sortKey[index] = value;
+                            }
+                        }
                         entry.close();
-                        ++index;
+                        ++count;
                     } else {
                         // End of listing
                         break;
                     }
+                }
 
-                    // End of menu check
+                menuSortBrowserFiles(browserSortEntries, count);
+                for (uint8_t index = 0; index < count; ++index)
+                {
+                    const browser_sort_entry_t* browserEntry =
+                        &(browserSortEntries[index]);
+                    FsFile entry;
+                    if (entry.open(&directory, browserEntry->dirIndex, O_RDONLY))
+                    {
+                        if (entry.getName(browserDisplayName, MAX_PATH))
+                        {
+                            ptr = menuAddBrowserFile(browserEntry->dirIndex, ptr,
+                                browserDisplayName, browserEntry->isDirectory);
+                        }
+                        entry.close();
+                    }
                     if ((ptr > menuEndPtr) || (menuEntries == 255))
                     {
                         break;
                     }
                 }
+                directory.close();
+            } else {
+                directory.close();
             }
-            directory.close();
         }
     } else {
         ptr = menuInsertSetting(MENU_ACTION_TOP_MENU, 0, ptr,
@@ -836,32 +915,67 @@ char* menuGenerateBrowser(char* ptr)
 
 char* menuGenerateLoadRom(char* ptr)
 {
+    browser_sort_entry_t romSortEntries[BROWSER_ENTRY_LIMIT];
+    char romDisplayName[MAX_PATH];
+
     ptr = menuInsertSetting(MENU_ACTION_TOP_MENU, 0, ptr, MENU_STRINGS[STRING_CANCEL], 0);
     ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_INTERNAL_ROM,
         ptr, MENU_STRINGS[STRING_INTERNAL_ROM], (cfgData.romName[0] == 0));
-    File romDirectory = SD.open("ROMS", FILE_READ);
+    FsFile romDirectory = SD.sdfs.open("ROMS", O_RDONLY);
     if (romDirectory)
     {
         if (romDirectory.isDirectory())
         {
-            uint8_t index = 0;
-            while (true)
+            uint8_t count = 0;
+            while (count < (BROWSER_ENTRY_LIMIT - 1))
             {
-                File entry = romDirectory.openNextFile();
+                FsFile entry = romDirectory.openNextFile(O_RDONLY);
                 if (entry)
                 {
                     if (!entry.isDirectory())
                     {
-                        ptr = menuAddLoadRomFile(index, ptr, entry.name());
+                        browser_sort_entry_t* romEntry = &(romSortEntries[count]);
+                        romEntry->dirIndex = entry.dirIndex();
+                        romEntry->isDirectory = false;
+                        memset(romEntry->sortKey, 0, sizeof(romEntry->sortKey));
+                        if (entry.getName(romDisplayName, MAX_PATH))
+                        {
+                            for (size_t index = 0;
+                                (index < sizeof(romEntry->sortKey)) &&
+                                    (romDisplayName[index] != 0);
+                                ++index)
+                            {
+                                char value = romDisplayName[index];
+                                if ((value >= 'a') && (value <= 'z'))
+                                {
+                                    value -= ('a' - 'A');
+                                }
+                                romEntry->sortKey[index] = value;
+                            }
+                            ++count;
+                        }
                     }
                     entry.close();
-                    ++index;
                 } else {
                     // End of listing
                     break;
                 }
+            }
 
-                // End of menu check
+            menuSortBrowserFiles(romSortEntries, count);
+            for (uint8_t index = 0; index < count; ++index)
+            {
+                const browser_sort_entry_t* romEntry = &(romSortEntries[index]);
+                FsFile entry;
+                if (entry.open(&romDirectory, romEntry->dirIndex, O_RDONLY))
+                {
+                    if (entry.getName(romDisplayName, MAX_PATH))
+                    {
+                        ptr = menuAddLoadRomFile(romEntry->dirIndex, ptr,
+                            romDisplayName);
+                    }
+                    entry.close();
+                }
                 if ((ptr > menuEndPtr) || (menuEntries == 255))
                 {
                     break;
@@ -1084,23 +1198,30 @@ char* menuGenerateMain(char* ptr)
     ptr = menuInsertSpacer(ptr);
 
     // List stored configurations for quick selection
-    File cfgDirectory = SD.open("/ZXTEENSY/CONFIGS", FILE_READ);
+    FsFile cfgDirectory = SD.sdfs.open("/ZXTEENSY/CONFIGS", O_RDONLY);
     if (cfgDirectory)
     {
         if (cfgDirectory.isDirectory())
         {
-            uint8_t index = 0;
+            bool hasConfigs = false;
+            char cfgDisplayName[MAX_PATH];
             while (true)
             {
-                File entry = cfgDirectory.openNextFile();
+                FsFile entry = cfgDirectory.openNextFile(O_RDONLY);
                 if (entry)
                 {
-                    if (!entry.isDirectory())
+                    if (!entry.isDirectory() &&
+                        entry.getName(cfgDisplayName, MAX_PATH))
                     {
-                        ptr = menuAddMainFile(index, ptr, entry.name());
+                        uint8_t previousEntries = menuEntries;
+                        ptr = menuAddMainFile(entry.dirIndex(), ptr,
+                            cfgDisplayName);
+                        if (menuEntries != previousEntries)
+                        {
+                            hasConfigs = true;
+                        }
                     }
                     entry.close();
-                    ++index;
                 } else {
                     // End of listing
                     break;
@@ -1112,7 +1233,7 @@ char* menuGenerateMain(char* ptr)
                     break;
                 }
             }
-            if (index > 0)
+            if (hasConfigs)
             {
                 ptr = menuInsertSpacer(ptr);
             }
@@ -1274,8 +1395,7 @@ bool menuPerformSelection(uint8_t index)
     }
 
     menuAction = menu[index].action;
-    uint8_t entryIndex = menu[index].index;
-    char* entryPtr = (char*)menu[index].ptr;
+    uint32_t entryIndex = menu[index].index;
     switch (menuAction)
     {
         case MENU_ACTION_TOP_MENU :
@@ -1457,7 +1577,7 @@ bool menuPerformSelection(uint8_t index)
             }
             break;
         case MENU_ACTION_LOAD_ROM :
-            menuUpdateRomFileName(entryIndex, entryPtr);
+            menuUpdateRomFileName(entryIndex);
             if (stricmp(cfgData.romName, menuFileName) == 0)
             {
                 return true;
@@ -1468,10 +1588,10 @@ bool menuPerformSelection(uint8_t index)
             }
             break;
         case MENU_ACTION_LOAD_CART :
-            menuUpdateRomFileName(entryIndex, entryPtr);
+            menuUpdateRomFileName(entryIndex);
             return true;
         case MENU_ACTION_LOAD_CFG :
-            menuUpdateCfgFileName(entryIndex, entryPtr);
+            menuUpdateCfgFileName(entryIndex);
             if (stricmp(cfgData.cfgName, menuFileName) == 0)
             {
                 return true;
@@ -1491,7 +1611,7 @@ bool menuPerformSelection(uint8_t index)
             }
             break;
         case MENU_ACTION_NTP_TZ :
-            wifiNtpTz = entryIndex;
+            wifiNtpTz = (uint8_t)entryIndex;
             menuConfigChanged = true;
             menuCurrent = MENU_TYPE_SETTINGS;
             break;
@@ -1502,7 +1622,7 @@ bool menuPerformSelection(uint8_t index)
             strncpy(browserPath, RTC_SETUP_Z80_PATH, MAX_PATH);
             return true;
         case MENU_ACTION_BROWSER_CD :
-            if (updateBrowserPath(entryIndex, entryPtr))
+            if (updateBrowserPath(entryIndex))
             {
                 menuCurrent = MENU_TYPE_BROWSER;
             } else {
@@ -1510,7 +1630,7 @@ bool menuPerformSelection(uint8_t index)
             }
             break;
         case MENU_ACTION_BROWSER_OPEN :
-            if (updateBrowserPath(entryIndex, entryPtr))
+            if (updateBrowserPath(entryIndex))
             {
                 menuCurrent = MENU_TYPE_BROWSER_OPEN;
             } else {
@@ -1518,7 +1638,7 @@ bool menuPerformSelection(uint8_t index)
             }
             break;
         case MENU_ACTION_BROWSER_OPEN_ZXC2 :
-            if (updateBrowserPath(entryIndex, entryPtr))
+            if (updateBrowserPath(entryIndex))
             {
                 menuCurrent = MENU_TYPE_BROWSER_OPEN_ZXC2;
             } else {
@@ -1526,7 +1646,7 @@ bool menuPerformSelection(uint8_t index)
             }
             break;
         case MENU_ACTION_BROWSER_OPEN_HDF :
-            if (updateBrowserPath(entryIndex, entryPtr))
+            if (updateBrowserPath(entryIndex))
             {
                 menuCurrent = MENU_TYPE_BROWSER_MOUNT_HDF;
             } else {
@@ -1534,7 +1654,7 @@ bool menuPerformSelection(uint8_t index)
             }
             break;
         case MENU_ACTION_BROWSER_OPEN_DSK :
-            if (updateBrowserPath(entryIndex, entryPtr))
+            if (updateBrowserPath(entryIndex))
             {
                 menuCurrent = MENU_TYPE_BROWSER_MOUNT_DSK;
             } else {
@@ -1544,7 +1664,7 @@ bool menuPerformSelection(uint8_t index)
         case MENU_ACTION_BROWSER_LOAD_Z80 :
         case MENU_ACTION_BROWSER_LOAD_MDR :
             if ((menuCurrent == MENU_TYPE_BROWSER_OPEN) ||
-                updateBrowserPath(entryIndex, entryPtr))
+                updateBrowserPath(entryIndex))
             {
                 return true;
             } else {
@@ -1553,7 +1673,7 @@ bool menuPerformSelection(uint8_t index)
             break;
         case MENU_ACTION_BROWSER_LOAD_TZX :
             if ((menuCurrent == MENU_TYPE_BROWSER_OPEN) ||
-                updateBrowserPath(entryIndex, entryPtr))
+                updateBrowserPath(entryIndex))
             {
                 if (menuTopMenu != MENU_TYPE_MAIN)
                 {
@@ -1570,7 +1690,7 @@ bool menuPerformSelection(uint8_t index)
         case MENU_ACTION_BROWSER_LOAD_ZXC3 :
             if ((menuCurrent == MENU_TYPE_BROWSER_OPEN) ||
                 (menuCurrent == MENU_TYPE_BROWSER_OPEN_ZXC2) ||
-                updateBrowserPath(entryIndex, entryPtr))
+                updateBrowserPath(entryIndex))
             {
                 return true;
             } else {
@@ -1581,7 +1701,7 @@ bool menuPerformSelection(uint8_t index)
         case MENU_ACTION_BROWSER_MOUNT_SDB :
             if ((menuCurrent == MENU_TYPE_BROWSER_OPEN) ||
                 (menuCurrent == MENU_TYPE_BROWSER_MOUNT_HDF) ||
-                updateBrowserPath(entryIndex, entryPtr))
+                updateBrowserPath(entryIndex))
             {
                 strncpy(((menuAction == MENU_ACTION_BROWSER_MOUNT_SDB) ?
                     cfgData.divMmcSdbPath : cfgData.divMmcSdaPath),
@@ -1595,7 +1715,7 @@ bool menuPerformSelection(uint8_t index)
         case MENU_ACTION_BROWSER_MOUNT_FDB :
             if ((menuCurrent == MENU_TYPE_BROWSER_OPEN) ||
                 (menuCurrent == MENU_TYPE_BROWSER_MOUNT_DSK) ||
-                updateBrowserPath(entryIndex, entryPtr))
+                updateBrowserPath(entryIndex))
             {
                 strncpy(((menuAction == MENU_ACTION_BROWSER_MOUNT_FDB) ?
                     cfgData.dskFdbPath : cfgData.dskFdaPath),
@@ -1615,7 +1735,7 @@ bool menuPerformSelection(uint8_t index)
             httpStopServer();
             break;
         case MENU_ACTION_IN_GAME_SEEK_TAPE :
-            tzxPlayer.seek(entryIndex);
+            tzxPlayer.seek((uint8_t)entryIndex);
             menuCurrent = menuTopMenu;
             break;
         case MENU_ACTION_SELECT_STATE_SLOT :
@@ -1624,13 +1744,13 @@ bool menuPerformSelection(uint8_t index)
                 // Load the selected slot
                 // Clear the configuration name as this changes configuration
                 cfgData.cfgName[0] = 0;
-                stateActiveSlot = (entryIndex & 0x0F);
+                stateActiveSlot = (int8_t)(entryIndex & 0x0F);
                 menuConfigChanged = true;
                 menuSaveConfiguration();
                 return true;
-            } else if (stateSaveSlot != entryIndex)
+            } else if (stateSaveSlot != (int8_t)entryIndex)
             {
-                stateSaveSlot = entryIndex;
+                stateSaveSlot = (int8_t)entryIndex;
                 menuConfigChanged = true;
             } else {
                 menuAction = MENU_ACTION_IN_GAME_SAVE_STATE;
@@ -1652,7 +1772,7 @@ bool menuPerformSelection(uint8_t index)
             menuSaveConfiguration();
             return true;
         case MENU_ACTION_IN_GAME_SAVE_STATE :
-            stateSaveSlot = entryIndex;
+            stateSaveSlot = (int8_t)entryIndex;
             return true;
     }
 
@@ -1743,56 +1863,24 @@ rom_type_t getRomType(const char* fileName)
     return TYPE_CART;
 }
 
-bool menuUpdateFileName(uint8_t fileIndex, char* filename, const char* dirname)
+bool menuUpdateFileName(uint32_t fileIndex, const char* dirname)
 {
-    // Attempt to use the menu label as file name directly
-    menuFileName[ROM_NAME_LEN] = 0;
-    if (filename != 0)
-    {
-        for (size_t i = 0; i < ROM_NAME_LEN; ++i)
-        {
-            if (*filename < ' ')
-            {
-                menuFileName[i] = 0;
-                return true;
-            } else if (*filename >= 128)
-            {
-                break;
-            } else {
-                menuFileName[i] = *filename++;
-            }
-        }
-    }
-
-    // Iterate the directory to find the file name
+    menuFileName[0] = 0;
     bool result = false;
-    File directory = SD.open(dirname, FILE_READ);
+    FsFile directory = SD.sdfs.open(dirname, O_RDONLY);
     if (directory)
     {
         if (directory.isDirectory())
         {
-            uint8_t index = 0;
-            while (true)
+            FsFile entry;
+            if (entry.open(&directory, fileIndex, O_RDONLY))
             {
-                File entry = directory.openNextFile();
-                if (entry)
+                if (!entry.isDirectory() &&
+                    entry.getName(menuFileName, MAX_PATH))
                 {
-                    // Find ROM at matching directory index
-                    if (!entry.isDirectory() && (index == fileIndex))
-                    {
-                        result = true;
-                        strncpy(menuFileName, entry.name(), MAX_PATH);
-                        entry.close();
-                        break;
-                    }
-                    entry.close();
-                    ++index;
-                } else {
-                    // End of listing
-                    menuFileName[0] = 0;
-                    result = false;
-                    break;
+                    result = true;
                 }
+                entry.close();
             }
         }
         directory.close();
@@ -1800,82 +1888,39 @@ bool menuUpdateFileName(uint8_t fileIndex, char* filename, const char* dirname)
     return result;
 }
 
-void menuUpdateRomFileName(uint8_t fileIndex, char* filename)
+void menuUpdateRomFileName(uint32_t fileIndex)
 {
-    menuUpdateFileName(fileIndex, filename, "/ROMS");
+    menuUpdateFileName(fileIndex, "/ROMS");
 }
 
-void menuUpdateCfgFileName(uint8_t fileIndex, char* filename)
+void menuUpdateCfgFileName(uint32_t fileIndex)
 {
-    if (menuUpdateFileName(fileIndex, filename, "/ZXTEENSY/CONFIGS"))
-    {
-        strcat(menuFileName, ".cfg");
-    }
+    menuUpdateFileName(fileIndex, "/ZXTEENSY/CONFIGS");
 }
 
-bool updateBrowserPath(uint8_t fileIndex, char* filename)
+bool updateBrowserPath(uint32_t fileIndex)
 {
-    // Attempt to use the menu label as file name directly
-    if (filename != 0)
-    {
-        char tmpName[(ROM_NAME_LEN + 1)];
-        tmpName[ROM_NAME_LEN] = 0;
-        for (size_t i = 0; i < ROM_NAME_LEN; ++i)
-        {
-            if (*filename < ' ')
-            {
-                // Create new path
-                tmpName[i] = 0;
-                size_t pathLen = strlen(browserPath);
-                if ((pathLen + strlen(tmpName)) < (MAX_PATH - 2))
-                {
-                    if (pathLen > 1)
-                    {
-                        strcat(browserPath, "/");
-                    }
-                    strcat(browserPath, tmpName);
-                }
-                return true;
-            } else if (*filename >= 128)
-            {
-                break;
-            } else {
-                tmpName[i] = *filename++;
-            }
-        }
-    }
-
-    // Iterate the directory to find the file name
-    File directory = SD.open(browserPath, FILE_READ);
+    FsFile directory = SD.sdfs.open(browserPath, O_RDONLY);
     if (directory)
     {
-        if (directory.isDirectory() && (fileIndex != 0xFF))
+        if (directory.isDirectory() && (fileIndex != BROWSER_PARENT_INDEX))
         {
-            uint8_t index = 0;
-            while (true)
+            FsFile entry;
+            if (entry.open(&directory, fileIndex, O_RDONLY))
             {
-                File entry = directory.openNextFile();
-                if (entry)
+                if (entry.getName(menuFileName, MAX_PATH))
                 {
-                    // Find ROM at matching directory index
-                    if (index == fileIndex)
+                    size_t pathLen = strlen(browserPath);
+                    if ((pathLen + strlen(menuFileName)) < (MAX_PATH - 2))
                     {
-                        // Create new path
-                        size_t pathLen = strlen(browserPath);
-                        if ((pathLen + strlen(entry.name())) < (MAX_PATH - 2))
+                        if (pathLen > 1)
                         {
-                            if (pathLen > 1)
-                            {
-                                strcat(browserPath, "/");
-                            }
-                            strcat(browserPath, entry.name());
+                            strcat(browserPath, "/");
                         }
-                        entry.close();
-                        break;
+                        strcat(browserPath, menuFileName);
                     }
-                    entry.close();
-                    ++index;
                 }
+                entry.close();
             }
         } else {
             char *fileext = strrchr(browserPath, '/');
