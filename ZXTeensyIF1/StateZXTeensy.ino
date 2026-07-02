@@ -98,7 +98,7 @@ volatile bool stateSaveBlockPending = false;
 volatile uint8_t stateSaveBlockValue = 0;
 bool stateSave128 = false;
 uint8_t stateSaveExpectedBlock = 0;
-DMAMEM state_device_data_t stateRestoreDevice;
+state_device_data_t stateRestoreDevice;
 volatile bool stateLoadActive = false;
 volatile bool stateLoadFinalStage = false;
 
@@ -218,6 +218,8 @@ bool stateWriteFile(uint8_t slot, const char* filename,
             success = true;
         }
         file.close();
+    } else {
+        menuPrintDebug(false, F_CSTR("Failed to save state %d '%s'"), slot, path);
     }
     if (!success)
     {
@@ -402,6 +404,7 @@ bool stateBeginSave(uint8_t slot)
                 }
             }
         }
+        menuPrintDebug(false, F_CSTR("Failed to save state %d"), slot);
     }
     stateResumeClosedDevices();
     return false;
@@ -491,7 +494,7 @@ void stateFinishSave(bool success)
         menuSaveConfiguration();
     } else {
         // Ensure the active slot is cleared on failure
-        menuPrintDebug(false, "Failed to save state %d", stateActiveSlot);
+        menuPrintDebug(false, F_CSTR("Failed to save state %d"), stateActiveSlot);
         stateActiveSlot = -1;
         stateDeleteSlot();
     }
@@ -657,6 +660,8 @@ bool stateLoadOnStartup()
             stateApplyConfiguration();
             stateLoadActive = true;
             restored = true;
+        } else {
+            menuPrintDebug(false, F_CSTR("Failed to load state %d"), stateActiveSlot);
         }
     }
     if (!restored)
@@ -672,19 +677,16 @@ void stateOnTick()
     {
         bool restored = false;
         stateLoadFinalStage = false;
+        uint8_t slot = stateActiveSlot;
 
         // Restore the DivMMC RAM used by the Z80 loader
         if (beginSdfsSd() &&
-            stateReadFile(stateActiveSlot, "DIVEXT.BIN", divMmcExtRamArray,
+            stateReadFile(slot, "DIVEXT.BIN", divMmcExtRamArray,
                 (RAM_PAGE_COUNT * RAM_PAGE_SIZE)))
         {
+            // Update the quick save slot on success
             restored = true;
-        }
-
-        // Update the quick save slot on success
-        if (restored)
-        {
-            stateSaveSlot = stateActiveSlot;
+            stateSaveSlot = slot;
         }
 
         // Clear the restore saved state slot
@@ -698,6 +700,7 @@ void stateOnTick()
             stateApplyDeviceData();
         } else {
             // Return to menu on final stage failure
+            menuPrintDebug(false, F_CSTR("Failed to load state %d"), slot);
             setState(STATE_RESET_MENU);
         }
     }

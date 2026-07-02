@@ -50,7 +50,7 @@ size_t httpPacketLength = 0;
 int httpPacketCount = 0;
 String httpServerStatus;
 http_action_t httpAction = HTTP_ACTION_UNKNOWN;
-DMAMEM char httpURLPath[MAX_PATH];
+char httpURLPath[MAX_PATH];
 
 File httpUploadFile;
 size_t httpUploadBytesWritten = 0;

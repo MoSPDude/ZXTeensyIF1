@@ -455,8 +455,8 @@ bool TzxPlayerZXTeensy::loadFromTape()
                     }
                     break;
                 default :
-                    menuPrintDebug(false, "tzxPlayer %d unknown ID %d", (tapePosition - 1),
-                        blockId);
+                    menuPrintDebug(false, F_CSTR("tzxPlayer %d unknown ID %d"),
+                        (tapePosition - 1), blockId);
                     tapePosition = tapeLength;
                     break;
             }
@@ -707,8 +707,8 @@ void TzxPlayerZXTeensy::scanTape()
                 }
                 break;
             default :
-                menuPrintDebug(false, "tzxPlayer %d unknown ID %d", (tapePosition - 1),
-                    blockId);
+                menuPrintDebug(false, F_CSTR("tzxPlayer %d unknown ID %d"),
+                    (tapePosition - 1), blockId);
                 tapePosition = tapeLength;
                 break;
         }

@@ -1001,6 +1001,8 @@ void saveZXC3RomFile(const char* filePath)
             }
         }
         saveFile.close();
+    } else {
+        menuPrintDebug(false, F_CSTR("Failed to save ZXC3 '%s'"), filePath);
     }
 }
 
@@ -1270,6 +1272,8 @@ void saveMdrEmulatorFile(const char* fileName)
             }
         }
         mdrFile.close();
+    } else {
+        menuPrintDebug(false, F_CSTR("Failed to save MDR '%s'"), fileName);
     }
 }
 
@@ -2188,7 +2192,7 @@ FASTRUN void loop()
 #ifdef ENABLE_JOYSTICK_DEBUG
             if (menuIsDebugging() && (joystickData != data))
             {
-                menuRedraw = menuPrintDebug(true, "joystickData %0d", data);
+                menuRedraw = menuPrintDebug(true, F_CSTR("joystickData %0d"), data);
             }
 #endif
             joystickData = data;

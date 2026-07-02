@@ -9,6 +9,8 @@
 
 #define MAX_PATH 256
 
+#define F_CSTR(string) ((const char*)F(string))
+
 #define ESXMMC_BIN_PATH ((const char*)F("/ZXTEENSY/esxmmc.bin"))
 #define MF128_ROM_PATH ((const char*)F("/ZXTEENSY/mf128.rom"))
 #define LPRINT_ROM_PATH ((const char*)F("/ZXTEENSY/lprint32.rom"))

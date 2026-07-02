@@ -554,7 +554,8 @@ char* menuGenerateSelectStateSlot(char* ptr, bool loadNotSave)
             uint8_t index = slot + (loadNotSave ? 0x10 : 0);
             if (snprintf(label, (MENU_STR_LEN + 1), "%s %d",
                 (loadNotSave ? MENU_STRINGS[STRINGS_LOAD_STATE] :
-                    MENU_STRINGS[STRINGS_SELECT_STATE]),
+                    ((slot == stateSaveSlot) ? MENU_STRINGS[STRINGS_SAVE_STATE] : 
+                        MENU_STRINGS[STRINGS_SELECT_STATE])),
                 slot) >= (MENU_STR_LEN + 1))
             {
                 label[MENU_STR_LEN] = 0;

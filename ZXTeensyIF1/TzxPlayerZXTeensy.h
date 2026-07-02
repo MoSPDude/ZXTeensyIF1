@@ -4,6 +4,7 @@
 
 #include "imxrt.h"
 #include "core_pins.h"
+#include "WString.h"
 #include "RingBuffer.h"
 #include "DefinesZXTeensy.h"
 
