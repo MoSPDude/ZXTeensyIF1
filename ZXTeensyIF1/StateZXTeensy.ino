@@ -63,7 +63,7 @@ typedef struct __attribute__((packed)) {
     uint8_t zxC3Present;
     uint8_t zxC2Lock;
     uint8_t zxC2ShadowRom;
-    uint8_t zxC2BankPtr;
+    uint8_t zxC2RomBank;
     uint8_t zxC3Write;
     uint8_t zxC3FlashState;
     uint8_t zxC3FlashSetup;
@@ -298,7 +298,7 @@ void stateCaptureDeviceData(void* data)
     state->zxC3Present = zxC3Present;
     state->zxC2Lock = zxC2Lock;
     state->zxC2ShadowRom = zxC2ShadowRom;
-    state->zxC2BankPtr = zxC2BankPtr;
+    state->zxC2RomBank = zxC2RomBank;
     state->zxC3Write = zxC3Write;
     state->zxC3FlashState = zxC3FlashState;
     state->zxC3FlashSetup = zxC3FlashSetup;
@@ -574,7 +574,7 @@ void stateApplyDeviceData()
     zxC3Present = stateRestoreDevice.zxC3Present;
     zxC2Lock = stateRestoreDevice.zxC2Lock;
     zxC2ShadowRom = stateRestoreDevice.zxC2ShadowRom;
-    zxC2BankPtr = stateRestoreDevice.zxC2BankPtr;
+    zxC2RomBank = stateRestoreDevice.zxC2RomBank;
     zxC3Write = stateRestoreDevice.zxC3Write;
     zxC3FlashState = (zxc3_flash_state_t)stateRestoreDevice.zxC3FlashState;
     zxC3FlashSetup = stateRestoreDevice.zxC3FlashSetup;

@@ -288,8 +288,31 @@ char* menuInsertInGameStatus(char* ptr)
     {
         label[15] = 's';
     }
-    return menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_NO_OP,
+    ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_NO_OP,
         ptr, label, 0);
+
+    // Show current RAM
+    if (zxC2Present)
+    {
+        if (snprintf(label, (MENU_STR_LEN + 1), " > ZXC2: %d%s", (zxC2RomBank >> 1),
+            (zxC2Lock ? " LOCK" : "")) >= (MENU_STR_LEN + 1))
+        {
+            label[MENU_STR_LEN] = 0;
+        }
+        ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_NO_OP,
+            ptr, label, 0);
+    }
+    if (divMmcPresent)
+    {
+        if (snprintf(label, (MENU_STR_LEN + 1), " > DivMMC: %d%s", divMmcRamBank,
+            (divMmcMapRam ? " MAPRAM" : "")) >= (MENU_STR_LEN + 1))
+        {
+            label[MENU_STR_LEN] = 0;
+        }
+        ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_NO_OP,
+            ptr, label, 0);
+    }
+    return ptr;
 }
 
 char* menuInsertClockTime(char* ptr)

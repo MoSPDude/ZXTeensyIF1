@@ -301,7 +301,7 @@ volatile bool interface1Removed = false;
 volatile bool zxC2Present = false;
 volatile bool zxC2Lock = false;
 volatile bool zxC2ShadowRom = false;
-volatile uint8_t zxC2BankPtr = 0x00;
+volatile uint8_t zxC2RomBank = 0x00;
 
 // ZXC3 flash cartridge
 static const uint16_t ZXC3_PAGE_COUNT = 16;
@@ -1651,7 +1651,7 @@ void handleStateReset()
     mf128ActiveNMI = false;
     menuTriggerNMI = false;
     zxC2Lock = false;
-    zxC2BankPtr = 0x00;
+    zxC2RomBank = 0x00;
     zxC2ShadowRom = false;
     zxC3Write = false;
     zxC3FlashState = ZXC3_FLASH_IDLE;
@@ -2288,12 +2288,12 @@ inline void updateRomPtr(bool pageNow)
                 break;
             case ROM_MODEM :
             case ROM_ZXC2 :
-                romPtr = divMmcExtRamArray[zxC2BankPtr];
+                romPtr = divMmcExtRamArray[zxC2RomBank];
                 break;
             case ROM_SNA :
                 if (snaLoaderBanks > 0)
                 {
-                    romPtr = divMmcExtRamArray[zxC2BankPtr];
+                    romPtr = divMmcExtRamArray[zxC2RomBank];
                 } else {
                     romPtr = menuRamArray[2];
                 }
@@ -2556,9 +2556,9 @@ FASTRUN void isrWrEvent()
             if (zxC3Present)
             {
                 zxC3Write = ((address & 0x08) != 0);
-                zxC2BankPtr = ((address & 0x07) << 1);
+                zxC2RomBank = ((address & 0x07) << 1);
             } else {
-                zxC2BankPtr = ((address & 0x0f) << 1);
+                zxC2RomBank = ((address & 0x0f) << 1);
             }
             if ((address & 0x10) == 0)
             {
@@ -2594,7 +2594,7 @@ FASTRUN void isrWrEvent()
                     switch (zxC3FlashState)
                     {
                         case ZXC3_FLASH_UNLOCK :
-                            if ((zxC2BankPtr == 0) && (address == 0x2AAA) && (data == 0x55))
+                            if ((zxC2RomBank == 0) && (address == 0x2AAA) && (data == 0x55))
                             {
                                 zxC3FlashState = ZXC3_FLASH_CMD;
                             } else {
@@ -2608,7 +2608,7 @@ FASTRUN void isrWrEvent()
                             {
                                 case 0x10 :
                                     // Chip erase
-                                    if ((zxC2BankPtr == 2) && (address == 0x1555) &&
+                                    if ((zxC2RomBank == 2) && (address == 0x1555) &&
                                         zxC3FlashSetup)
                                     {
                                         for (uint8_t i = 0; i < ZXC3_PAGE_COUNT; ++i)
@@ -2624,22 +2624,22 @@ FASTRUN void isrWrEvent()
                                     // Sector erase
                                     if (zxC3FlashSetup)
                                     {
-                                        *divMmcExtRamArray[zxC2BankPtr] = 0x08;
-                                        zxC3EraseBuffer.write(zxC2BankPtr);
+                                        *divMmcExtRamArray[zxC2RomBank] = 0x08;
+                                        zxC3EraseBuffer.write(zxC2RomBank);
                                         zxC3WriteTrigState = TRIGGER_ACTIVE;
                                     }
                                     zxC3FlashSetup = false;
                                     break;
                                 case 0x80 :
                                     // Setup command
-                                    if ((zxC2BankPtr == 2) && (address == 0x1555))
+                                    if ((zxC2RomBank == 2) && (address == 0x1555))
                                     {
                                         zxC3FlashSetup = true;
                                     }
                                     break;
                                 case 0xA0 :
                                     // Program byte
-                                    if ((zxC2BankPtr == 2) && (address == 0x1555))
+                                    if ((zxC2RomBank == 2) && (address == 0x1555))
                                     {
                                         zxC3FlashState = ZXC3_FLASH_WRITE;
                                     }
@@ -2656,7 +2656,7 @@ FASTRUN void isrWrEvent()
                             zxC3WriteTrigState = TRIGGER_ACTIVE;
                             break;
                         default :
-                            if ((zxC2BankPtr == 2) && (address == 0x1555) && (data == 0xAA))
+                            if ((zxC2RomBank == 2) && (address == 0x1555) && (data == 0xAA))
                             {
                                 zxC3FlashState = ZXC3_FLASH_UNLOCK;
                             }
@@ -2670,10 +2670,10 @@ FASTRUN void isrWrEvent()
                 {
                     if (snaLoaderBanks > 0)
                     {
-                        zxC2BankPtr += 2;
-                        if (zxC2BankPtr >= snaLoaderBanks)
+                        zxC2RomBank += 2;
+                        if (zxC2RomBank >= snaLoaderBanks)
                         {
-                            zxC2BankPtr = 0;
+                            zxC2RomBank = 0;
                             snaLoaderBanks = 0;
                             stateLoaderFinished(false);
                         }
@@ -3021,9 +3021,9 @@ FASTRUN void isrRdEvent()
                 if (zxC3Present)
                 {
                     zxC3Write = ((address & 0x08) != 0);
-                    zxC2BankPtr = ((address & 0x07) << 1);
+                    zxC2RomBank = ((address & 0x07) << 1);
                 } else {
-                    zxC2BankPtr = ((address & 0x0f) << 1);
+                    zxC2RomBank = ((address & 0x0f) << 1);
                 }
                 if ((address & 0x10) == 0)
                 {
@@ -3271,10 +3271,10 @@ FASTRUN void isrRdEvent()
             {
                 if (snaLoaderBanks > 0)
                 {
-                    zxC2BankPtr += 2;
-                    if (zxC2BankPtr >= snaLoaderBanks)
+                    zxC2RomBank += 2;
+                    if (zxC2RomBank >= snaLoaderBanks)
                     {
-                        zxC2BankPtr = 0;
+                        zxC2RomBank = 0;
                         snaLoaderBanks = 0;
                         stateLoaderFinished(false);
                     }
