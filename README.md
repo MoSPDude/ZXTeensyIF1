@@ -157,6 +157,7 @@ the DivMMC and enable the Interface 1.
         * <NAME>.CFG (Saved configurations that appear as "NAME" in the Menu ROM for quick selection)
     * STATE/<SLOT>/
         * STATE.Z80 (Z80 v3 snapshot for the save state)
+        * SCREEN.SCR (6912-byte active Spectrum screen for load preview)
         * (Additional saved state files for the save slot)
     * MENU.ROM
     * MF128.ROM (MD5SUM: ca8c9d97c8aedd718d1081fad2e3af8d)

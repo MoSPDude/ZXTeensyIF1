@@ -63,6 +63,7 @@ typedef enum {
     MENU_TYPE_TAPE_BROWSER,
     MENU_TYPE_SAVE_STATE_SLOT,
     MENU_TYPE_LOAD_STATE_SLOT,
+    MENU_TYPE_PREVIEW_STATE_SLOT,
     MENU_TYPE_DEBUG
 } menu_type_t;
 
@@ -535,7 +536,7 @@ char* menuAddBrowserFile(uint32_t index, char* ptr, const char* filename,
 
 char* menuGenerateTapeBrowser(char* ptr)
 {
-    uint8_t count = ((tzxPlayer.tapeMarkCount >= 254) ? 
+    uint8_t count = ((tzxPlayer.tapeMarkCount >= 254) ?
         254 : tzxPlayer.tapeMarkCount);
     ptr = menuInsertSetting(MENU_ACTION_TOP_MENU, 0, ptr, MENU_STRINGS[STRING_CANCEL], 0);
     for (uint8_t index = 0; index < count; ++index)
@@ -555,20 +556,30 @@ char* menuGenerateSelectStateSlot(char* ptr, bool loadNotSave)
         if (!loadNotSave || stateReadDeviceData(slot))
         {
             char label[MENU_STR_LEN + 1];
-            uint8_t index = slot + (loadNotSave ? 0x10 : 0);
             if (snprintf(label, (MENU_STR_LEN + 1), "%s %d",
                 (loadNotSave ? MENU_STRINGS[STRINGS_LOAD_STATE] :
-                    ((slot == stateSaveSlot) ? MENU_STRINGS[STRINGS_SAVE_STATE] : 
+                    ((slot == stateSaveSlot) ? MENU_STRINGS[STRINGS_SAVE_STATE] :
                         MENU_STRINGS[STRINGS_SELECT_STATE])),
                 slot) >= (MENU_STR_LEN + 1))
             {
                 label[MENU_STR_LEN] = 0;
             }
-            ptr = menuInsertSetting(MENU_ACTION_SELECT_STATE_SLOT, index, ptr, label,
-                (slot == stateSaveSlot));
+            ptr = menuInsertSetting((loadNotSave ?
+                    MENU_ACTION_SELECT_LOAD_SLOT : MENU_ACTION_SELECT_SAVE_SLOT),
+                slot, ptr, label, (slot == stateSaveSlot));
         }
     }
     return ptr;
+}
+
+char* menuGeneratePreviewStateSlot(char* ptr)
+{
+    // This menu is hidden behind the full-screen preview. The menu ROM
+    // selects entry 0 for any direction, or entry 1 to confirm the load.
+    ptr = menuInsertSetting(MENU_ACTION_TOP_MENU, 0, ptr,
+        MENU_STRINGS[STRING_CANCEL], 0);
+    return menuInsertSetting(MENU_ACTION_LOAD_STATE_SLOT, stateSaveSlot, ptr,
+        MENU_STRINGS[STRINGS_LOAD_STATE], 0);
 }
 
 char* menuGenerateInGame(char* ptr)
@@ -1344,6 +1355,9 @@ void menuGenerate()
         case MENU_TYPE_LOAD_STATE_SLOT :
             textPtr = menuGenerateSelectStateSlot(textPtr, true);
             break;
+        case MENU_TYPE_PREVIEW_STATE_SLOT :
+            textPtr = menuGeneratePreviewStateSlot(textPtr);
+            break;
         case MENU_TYPE_DEBUG :
             textPtr = menuGenerateDebug(textPtr);
             break;
@@ -1428,7 +1442,8 @@ bool menuPerformSelection(uint8_t index)
     switch (menuAction)
     {
         case MENU_ACTION_TOP_MENU :
-            menuCurrent = menuTopMenu;
+            menuCurrent = ((menuCurrent == MENU_TYPE_PREVIEW_STATE_SLOT) ?
+                MENU_TYPE_LOAD_STATE_SLOT : menuTopMenu);
             break;
         case MENU_ACTION_SETTING :
             switch (entryIndex)
@@ -1707,6 +1722,7 @@ bool menuPerformSelection(uint8_t index)
                 if (menuTopMenu != MENU_TYPE_MAIN)
                 {
                     menuCurrent = menuTopMenu;
+                    return false;
                 } else {
                     return true;
                 }
@@ -1749,8 +1765,10 @@ bool menuPerformSelection(uint8_t index)
                 strncpy(((menuAction == MENU_ACTION_BROWSER_MOUNT_FDB) ?
                     cfgData.dskFdbPath : cfgData.dskFdaPath),
                     browserPath, MAX_PATH);
-                if (menuTopMenu == MENU_TYPE_MAIN)
+                if (menuTopMenu != MENU_TYPE_MAIN)
                 {
+                    return false;
+                } else {
                     dskPresent = true;
                     menuConfigChanged = true;
                 }
@@ -1767,25 +1785,33 @@ bool menuPerformSelection(uint8_t index)
             tzxPlayer.seek((uint8_t)entryIndex);
             menuCurrent = menuTopMenu;
             break;
-        case MENU_ACTION_SELECT_STATE_SLOT :
-            if (entryIndex >= 0x10)
+        case MENU_ACTION_SELECT_SAVE_SLOT :
+            if (stateSaveSlot != entryIndex)
             {
-                // Load the selected slot
-                // Clear the configuration name as this changes configuration
-                cfgData.cfgName[0] = 0;
-                stateActiveSlot = (int8_t)(entryIndex & 0x0F);
-                menuConfigChanged = true;
-                menuSaveConfiguration();
-                return true;
-            } else if (stateSaveSlot != (int8_t)entryIndex)
-            {
-                stateSaveSlot = (int8_t)entryIndex;
+                stateSaveSlot = entryIndex;
                 menuConfigChanged = true;
             } else {
                 menuAction = MENU_ACTION_IN_GAME_SAVE_STATE;
                 return true;
             }
             break;
+        case MENU_ACTION_SELECT_LOAD_SLOT :
+            // The first selection previews the saved active screen.
+            if (statePreparePreview(entryIndex))
+            {
+                stateSaveSlot = entryIndex;
+                menuCurrent = MENU_TYPE_PREVIEW_STATE_SLOT;
+                return false;
+            }
+            break;
+        case MENU_ACTION_LOAD_STATE_SLOT :
+            // A second selection from the preview loads the slot.
+            // Clear the configuration name as this changes configuration.
+            cfgData.cfgName[0] = 0;
+            stateActiveSlot = (int8_t)entryIndex;
+            menuConfigChanged = true;
+            menuSaveConfiguration();
+            return true;
         case MENU_ACTION_IN_GAME_EXIT :
         case MENU_ACTION_IN_GAME_EXIT_TAPE :
         case MENU_ACTION_IN_GAME_EXIT_BASIC :
@@ -1801,7 +1827,7 @@ bool menuPerformSelection(uint8_t index)
             menuSaveConfiguration();
             return true;
         case MENU_ACTION_IN_GAME_SAVE_STATE :
-            stateSaveSlot = (int8_t)entryIndex;
+            stateSaveSlot = entryIndex;
             return true;
     }
 
@@ -1810,14 +1836,15 @@ bool menuPerformSelection(uint8_t index)
     {
         cfgData.cfgName[0] = 0;
     }
+
+    // Clear the action as "No-Op", to redraw the main screen
+    menuAction = MENU_ACTION_TOP_MENU;
     return false;
 }
 
-inline menu_action_t menuGetInGameAction()
+inline menu_action_t menuGetMenuAction()
 {
-    // Return MENU_ACTION_TOP_MENU as "No-Op", to either redraw or reset the
-    // Spectrum on the main menu
-    return ((menuTopMenu != MENU_TYPE_MAIN) ? menuAction : MENU_ACTION_TOP_MENU);
+    return menuAction;
 }
 
 void menuPerformAction()

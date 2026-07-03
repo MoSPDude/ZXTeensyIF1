@@ -47,7 +47,9 @@ typedef enum {
     MENU_ACTION_BROWSER_MOUNT_FDB,
     MENU_ACTION_START_SERVER,
     MENU_ACTION_STOP_SERVER,
-    MENU_ACTION_SELECT_STATE_SLOT,
+    MENU_ACTION_SELECT_LOAD_SLOT,
+    MENU_ACTION_SELECT_SAVE_SLOT,
+    MENU_ACTION_LOAD_STATE_SLOT,
     MENU_ACTION_IN_GAME_EXIT,
     MENU_ACTION_IN_GAME_EXIT_TAPE,
     MENU_ACTION_IN_GAME_EXIT_BASIC,
@@ -165,7 +167,8 @@ typedef enum {
     MENU_ROM_CMD_STATE_CAPTURE_128 = 4,
     MENU_ROM_CMD_STATE_BLOCK_DONE = 5,
     MENU_ROM_CMD_STATE_COMPLETE = 6,
-    MENU_ROM_CMD_STATE_FAILED = 7
+    MENU_ROM_CMD_STATE_FAILED = 7,
+    MENU_ROM_CMD_STATE_PREVIEW = 8
 } menu_rom_action_t;
 
 // I/O pin assignments
@@ -236,7 +239,7 @@ volatile rom_select_t nmiRomTarget = ROM_ROM0;
 
 // State save and load
 volatile int8_t stateActiveSlot = -1;
-volatile int8_t stateSaveSlot = 0;
+volatile uint8_t stateSaveSlot = 0;
 volatile bool stateStartLoad = false;
 
 // Reset and NMI debouncing
@@ -1923,7 +1926,7 @@ FASTRUN void loop()
             menuSelected = false;
             if (menuPerformSelection(menuSelectedIndex))
             {
-                switch (menuGetInGameAction())
+                switch (menuGetMenuAction())
                 {
                     case MENU_ACTION_IN_GAME_EXIT_BASIC :
                         menuInGameExitBasic();
@@ -1974,16 +1977,25 @@ FASTRUN void loop()
                 // Update ROM indexes, and exit the menu
                 if (!isGlobalStateReset())
                 {
-                    if (menuGetInGameAction() != MENU_ACTION_IN_GAME_SAVE_STATE)
+                    if (menuGetMenuAction() != MENU_ACTION_IN_GAME_SAVE_STATE)
                     {
                         updateRomIndex(true);
                         menuBuffer.write(MENU_ROM_CMD_IN_GAME_EXIT);
                     }
                 }
             } else {
+                // Refresh the menu, by default
+                menuRedraw = true;
+
                 // Perform in-game actions
-                switch (menuGetInGameAction())
+                switch (menuGetMenuAction())
                 {
+                    case MENU_ACTION_SELECT_LOAD_SLOT :
+                        // The menu ROM is waiting for the preview command
+                        menuGenerate();
+                        menuBuffer.write(MENU_ROM_CMD_STATE_PREVIEW);
+                        menuRedraw = false;
+                        break;
                     case MENU_ACTION_BROWSER_LOAD_TZX :
                         if (!divMmcExtRamEnabled && beginSdfsSd())
                         {
@@ -2005,9 +2017,6 @@ FASTRUN void loop()
                     default :
                         break;
                 }
-
-                // Refresh the menu
-                menuRedraw = true;
             }
         }
 

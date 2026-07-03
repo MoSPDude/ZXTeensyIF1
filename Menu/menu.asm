@@ -29,6 +29,7 @@ MEM_ROM     EQU MEM_ORG + 0x3FFE  ; selected ROM
 MEM_PAGE    EQU MEM_ORG + 0x3FFF  ; which page
 
 MEM_SCR2    EQU MEM_ORG + 0x2500 ; screen backup
+MEM_PREVIEW_BORDER EQU MEM_ORG + 0x3B00 ; border follows preview SCR on page 2
 MEM_BANK1   EQU MEM_ORG + 0x24FF ; 0x7FFD backup
 MEM_IM2     EQU MEM_ORG + 0x24FE ; IM2 and BASIC restore flag
 MEM_PC      EQU MEM_ORG + 0x24FC ; PC from stack
@@ -378,6 +379,9 @@ _teensyAction:
     jp z, _stateCapture48
     cp 4
     jp z, _stateCapture128
+; preview a saved active screen
+    cp 8
+    jp z, _statePreview
 ; otherwise, menu redraw
 _menuRedraw:
     ld a,(_maxroms+1)
@@ -391,6 +395,49 @@ _menuRedraw:
     ld (MEM_PAGE),a
 _doneSelected:
     jp _menu2
+
+; ------------------------------------------+----------------------------------
+; Saved-state preview. Scratch page 2 contains a 6912-byte SCR followed by
+; its border colour. Fire confirms the load; a direction returns to the menu.
+; ------------------------------------------+----------------------------------
+_statePreview:
+    push bc
+    ld a,2
+    out (0xBF),a
+    ld hl,0x2000
+    ld de,MEM_SCR
+    ld bc,0x1B00
+    ldir
+    ld a,(MEM_PREVIEW_BORDER)
+    out (0xFE),a
+    xor a
+    out (0xBF),a
+_statePreviewRelease:
+    call _getkey
+    and %00111111
+    jr nz,_statePreviewRelease
+_statePreviewWait:
+    halt
+    call _getkey
+    and %00111111
+    jr z,_statePreviewWait
+    rra
+    jr c,_statePreviewConfirm
+    ; Any direction selects preview-menu entry 0 to return to the slot menu.
+    ld a,%00000111
+    out (0xFE),a
+    ld hl,_compressedBlank  ; blank explorer screen
+    call _decompressScr     ; decompress screen
+    xor a
+    out (0xeb),a
+    jr _statePreviewDone
+_statePreviewConfirm:
+    ; Fire selects preview-menu entry 1 to load the state.
+    ld a,1
+    out (0xeb),a
+_statePreviewDone:
+    pop bc
+    jp _waitForTeensy
 
 ; ------------------------------------------+----------------------------------
 ; State capture. Each 16K bank is copied into menu scratch pages 2 and 3. The

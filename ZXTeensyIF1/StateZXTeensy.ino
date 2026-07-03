@@ -6,11 +6,13 @@
 // useful outside ZXTeensy.
 static const uint32_t STATE_48_FILE_SIZE = 49248;
 static const uint32_t STATE_128_FILE_SIZE = 131183;
+static const size_t STATE_SCREEN_SIZE = 0x1B00;
 static const uint8_t STATE_SIGNAL_FINISH = 0xC0;
 static const uint16_t STATE_DEVICE_VERSION = 1;
 
 static const char* const STATE_FILE_NAMES[] = {
-    "STATE.Z80", "DIVRAM.BIN", "DIVEXT.BIN", "MFRAM.BIN", "DEVICE.BIN"
+    "STATE.Z80", "SCREEN.SCR", "DIVRAM.BIN", "DIVEXT.BIN", "MFRAM.BIN",
+    "DEVICE.BIN"
 };
 static const uint8_t STATE_FILE_COUNT =
     sizeof(STATE_FILE_NAMES) / sizeof(STATE_FILE_NAMES[0]);
@@ -242,6 +244,32 @@ bool stateReadFile(uint8_t slot, const char* filename,
             success = true;
         }
         file.close();
+    }
+    return success;
+}
+
+bool statePreparePreview(uint8_t slot)
+{
+    bool success = false;
+    if ((slot < STATE_SLOT_COUNT) && stateReadDeviceData(slot))
+    {
+        char path[MAX_PATH];
+        stateBuildSlotPath(path, slot, "SCREEN.SCR");
+        File file = SD.open(path, FILE_READ);
+        if (file)
+        {
+            success = ((file.size() == STATE_SCREEN_SIZE) &&
+                (file.read((uint8_t*)menuRamArray[2], STATE_SCREEN_SIZE) >=
+                    STATE_SCREEN_SIZE));
+            file.close();
+        }
+        if (success)
+        {
+            // The byte following the SCR is available to the menu ROM while
+            // scratch page 2 is selected.
+            menuRamArray[2][STATE_SCREEN_SIZE] =
+                stateRestoreDevice.spectrumBorder & 0x07;
+        }
     }
     return success;
 }
@@ -729,6 +757,16 @@ void stateOnTick()
                 if (page == 8)
                 {
                     memcpy((void*)menuRamArray[2], (void*)&menuRamArray[1][0x500], 0x1B00);
+                }
+                if (page == ((stateSave128 && ((spectrumBankM & 0x08) != 0)) ? 10 : 8))
+                {
+                    // Save the screenshot file
+                    if (!stateWriteFile(stateSaveSlot, "SCREEN.SCR",
+                        menuRamArray[2], STATE_SCREEN_SIZE))
+                    {
+                        stateFinishSave(false);
+                        return;
+                    }
                 }
                 if (stateWriteBytes((const void*)menuRamArray[2], ROM_PAGE_SIZE))
                 {
