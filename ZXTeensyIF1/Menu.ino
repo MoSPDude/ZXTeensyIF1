@@ -147,6 +147,8 @@ typedef struct {
     bool isDirectory;
 } browser_sort_entry_t;
 
+bool menuSetFileSortEntry(browser_sort_entry_t* sortEntry, FsFile* entry,
+    char* displayName);
 int menuCompareBrowserFiles(const browser_sort_entry_t* first,
     const browser_sort_entry_t* second);
 void menuSortBrowserFiles(browser_sort_entry_t* entries, uint8_t count);
@@ -533,7 +535,8 @@ char* menuAddBrowserFile(uint32_t index, char* ptr, const char* filename,
 
 char* menuGenerateTapeBrowser(char* ptr)
 {
-    uint8_t count = tzxPlayer.tapeMarkCount;
+    uint8_t count = ((tzxPlayer.tapeMarkCount >= 254) ? 
+        254 : tzxPlayer.tapeMarkCount);
     ptr = menuInsertSetting(MENU_ACTION_TOP_MENU, 0, ptr, MENU_STRINGS[STRING_CANCEL], 0);
     for (uint8_t index = 0; index < count; ++index)
     {
@@ -799,6 +802,31 @@ char* menuGenerateBrowserOpen(char* ptr)
     return ptr;
 }
 
+bool menuSetFileSortEntry(browser_sort_entry_t* sortEntry, FsFile* entry,
+    char* displayName)
+{
+    if (!entry->getName(displayName, MAX_PATH))
+    {
+        return false;
+    }
+
+    sortEntry->dirIndex = entry->dirIndex();
+    sortEntry->isDirectory = entry->isDirectory();
+    memset(sortEntry->sortKey, 0, sizeof(sortEntry->sortKey));
+    for (size_t index = 0;
+        (index < sizeof(sortEntry->sortKey)) && (displayName[index] != 0);
+        ++index)
+    {
+        char value = displayName[index];
+        if ((value >= 'a') && (value <= 'z'))
+        {
+            value -= ('a' - 'A');
+        }
+        sortEntry->sortKey[index] = value;
+    }
+    return true;
+}
+
 int menuCompareBrowserFiles(const browser_sort_entry_t* first,
     const browser_sort_entry_t* second)
 {
@@ -854,27 +882,12 @@ char* menuGenerateBrowser(char* ptr)
                     {
                         browser_sort_entry_t* browserEntry =
                             &(browserSortEntries[count]);
-                        browserEntry->dirIndex = entry.dirIndex();
-                        browserEntry->isDirectory = entry.isDirectory();
-                        memset(browserEntry->sortKey, 0,
-                            sizeof(browserEntry->sortKey));
-                        if (entry.getName(browserDisplayName, MAX_PATH))
+                        if (menuSetFileSortEntry(browserEntry, &entry,
+                            browserDisplayName))
                         {
-                            for (size_t index = 0;
-                                (index < sizeof(browserEntry->sortKey)) &&
-                                    (browserDisplayName[index] != 0);
-                                ++index)
-                            {
-                                char value = browserDisplayName[index];
-                                if ((value >= 'a') && (value <= 'z'))
-                                {
-                                    value -= ('a' - 'A');
-                                }
-                                browserEntry->sortKey[index] = value;
-                            }
+                            ++count;
                         }
                         entry.close();
-                        ++count;
                     } else {
                         // End of listing
                         break;
@@ -935,23 +948,9 @@ char* menuGenerateLoadRom(char* ptr)
                     if (!entry.isDirectory())
                     {
                         browser_sort_entry_t* romEntry = &(romSortEntries[count]);
-                        romEntry->dirIndex = entry.dirIndex();
-                        romEntry->isDirectory = false;
-                        memset(romEntry->sortKey, 0, sizeof(romEntry->sortKey));
-                        if (entry.getName(romDisplayName, MAX_PATH))
+                        if (menuSetFileSortEntry(romEntry, &entry,
+                            romDisplayName))
                         {
-                            for (size_t index = 0;
-                                (index < sizeof(romEntry->sortKey)) &&
-                                    (romDisplayName[index] != 0);
-                                ++index)
-                            {
-                                char value = romDisplayName[index];
-                                if ((value >= 'a') && (value <= 'z'))
-                                {
-                                    value -= ('a' - 'A');
-                                }
-                                romEntry->sortKey[index] = value;
-                            }
                             ++count;
                         }
                     }
@@ -1185,6 +1184,9 @@ char* menuGenerateSettings(char* ptr)
 
 char* menuGenerateMain(char* ptr)
 {
+    browser_sort_entry_t cfgSortEntries[BROWSER_ENTRY_LIMIT];
+    char cfgDisplayName[MAX_PATH];
+
     ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_RESTART,
         ptr, MENU_STRINGS[STRING_RESTART], 0);
     ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_DISABLE,
@@ -1204,21 +1206,25 @@ char* menuGenerateMain(char* ptr)
         if (cfgDirectory.isDirectory())
         {
             bool hasConfigs = false;
-            char cfgDisplayName[MAX_PATH];
-            while (true)
+            uint8_t count = 0;
+            while (count < BROWSER_ENTRY_LIMIT)
             {
                 FsFile entry = cfgDirectory.openNextFile(O_RDONLY);
                 if (entry)
                 {
-                    if (!entry.isDirectory() &&
-                        entry.getName(cfgDisplayName, MAX_PATH))
+                    if (!entry.isDirectory())
                     {
-                        uint8_t previousEntries = menuEntries;
-                        ptr = menuAddMainFile(entry.dirIndex(), ptr,
-                            cfgDisplayName);
-                        if (menuEntries != previousEntries)
+                        browser_sort_entry_t* cfgEntry =
+                            &(cfgSortEntries[count]);
+                        if (menuSetFileSortEntry(cfgEntry, &entry,
+                            cfgDisplayName))
                         {
-                            hasConfigs = true;
+                            char* fileext = strrchr(cfgDisplayName, '.');
+                            if ((fileext != 0) &&
+                                (stricmp(fileext + 1, "cfg") == 0))
+                            {
+                                ++count;
+                            }
                         }
                     }
                     entry.close();
@@ -1226,9 +1232,32 @@ char* menuGenerateMain(char* ptr)
                     // End of listing
                     break;
                 }
+            }
 
-                // End of menu check
-                if ((ptr > menuEndPtr) || (menuEntries == 252))
+            menuSortBrowserFiles(cfgSortEntries, count);
+            for (uint8_t index = 0; index < count; ++index)
+            {
+                const browser_sort_entry_t* cfgEntry =
+                    &(cfgSortEntries[index]);
+                FsFile entry;
+                if (entry.open(&cfgDirectory, cfgEntry->dirIndex, O_RDONLY))
+                {
+                    if (entry.getName(cfgDisplayName, MAX_PATH))
+                    {
+                        uint8_t previousEntries = menuEntries;
+                        ptr = menuAddMainFile(cfgEntry->dirIndex, ptr,
+                            cfgDisplayName);
+                        if (menuEntries != previousEntries)
+                        {
+                            hasConfigs = true;
+                        }
+                    }
+                    entry.close();
+                }
+
+                // Limit dynamic list to account for remaining menu options
+                // NOTE: 6 additional options, needs an additional 5 lines
+                if ((ptr > (menuEndPtr - (5 * MENU_STR_LEN))) || (menuEntries >= 249))
                 {
                     break;
                 }
