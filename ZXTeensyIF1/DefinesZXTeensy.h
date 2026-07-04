@@ -25,6 +25,7 @@
 #define STATE_ROOT_PATH ((const char*)F("/ZXTEENSY/STATE"))
 
 #define STATE_SLOT_COUNT 16
+#define STATE_POKE_SLOT (STATE_SLOT_COUNT - 1)
 
 #define FWUPDATE_HEX_PATH "ZXTEENSY.HEX"
 #define MODEM_URL_PATH ((const char*)F("\"glasstty.com\",6502"))

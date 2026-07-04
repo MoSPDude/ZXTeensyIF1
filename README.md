@@ -155,7 +155,7 @@ the DivMMC and enable the Interface 1.
 * ZXTEENSY/
     * CONFIGS/
         * <NAME>.CFG (Saved configurations that appear as "NAME" in the Menu ROM for quick selection)
-    * STATE/<SLOT>/
+    * STATE/<SLOT>/ (user save slots 0-14; slot 15 is reserved)
         * STATE.Z80 (Z80 v3 snapshot for the save state)
         * SCREEN.SCR (6912-byte active Spectrum screen for load preview)
         * (Additional saved state files for the save slot)
@@ -196,6 +196,8 @@ Inside the Menu ROM you can,
 * Browse the SD card to select files to load, or mount
     * Selecting known file extensions will either load or ask to mount
     * Selecting unknown file extensions will ask for an action
+    * From the in-game browser, select a POK file and tick one or more trainers
+      before selecting "Apply selected trainers"
 * Browse the system Soft ROMs in the "ROMS/" directory to load, or set as Soft ROM
     * Double selecting a system Soft ROM will immediately reset into it
 * Select a saved configuration to load
@@ -230,7 +232,13 @@ In "Browse SD card", in other directories,
 | .dsk | Spectrum +3 disk |
 | .mdr | ZX Microdrive cartridge |
 | .tap, .tzx | Audio cassette |
+| .pok | POK trainers (in-game browser only) |
 | Other | The menu will ask for an action |
+
+POK trainers are applied by saving a temporary state to reserved slot 15,
+patching the selected RAM banks, and immediately restoring that state. POK
+trainers that require a prompted value (`256`) are not supported and are
+reported in the debug log.
 
 ### Preparing the SD Card
 

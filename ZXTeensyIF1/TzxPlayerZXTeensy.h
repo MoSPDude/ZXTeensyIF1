@@ -57,7 +57,6 @@ class TzxPlayerZXTeensy
 
     public :
         size_t tapeMarkPosition[255];
-        char tapeMarkName[255][MENU_STR_LEN];
         uint8_t tapeMarkCount;
 
     protected :
@@ -215,11 +214,11 @@ class TzxPlayerZXTeensy
             pulseDuration(0), edgeCycleCount(0), isTzxTapeFile(false),
             tapeBuffer(0), tapePosition(0), tapeLength(0), dataBlockSize(0), pauseAfterBlock(0),
             tapeBufferStarted(false), tapeBufferEnded(false), tapeBufferAutoPlay(false),
-            tapeMarkPosition{}, tapeMarkName{}, tapeMarkCount(0)
+            tapeMarkPosition{}, tapeMarkCount(0)
         {
         }
 
-        void scanTape();
+        void scanTape(char (*tapeMarkNames)[MENU_STR_LEN]);
         void seek(uint8_t index);
         void begin(volatile uint8_t* buffer, size_t size);
         void end();

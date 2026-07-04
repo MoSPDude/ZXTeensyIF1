@@ -108,6 +108,7 @@ volatile bool stateSaveBlockPending = false;
 volatile uint8_t stateSaveBlockValue = 0;
 bool stateSave128 = false;
 uint8_t stateSaveExpectedBlock = 0;
+uint8_t stateSaveActiveSlot = 0;
 state_device_data_t stateRestoreDevice;
 volatile bool stateLoadActive = false;
 volatile bool stateLoadFinalStage = false;
@@ -452,11 +453,18 @@ bool stateBeginSave(uint8_t slot)
     {
         // The menu ROM probes whether 0x7FFD changes the RAM at 0xC000, to
         // determine if a 48K or 128K snapshot is needed
+        bool pokeSave = (slot == STATE_POKE_SLOT);
         uint8_t stateMode = menuRamArray[0][MEM_MODE];
         stateSave128 = (stateMode == Z80_MODE_128);
         if ((spectrumBank678 & 0x01) != 0)
         {
             // +3 All-Ram mode is not supported
+            return false;
+        }
+
+        // Prepare to apply pokes to the snapshot
+        if (pokeSave && !pokePrepareApply(stateSave128, spectrumBankM))
+        {
             return false;
         }
 
@@ -474,7 +482,7 @@ bool stateBeginSave(uint8_t slot)
                     stateSaveExpectedBlock = 0;
                     stateSaveBlockPending = false;
                     stateSaveActive = true;
-                    stateSaveSlot = slot;
+                    stateSaveActiveSlot = slot;
                     menuBuffer.write(stateSave128 ? MENU_ROM_CMD_STATE_CAPTURE_128 :
                         MENU_ROM_CMD_STATE_CAPTURE_48);
                     return true;
@@ -513,6 +521,12 @@ uint8_t statePageForBlock(uint8_t block)
     return stateSave128 ? (3 + block) : pages48[block];
 }
 
+uint8_t stateBankForBlock(uint8_t block)
+{
+    static const uint8_t banks48[3] = { 5, 2, 0 };
+    return stateSave128 ? block : banks48[block];
+}
+
 void stateResumeClosedDevices()
 {
     if (dskEnabled)
@@ -525,12 +539,12 @@ void stateResumeClosedDevices()
     }
 }
 
-void stateDeleteSlot()
+void stateDeleteSlot(uint8_t slot)
 {
     char path[MAX_PATH];
     for (uint8_t index = 0; index < MAX_STATE_FILE_COUNT; ++index)
     {
-        stateBuildSlotPath(path, stateSaveSlot, STATE_FILE_NAMES[index]);
+        stateBuildSlotPath(path, slot, STATE_FILE_NAMES[index]);
         if (SD.exists(path))
         {
             SD.remove(path);
@@ -544,7 +558,7 @@ void stateFinishSave(bool success)
     if (success)
     {
         char path[MAX_PATH];
-        stateBuildSlotPath(path, stateSaveSlot, STATE_FILE_NAMES[STATE_FILE_STATE]);
+        stateBuildSlotPath(path, stateSaveActiveSlot, STATE_FILE_NAMES[STATE_FILE_STATE]);
         File verifyFile = SD.open(path, FILE_READ);
         if (verifyFile)
         {
@@ -559,30 +573,39 @@ void stateFinishSave(bool success)
     {
         // Save the DivMMC RAM, ROM banking and peripheral state
         stateCaptureDeviceData(&stateRestoreDevice);
-        success = (stateWriteFile(stateSaveSlot, STATE_FILE_NAMES[STATE_FILE_DIVRAM],
+        success = (stateWriteFile(stateSaveActiveSlot, STATE_FILE_NAMES[STATE_FILE_DIVRAM],
                 divMmcRamArray, (RAM_PAGE_COUNT * RAM_PAGE_SIZE)) &&
-            stateWriteFile(stateSaveSlot, STATE_FILE_NAMES[STATE_FILE_DIVEXT],
+            stateWriteFile(stateSaveActiveSlot, STATE_FILE_NAMES[STATE_FILE_DIVEXT],
                 divMmcExtRamArray, (EXT_RAM_PAGE_COUNT * RAM_PAGE_SIZE)) &&
-            stateWriteFile(stateSaveSlot, STATE_FILE_NAMES[STATE_FILE_MFRAM],
+            stateWriteFile(stateSaveActiveSlot, STATE_FILE_NAMES[STATE_FILE_MFRAM],
                 &romArray[ROM_PAGE_MF128][RAM_PAGE_SIZE], RAM_PAGE_SIZE) &&
-            stateWriteFile(stateSaveSlot, STATE_FILE_NAMES[STATE_FILE_DEVICE],
+            stateWriteFile(stateSaveActiveSlot, STATE_FILE_NAMES[STATE_FILE_DEVICE],
                 &stateRestoreDevice, sizeof(stateRestoreDevice)));
     }
     if (success)
     {
         // Store the saved slot to be loaded at boot
-        stateActiveSlot = stateSaveSlot;
+        stateActiveSlot = stateSaveActiveSlot;
         menuConfigChanged = true;
         menuSaveConfiguration();
     } else {
         // Ensure the active slot is cleared on failure
-        menuPrintDebug(false, F_CSTR("Failed to save state %d"), stateActiveSlot);
+        menuPrintDebug(false, F_CSTR("Failed to save state %d"), stateSaveActiveSlot);
         stateActiveSlot = -1;
-        stateDeleteSlot();
+        stateDeleteSlot(stateSaveActiveSlot);
     }
 
     // Finished saving the state
     stateSaveActive = false;
+    if (stateSaveActiveSlot == STATE_POKE_SLOT)
+    {
+        pokeFinishApply();
+        if (success)
+        {
+            setState(STATE_RESET);
+            return;
+        }
+    }
     stateResumeClosedDevices();
     menuBuffer.write(success ? MENU_ROM_CMD_STATE_COMPLETE : MENU_ROM_CMD_STATE_FAILED);
     menuRedraw = true;
@@ -734,8 +757,7 @@ bool stateLoadOnStartup()
         File stateFile = SD.open(statePath, FILE_READ);
         if (loadSnapshotFile(stateFile, false) &&
             stateReadFile(stateActiveSlot, STATE_FILE_NAMES[STATE_FILE_DIVRAM],
-                divMmcRamArray,
-                (RAM_PAGE_COUNT * RAM_PAGE_SIZE)) &&
+                divMmcRamArray, (RAM_PAGE_COUNT * RAM_PAGE_SIZE)) &&
             stateReadFile(stateActiveSlot, STATE_FILE_NAMES[STATE_FILE_MFRAM],
                 &romArray[ROM_PAGE_MF128][RAM_PAGE_SIZE], RAM_PAGE_SIZE) &&
             stateReadDivMmcExtRam(stateActiveSlot))
@@ -771,7 +793,10 @@ void stateOnTick()
         {
             // Update the quick save slot on success
             restored = true;
-            stateSaveSlot = slot;
+            if (slot < STATE_POKE_SLOT)
+            {
+                stateSaveSlot = slot;
+            }
         }
 
         // Clear the restore saved state slot
@@ -813,20 +838,29 @@ void stateOnTick()
                 // with address 0x4000 with the shadow copy from scratch RAM
                 if (page == 8)
                 {
-                    memcpy((void*)menuRamArray[2], (void*)&menuRamArray[1][0x500], 0x1B00);
-
-                    // Ensure space for the snapshot loaders in Bank 5 as "page 8"
-                    if (stateTestSimpleLz((uint8_t*)menuRamArray[2], ROM_PAGE_SIZE) >=
-                        SNA_LOADER_BANK_5_SIZE)
-                    {
-                        stateFinishSave(false);
-                        return;
-                    }
+                    memcpy((void*)menuRamArray[2], (void*)&menuRamArray[1][0x500], 
+                        STATE_SCREEN_SIZE);
                 }
+
+                // Apply any pokes to the snapshot
+                if (stateSaveActiveSlot == STATE_POKE_SLOT)
+                {
+                    pokeApplyBank(stateBankForBlock(block), menuRamArray[2]);
+                }
+
+                // Ensure space for the snapshot loaders in Bank 5 as "page 8"
+                if ((page == 8) &&
+                    (stateTestSimpleLz((uint8_t*)menuRamArray[2], ROM_PAGE_SIZE) >=
+                        SNA_LOADER_BANK_5_SIZE))
+                {
+                    stateFinishSave(false);
+                    return;
+                }
+
+                // Save the screenshot file when storing screen bank
                 if (page == ((stateSave128 && ((spectrumBankM & 0x08) != 0)) ? 10 : 8))
                 {
-                    // Save the screenshot file
-                    if (!stateWriteFile(stateSaveSlot,
+                    if (!stateWriteFile(stateSaveActiveSlot,
                         STATE_FILE_NAMES[STATE_FILE_SCREEN],
                         menuRamArray[2], STATE_SCREEN_SIZE))
                     {
@@ -834,6 +868,8 @@ void stateOnTick()
                         return;
                     }
                 }
+
+                // Write the block to the snapshot
                 if (stateWriteBytes((const void*)menuRamArray[2], ROM_PAGE_SIZE))
                 {
                     ++stateSaveExpectedBlock;

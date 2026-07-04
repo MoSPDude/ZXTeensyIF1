@@ -91,7 +91,8 @@ typedef enum {
     STRING_IN_GAME_RESET,
     STRING_IN_GAME_HARD_RESET,
     STRING_IN_GAME_EXIT_TAPE,
-    STRING_IN_GAME_EXIT_BASIC
+    STRING_IN_GAME_EXIT_BASIC,
+    STRING_IN_GAME_APPLY_POK
 } menu_string_t;
 
 static const char* const PROGMEM MENU_STRINGS[] = {
@@ -183,7 +184,8 @@ static const char* const PROGMEM MENU_STRINGS[] = {
     "Reset into Main Menu",
     "Cold Reset into Main Menu",
     "Back and Play Tape",
-    "Break into BASIC"
+    "Break into BASIC",
+    "Apply POKEs",
 };
 
 #endif

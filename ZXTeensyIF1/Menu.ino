@@ -59,6 +59,7 @@ typedef enum {
     MENU_TYPE_BROWSER_OPEN_ZXC2,
     MENU_TYPE_BROWSER_MOUNT_HDF,
     MENU_TYPE_BROWSER_MOUNT_DSK,
+    MENU_TYPE_POK_BROWSER,
     MENU_TYPE_HTTP_SERVER,
     MENU_TYPE_IN_GAME,
     MENU_TYPE_TAPE_BROWSER,
@@ -143,6 +144,9 @@ char menuFileName[MAX_PATH];
 char browserPath[MAX_PATH];
 static const uint8_t BROWSER_ENTRY_LIMIT = 254;
 static const uint32_t BROWSER_PARENT_INDEX = 0xFFFFFFFFUL;
+
+// Menu TZX and POK listings
+char menuDynamicList[255][MENU_STR_LEN];
 
 // Menu saved state preview
 uint8_t menuPreviewSlot = 0;
@@ -525,6 +529,11 @@ char* menuAddBrowserFile(uint32_t index, char* ptr, const char* filename,
             {
                 icon = ICON_TYPE_TZX;
                 action = MENU_ACTION_BROWSER_LOAD_TZX;
+            } else if ((menuTopMenu == MENU_TYPE_IN_GAME) &&
+                (stricmp(fileext + 1, "pok") == 0))
+            {
+                icon = ICON_TYPE_NONE;
+                action = MENU_ACTION_BROWSER_OPEN_POK;
             } else {
                 icon = ICON_TYPE_NONE;
                 action = MENU_ACTION_BROWSER_OPEN;
@@ -546,9 +555,8 @@ char* menuGenerateTapeBrowser(char* ptr)
     ptr = menuInsertSetting(MENU_ACTION_TOP_MENU, 0, ptr, MENU_STRINGS[STRING_CANCEL], 0);
     for (uint8_t index = 0; index < count; ++index)
     {
-        char* markName = tzxPlayer.tapeMarkName[index];
         ptr = menuInsertSetting(MENU_ACTION_IN_GAME_SEEK_TAPE, index, ptr,
-            markName, 0);
+            menuDynamicList[index], 0);
     }
     return ptr;
 }
@@ -556,7 +564,7 @@ char* menuGenerateTapeBrowser(char* ptr)
 char* menuGenerateSelectStateSlot(char* ptr, bool loadNotSave)
 {
     ptr = menuInsertSetting(MENU_ACTION_TOP_MENU, 0, ptr, MENU_STRINGS[STRING_CANCEL], 0);
-    for (int8_t slot = 0; slot < STATE_SLOT_COUNT; ++slot)
+    for (int8_t slot = 0; slot < STATE_POKE_SLOT; ++slot)
     {
         if (!loadNotSave || stateReadDeviceData(slot))
         {
@@ -585,6 +593,31 @@ char* menuGeneratePreviewStateSlot(char* ptr)
         ptr, MENU_STRINGS[STRING_CANCEL], 0);
     return menuInsertSetting(MENU_ACTION_LOAD_STATE_SLOT, menuPreviewSlot, ptr,
         MENU_STRINGS[STRINGS_LOAD_STATE], 0);
+}
+
+char* menuGeneratePokBrowser(char* ptr)
+{
+    ptr = menuInsertSetting(MENU_ACTION_BROWSER_CD, BROWSER_PARENT_INDEX,
+        ptr, MENU_STRINGS[STRING_CANCEL], 0);
+    if (pokeHasSelectedTrainers())
+    {
+        ptr = menuInsertSetting(MENU_ACTION_IN_GAME_APPLY_POK, 0, ptr,
+            MENU_STRINGS[STRING_IN_GAME_APPLY_POK], 0);
+    } else {
+        ptr = menuInsertSpacer(ptr);
+    }
+
+    uint8_t count = pokeGetTrainerCount();
+    for (uint8_t index = 0; index < count; ++index)
+    {
+        ptr = menuInsertSetting(MENU_ACTION_POK_TOGGLE_TRAINER, index, ptr,
+            menuDynamicList[index], pokeIsTrainerSelected(index));
+        if ((ptr > menuEndPtr) || (menuEntries == 255))
+        {
+            break;
+        }
+    }
+    return ptr;
 }
 
 char* menuGenerateInGame(char* ptr)
@@ -1362,6 +1395,9 @@ void menuGenerate()
         case MENU_TYPE_TAPE_BROWSER :
             textPtr = menuGenerateTapeBrowser(textPtr);
             break;
+        case MENU_TYPE_POK_BROWSER :
+            textPtr = menuGeneratePokBrowser(textPtr);
+            break;
         case MENU_TYPE_SAVE_STATE_SLOT :
             textPtr = menuGenerateSelectStateSlot(textPtr, false);
             break;
@@ -1586,7 +1622,7 @@ bool menuPerformSelection(uint8_t index)
                     break;
                 case SETTING_ACTION_OPEN_TAPE_BROWSER :
                     // Open tape browser
-                    tzxPlayer.scanTape();
+                    tzxPlayer.scanTape(menuDynamicList);
                     menuCurrent = MENU_TYPE_TAPE_BROWSER;
                     break;
                 case SETTING_ACTION_OPEN_SAVE_STATE_SLOT :
@@ -1720,6 +1756,20 @@ bool menuPerformSelection(uint8_t index)
                 menuCurrent = menuTopMenu;
             }
             break;
+        case MENU_ACTION_BROWSER_OPEN_POK :
+            if (updateBrowserPath(entryIndex))
+            {
+                if (pokeOpenFile(browserPath, menuDynamicList))
+                {
+                    menuCurrent = MENU_TYPE_POK_BROWSER;
+                } else {
+                    updateBrowserPath(BROWSER_PARENT_INDEX);
+                    menuCurrent = MENU_TYPE_BROWSER;
+                }
+            } else {
+                menuCurrent = menuTopMenu;
+            }
+            break;
         case MENU_ACTION_BROWSER_LOAD_Z80 :
         case MENU_ACTION_BROWSER_LOAD_MDR :
             if ((menuCurrent == MENU_TYPE_BROWSER_OPEN) ||
@@ -1800,6 +1850,9 @@ bool menuPerformSelection(uint8_t index)
             tzxPlayer.seek((uint8_t)entryIndex);
             menuCurrent = menuTopMenu;
             break;
+        case MENU_ACTION_POK_TOGGLE_TRAINER :
+            pokeToggleTrainer((uint8_t)entryIndex);
+            break;
         case MENU_ACTION_SELECT_SAVE_SLOT :
             if (stateSaveSlot != entryIndex)
             {
@@ -1844,6 +1897,13 @@ bool menuPerformSelection(uint8_t index)
         case MENU_ACTION_IN_GAME_SAVE_STATE :
             stateSaveSlot = entryIndex;
             return true;
+        case MENU_ACTION_IN_GAME_APPLY_POK :
+            if (pokeRequestApply())
+            {
+                menuCurrent = menuTopMenu;
+                return true;
+            }
+            break;
     }
 
     // Clear the configuration name when changed
@@ -2301,7 +2361,7 @@ void menuLoadConfiguration(const char* cfgCfgName)
                     {
                         long slot = atol(&(cfgPtr[16]));
                         stateSaveSlot = ((slot >= 0) &&
-                            (slot < STATE_SLOT_COUNT)) ? slot : -1;
+                            (slot < STATE_POKE_SLOT)) ? slot : 0;
                         ++count;
                     }
                     break;

@@ -41,6 +41,7 @@ typedef enum {
     MENU_ACTION_BROWSER_LOAD_Z80,
     MENU_ACTION_BROWSER_LOAD_TZX,
     MENU_ACTION_BROWSER_LOAD_MDR,
+    MENU_ACTION_BROWSER_OPEN_POK,
     MENU_ACTION_BROWSER_MOUNT_SDA,
     MENU_ACTION_BROWSER_MOUNT_SDB,
     MENU_ACTION_BROWSER_MOUNT_FDA,
@@ -50,11 +51,13 @@ typedef enum {
     MENU_ACTION_SELECT_LOAD_SLOT,
     MENU_ACTION_SELECT_SAVE_SLOT,
     MENU_ACTION_LOAD_STATE_SLOT,
+    MENU_ACTION_POK_TOGGLE_TRAINER,
     MENU_ACTION_IN_GAME_EXIT,
     MENU_ACTION_IN_GAME_EXIT_TAPE,
     MENU_ACTION_IN_GAME_EXIT_BASIC,
     MENU_ACTION_IN_GAME_SEEK_TAPE,
     MENU_ACTION_IN_GAME_SAVE_STATE,
+    MENU_ACTION_IN_GAME_APPLY_POK,
     MENU_ACTION_IN_GAME_MF128,
     MENU_ACTION_IN_GAME_DIVMMC,
     MENU_ACTION_IN_GAME_RESET,
@@ -69,6 +72,12 @@ typedef enum {
     ICON_TYPE_Z80,
     ICON_TYPE_TZX
 } icon_type_t;
+
+typedef enum {
+    POKE_PARSE_METADATA,
+    POKE_PARSE_PREPARE,
+    POKE_PARSE_APPLY
+} poke_parse_op_t;
 
 typedef enum {
     STATE_ROM_DISABLE = 0x00,
@@ -1954,6 +1963,13 @@ FASTRUN void loop()
                             menuBuffer.write(MENU_ROM_CMD_STATE_FAILED);
                         }
                         break;
+                    case MENU_ACTION_IN_GAME_APPLY_POK :
+                        if (!stateBeginSave(STATE_POKE_SLOT))
+                        {
+                            pokeFinishApply();
+                            menuBuffer.write(MENU_ROM_CMD_STATE_FAILED);
+                        }
+                        break;
                     case MENU_ACTION_IN_GAME_EXIT :
                         nmiRomTarget = ROM_ROM0;
                         break;
@@ -1981,7 +1997,8 @@ FASTRUN void loop()
                 // Update ROM indexes, and exit the menu
                 if (!isGlobalStateReset())
                 {
-                    if (menuGetMenuAction() != MENU_ACTION_IN_GAME_SAVE_STATE)
+                    if ((menuGetMenuAction() != MENU_ACTION_IN_GAME_SAVE_STATE) &&
+                        (menuGetMenuAction() != MENU_ACTION_IN_GAME_APPLY_POK))
                     {
                         updateRomIndex(true);
                         menuBuffer.write(MENU_ROM_CMD_IN_GAME_EXIT);

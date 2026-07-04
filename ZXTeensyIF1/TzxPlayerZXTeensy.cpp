@@ -470,7 +470,7 @@ bool TzxPlayerZXTeensy::loadFromTape()
     return false;
 }
 
-void TzxPlayerZXTeensy::scanTape()
+void TzxPlayerZXTeensy::scanTape(char (*tapeMarkNames)[MENU_STR_LEN])
 {
     uint8_t index = 0;
     size_t currentTapePosition = tapePosition;
@@ -585,8 +585,8 @@ void TzxPlayerZXTeensy::scanTape()
 
                         // Store block
                         tapeMarkPosition[index] = blockPosition;
-                        strncpy(tapeMarkName[index], blockName, MENU_STR_LEN);
-                        tapeMarkName[index][(MENU_STR_LEN - 1)] = 0;
+                        strncpy(tapeMarkNames[index], blockName, MENU_STR_LEN);
+                        tapeMarkNames[index][(MENU_STR_LEN - 1)] = 0;
                         ++index;
                     }
                     tapePosition = nextPosition;
@@ -603,7 +603,7 @@ void TzxPlayerZXTeensy::scanTape()
 
                     // Store block
                     snprintf(tmpName, MAX_PATH, "Turbo Data %db", (int)length);
-                    strncpy(tapeMarkName[index], tmpName, MENU_STR_LEN);
+                    strncpy(tapeMarkNames[index], tmpName, MENU_STR_LEN);
                     tapeMarkPosition[index] = blockPosition;
                     ++index;
                 }
@@ -637,10 +637,10 @@ void TzxPlayerZXTeensy::scanTape()
                     uint16_t durationMs = readTapeWord();
                     if (durationMs == 0)
                     {
-                        strcpy(tapeMarkName[index], "Stop Tape");
-                    } else if (snprintf(tapeMarkName[index], MENU_STR_LEN, "Pause %d ms", durationMs) >= MENU_STR_LEN)
+                        strcpy(tapeMarkNames[index], "Stop Tape");
+                    } else if (snprintf(tapeMarkNames[index], MENU_STR_LEN, "Pause %d ms", durationMs) >= MENU_STR_LEN)
                     {
-                        tapeMarkName[index][(MENU_STR_LEN - 1)] = 0;
+                        tapeMarkNames[index][(MENU_STR_LEN - 1)] = 0;
                     }
                     tapeMarkPosition[index] = blockPosition;
                     ++index;
@@ -659,7 +659,7 @@ void TzxPlayerZXTeensy::scanTape()
                     memcpy(tmpName, (void *)&(tapeBuffer[tapePosition]), length);
                     tmpName[length] = 0;
                     ignoreTapeData(length);
-                    strcpy(tapeMarkName[index], tmpName);
+                    strcpy(tapeMarkNames[index], tmpName);
                     tapeMarkPosition[index] = blockPosition;
                     ++index;
                 }
@@ -684,7 +684,7 @@ void TzxPlayerZXTeensy::scanTape()
                     memcpy(tmpName, (void *)&(tapeBuffer[tapePosition]), length);
                     tmpName[length] = 0;
                     ignoreTapeData(length);
-                    strcpy(tapeMarkName[index], tmpName);
+                    strcpy(tapeMarkNames[index], tmpName);
                     tapeMarkPosition[index] = blockPosition;
                     ++index;
                 }
