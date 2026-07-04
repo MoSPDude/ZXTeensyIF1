@@ -325,6 +325,10 @@ volatile bool mdrEnabled = false;
 volatile uint8_t mdrMaxSector = 0;
 
 // Z80 snapshot loader banking
+static const size_t SNA_LOADER_FIRST_SIZE = 236;
+static const size_t SNA_LOADER_FINAL_SIZE = 12;
+static const uint32_t SNA_LOADER_BANK_5_SIZE =
+    (ROM_PAGE_SIZE - (SNA_LOADER_FIRST_SIZE + SNA_LOADER_FINAL_SIZE + 1));
 volatile bool snaLoaderPresent = false;
 volatile uint8_t snaLoaderBanks = 0;
 

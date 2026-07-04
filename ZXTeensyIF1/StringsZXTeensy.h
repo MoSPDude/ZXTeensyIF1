@@ -7,6 +7,7 @@ typedef enum {
     STRING_RESTART,
     STRING_DISABLE,
     STRING_OPEN_SETTINGS,
+    STRING_OPEN_CONFIGS,
     STRING_OPEN_BROWSER,
     STRING_OPEN_ROMS,
     STRING_OPEN_HTTP_SERVER,
@@ -93,11 +94,12 @@ typedef enum {
     STRING_IN_GAME_EXIT_BASIC
 } menu_string_t;
 
-const char* PROGMEM MENU_STRINGS[] = {
+static const char* const PROGMEM MENU_STRINGS[] = {
     "Back",
     "Save and Reset",
     "Disable and Reset",
     "Edit Settings",
+    "Load Configuration",
     "Browse SD card",
     "Load ROM",
     "Configure HTTP server",

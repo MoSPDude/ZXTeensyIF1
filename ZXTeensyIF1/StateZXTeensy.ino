@@ -10,12 +10,20 @@ static const size_t STATE_SCREEN_SIZE = 0x1B00;
 static const uint8_t STATE_SIGNAL_FINISH = 0xC0;
 static const uint16_t STATE_DEVICE_VERSION = 1;
 
-static const char* const STATE_FILE_NAMES[] = {
+typedef enum {
+    STATE_FILE_STATE,
+    STATE_FILE_SCREEN,
+    STATE_FILE_DIVRAM,
+    STATE_FILE_DIVEXT,
+    STATE_FILE_MFRAM,
+    STATE_FILE_DEVICE,
+    MAX_STATE_FILE_COUNT
+} state_file_t;
+
+static const char* const PROGMEM STATE_FILE_NAMES[] = {
     "STATE.Z80", "SCREEN.SCR", "DIVRAM.BIN", "DIVEXT.BIN", "MFRAM.BIN",
     "DEVICE.BIN"
 };
-static const uint8_t STATE_FILE_COUNT =
-    sizeof(STATE_FILE_NAMES) / sizeof(STATE_FILE_NAMES[0]);
 
 typedef struct __attribute__((packed)) {
     // Saved-record metadata.
@@ -119,6 +127,52 @@ uint8_t stateRegisterByte(uint16_t base, uint8_t offset)
     return menuRamArray[1][(base + offset) & (RAM_PAGE_SIZE - 1)];
 }
 
+uint32_t stateTestSimpleLz(uint8_t* fload, uint32_t filesize)
+{
+    uint32_t i = 1;
+    uint32_t store_p = 2;
+    int litsize = 1;
+    uint32_t repsize, offset, repmax;
+    do {
+        // scan for sequence
+        repmax = 2;
+        if (i > 255) offset = i - 256; else offset = 0;
+        do {
+            repsize = 0;
+            while ((fload[offset + repsize] == fload[i + repsize]) &&
+                (i + repsize < filesize) && (repsize < 129))
+            {
+                repsize++;
+            }
+            if (repsize > repmax) {
+                repmax = repsize;
+            }
+            offset++;
+        } while ((offset < i) && (repmax < 129));
+        if (repmax > 2) {
+            if (litsize > 0) {
+                store_p++;
+                litsize = 0;
+            }
+            store_p += 2;
+            i += repmax;
+        }
+        else {
+            litsize++;
+            store_p++;
+            i++;
+            if (litsize > 127) {
+                store_p++;
+                litsize = 0;
+            }
+        }
+    } while (i < filesize);
+    if (litsize > 0) {
+        store_p++;
+    }
+    return store_p;
+}
+
 bool stateWriteZ80Header()
 {
     // MEM_SPR points below the 16 saved AY words. The Z80 register frame starts
@@ -197,7 +251,7 @@ bool statePrepareDirectories(uint8_t slot, char* path)
     {
         return false;
     }
-    snprintf(path, MAX_PATH, "%s/STATE.Z80", slotPath);
+    snprintf(path, MAX_PATH, "%s/%s", slotPath, STATE_FILE_NAMES[STATE_FILE_STATE]);
     return true;
 }
 
@@ -254,7 +308,7 @@ bool statePreparePreview(uint8_t slot)
     if ((slot < STATE_SLOT_COUNT) && stateReadDeviceData(slot))
     {
         char path[MAX_PATH];
-        stateBuildSlotPath(path, slot, "SCREEN.SCR");
+        stateBuildSlotPath(path, slot, STATE_FILE_NAMES[STATE_FILE_SCREEN]);
         File file = SD.open(path, FILE_READ);
         if (file)
         {
@@ -284,7 +338,7 @@ bool stateReadDivMmcExtRam(uint8_t slot)
 
     bool success = false;
     char path[MAX_PATH];
-    stateBuildSlotPath(path, slot, "DIVEXT.BIN");
+    stateBuildSlotPath(path, slot, STATE_FILE_NAMES[STATE_FILE_DIVEXT]);
     File file = SD.open(path, FILE_READ);
     if (file)
     {
@@ -474,7 +528,7 @@ void stateResumeClosedDevices()
 void stateDeleteSlot()
 {
     char path[MAX_PATH];
-    for (uint8_t index = 0; index < STATE_FILE_COUNT; ++index)
+    for (uint8_t index = 0; index < MAX_STATE_FILE_COUNT; ++index)
     {
         stateBuildSlotPath(path, stateSaveSlot, STATE_FILE_NAMES[index]);
         if (SD.exists(path))
@@ -490,7 +544,7 @@ void stateFinishSave(bool success)
     if (success)
     {
         char path[MAX_PATH];
-        stateBuildSlotPath(path, stateSaveSlot, "STATE.Z80");
+        stateBuildSlotPath(path, stateSaveSlot, STATE_FILE_NAMES[STATE_FILE_STATE]);
         File verifyFile = SD.open(path, FILE_READ);
         if (verifyFile)
         {
@@ -505,13 +559,13 @@ void stateFinishSave(bool success)
     {
         // Save the DivMMC RAM, ROM banking and peripheral state
         stateCaptureDeviceData(&stateRestoreDevice);
-        success = (stateWriteFile(stateSaveSlot, "DIVRAM.BIN",
+        success = (stateWriteFile(stateSaveSlot, STATE_FILE_NAMES[STATE_FILE_DIVRAM],
                 divMmcRamArray, (RAM_PAGE_COUNT * RAM_PAGE_SIZE)) &&
-            stateWriteFile(stateSaveSlot, "DIVEXT.BIN",
+            stateWriteFile(stateSaveSlot, STATE_FILE_NAMES[STATE_FILE_DIVEXT],
                 divMmcExtRamArray, (EXT_RAM_PAGE_COUNT * RAM_PAGE_SIZE)) &&
-            stateWriteFile(stateSaveSlot, "MFRAM.BIN",
+            stateWriteFile(stateSaveSlot, STATE_FILE_NAMES[STATE_FILE_MFRAM],
                 &romArray[ROM_PAGE_MF128][RAM_PAGE_SIZE], RAM_PAGE_SIZE) &&
-            stateWriteFile(stateSaveSlot, "DEVICE.BIN",
+            stateWriteFile(stateSaveSlot, STATE_FILE_NAMES[STATE_FILE_DEVICE],
                 &stateRestoreDevice, sizeof(stateRestoreDevice)));
     }
     if (success)
@@ -636,8 +690,8 @@ void stateApplyDeviceData()
 
 bool stateReadDeviceData(uint8_t slot)
 {
-    // Validate the header of the "DEVICE.BIN" image
-    if (stateReadFile(slot, "DEVICE.BIN", &stateRestoreDevice,
+    // Validate the header of the saved device-state image
+    if (stateReadFile(slot, STATE_FILE_NAMES[STATE_FILE_DEVICE], &stateRestoreDevice,
         sizeof(stateRestoreDevice)))
     {
         return (memcmp(stateRestoreDevice.magic, "ZXST", 4) == 0) &&
@@ -675,12 +729,14 @@ bool stateLoadOnStartup()
         stateReadDeviceData(stateActiveSlot))
     {
         char statePath[MAX_PATH];
-        stateBuildSlotPath(statePath, stateActiveSlot, "STATE.Z80");
+        stateBuildSlotPath(statePath, stateActiveSlot,
+            STATE_FILE_NAMES[STATE_FILE_STATE]);
         File stateFile = SD.open(statePath, FILE_READ);
         if (loadSnapshotFile(stateFile, false) &&
-            stateReadFile(stateActiveSlot, "DIVRAM.BIN", divMmcRamArray,
+            stateReadFile(stateActiveSlot, STATE_FILE_NAMES[STATE_FILE_DIVRAM],
+                divMmcRamArray,
                 (RAM_PAGE_COUNT * RAM_PAGE_SIZE)) &&
-            stateReadFile(stateActiveSlot, "MFRAM.BIN",
+            stateReadFile(stateActiveSlot, STATE_FILE_NAMES[STATE_FILE_MFRAM],
                 &romArray[ROM_PAGE_MF128][RAM_PAGE_SIZE], RAM_PAGE_SIZE) &&
             stateReadDivMmcExtRam(stateActiveSlot))
         {
@@ -709,7 +765,8 @@ void stateOnTick()
 
         // Restore the DivMMC RAM used by the Z80 loader
         if (beginSdfsSd() &&
-            stateReadFile(slot, "DIVEXT.BIN", divMmcExtRamArray,
+            stateReadFile(slot, STATE_FILE_NAMES[STATE_FILE_DIVEXT],
+                divMmcExtRamArray,
                 (RAM_PAGE_COUNT * RAM_PAGE_SIZE)))
         {
             // Update the quick save slot on success
@@ -757,11 +814,20 @@ void stateOnTick()
                 if (page == 8)
                 {
                     memcpy((void*)menuRamArray[2], (void*)&menuRamArray[1][0x500], 0x1B00);
+
+                    // Ensure space for the snapshot loaders in Bank 5 as "page 8"
+                    if (stateTestSimpleLz((uint8_t*)menuRamArray[2], ROM_PAGE_SIZE) >=
+                        SNA_LOADER_BANK_5_SIZE)
+                    {
+                        stateFinishSave(false);
+                        return;
+                    }
                 }
                 if (page == ((stateSave128 && ((spectrumBankM & 0x08) != 0)) ? 10 : 8))
                 {
                     // Save the screenshot file
-                    if (!stateWriteFile(stateSaveSlot, "SCREEN.SCR",
+                    if (!stateWriteFile(stateSaveSlot,
+                        STATE_FILE_NAMES[STATE_FILE_SCREEN],
                         menuRamArray[2], STATE_SCREEN_SIZE))
                     {
                         stateFinishSave(false);

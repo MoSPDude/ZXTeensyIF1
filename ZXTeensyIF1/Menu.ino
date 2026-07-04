@@ -51,6 +51,7 @@ extern float tempmonGetTemp(void);
 typedef enum {
     MENU_TYPE_MAIN,
     MENU_TYPE_SETTINGS,
+    MENU_TYPE_CONFIGS,
     MENU_TYPE_LOAD_ROM,
     MENU_TYPE_NTP_TZ,
     MENU_TYPE_BROWSER,
@@ -108,14 +109,15 @@ typedef enum {
     SETTING_ACTION_UNMOUNT_FDB,
     SETTING_ACTION_IN_GAME_TOGGLE_IF1,
     SETTING_ACTION_IN_GAME_TOGGLE_USB,
-    SETTING_ACTION_OPEN_DEBUG = 0xF6,
-    SETTING_ACTION_OPEN_SAVE_STATE_SLOT = 0xF7,
-    SETTING_ACTION_OPEN_LOAD_STATE_SLOT = 0xF8,
-    SETTING_ACTION_OPEN_TAPE_BROWSER = 0xF9,
-    SETTING_ACTION_OPEN_SERVER = 0xFA,
-    SETTING_ACTION_OPEN_ROMS = 0xFB,
-    SETTING_ACTION_OPEN_NTP_TZ = 0xFC,
-    SETTING_ACTION_OPEN_BROWSER = 0xFD,
+    SETTING_ACTION_OPEN_DEBUG = 0xF5,
+    SETTING_ACTION_OPEN_SAVE_STATE_SLOT = 0xF6,
+    SETTING_ACTION_OPEN_LOAD_STATE_SLOT = 0xF7,
+    SETTING_ACTION_OPEN_TAPE_BROWSER = 0xF8,
+    SETTING_ACTION_OPEN_SERVER = 0xF9,
+    SETTING_ACTION_OPEN_ROMS = 0xFA,
+    SETTING_ACTION_OPEN_NTP_TZ = 0xFB,
+    SETTING_ACTION_OPEN_BROWSER = 0xFC,
+    SETTING_ACTION_OPEN_CONFIGS = 0xFD,
     SETTING_ACTION_OPEN_SETTINGS = 0xFE,
     SETTING_ACTION_INTERNAL_ROM = 0xFF
 } settings_menu_action_t;
@@ -141,6 +143,9 @@ char menuFileName[MAX_PATH];
 char browserPath[MAX_PATH];
 static const uint8_t BROWSER_ENTRY_LIMIT = 254;
 static const uint32_t BROWSER_PARENT_INDEX = 0xFFFFFFFFUL;
+
+// Menu saved state preview
+uint8_t menuPreviewSlot = 0;
 
 typedef struct {
     uint32_t dirIndex;
@@ -576,9 +581,9 @@ char* menuGeneratePreviewStateSlot(char* ptr)
 {
     // This menu is hidden behind the full-screen preview. The menu ROM
     // selects entry 0 for any direction, or entry 1 to confirm the load.
-    ptr = menuInsertSetting(MENU_ACTION_TOP_MENU, 0, ptr,
-        MENU_STRINGS[STRING_CANCEL], 0);
-    return menuInsertSetting(MENU_ACTION_LOAD_STATE_SLOT, stateSaveSlot, ptr,
+    ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_OPEN_LOAD_STATE_SLOT,
+        ptr, MENU_STRINGS[STRING_CANCEL], 0);
+    return menuInsertSetting(MENU_ACTION_LOAD_STATE_SLOT, menuPreviewSlot, ptr,
         MENU_STRINGS[STRINGS_LOAD_STATE], 0);
 }
 
@@ -1193,22 +1198,11 @@ char* menuGenerateSettings(char* ptr)
     return ptr;
 }
 
-char* menuGenerateMain(char* ptr)
+char* menuGenerateConfigurations(char* ptr)
 {
     browser_sort_entry_t cfgSortEntries[BROWSER_ENTRY_LIMIT];
     char cfgDisplayName[MAX_PATH];
-
-    ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_RESTART,
-        ptr, MENU_STRINGS[STRING_RESTART], 0);
-    ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_DISABLE,
-        ptr, MENU_STRINGS[STRING_DISABLE], 0);
-    ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_OPEN_BROWSER,
-        ptr, MENU_STRINGS[STRING_OPEN_BROWSER], 0);
-    ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_OPEN_ROMS,
-        ptr, MENU_STRINGS[STRING_OPEN_ROMS], 0);
-    ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_OPEN_LOAD_STATE_SLOT,
-        ptr, MENU_STRINGS[STRING_OPEN_LOAD_STATE_SLOT], 0);
-    ptr = menuInsertSpacer(ptr);
+    ptr = menuInsertSetting(MENU_ACTION_TOP_MENU, 0, ptr, MENU_STRINGS[STRING_CANCEL], 0);
 
     // List stored configurations for quick selection
     FsFile cfgDirectory = SD.sdfs.open("/ZXTEENSY/CONFIGS", O_RDONLY);
@@ -1266,9 +1260,7 @@ char* menuGenerateMain(char* ptr)
                     entry.close();
                 }
 
-                // Limit dynamic list to account for remaining menu options
-                // NOTE: 6 additional options, needs an additional 5 lines
-                if ((ptr > (menuEndPtr - (5 * MENU_STR_LEN))) || (menuEntries >= 249))
+                if ((ptr > menuEndPtr) || (menuEntries == 255))
                 {
                     break;
                 }
@@ -1280,8 +1272,26 @@ char* menuGenerateMain(char* ptr)
         }
         cfgDirectory.close();
     }
+    return ptr;
+}
+
+char* menuGenerateMain(char* ptr)
+{
+    ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_RESTART,
+        ptr, MENU_STRINGS[STRING_RESTART], 0);
+    ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_DISABLE,
+        ptr, MENU_STRINGS[STRING_DISABLE], 0);
+    ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_OPEN_BROWSER,
+        ptr, MENU_STRINGS[STRING_OPEN_BROWSER], 0);
+    ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_OPEN_ROMS,
+        ptr, MENU_STRINGS[STRING_OPEN_ROMS], 0);
+    ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_OPEN_LOAD_STATE_SLOT,
+        ptr, MENU_STRINGS[STRING_OPEN_LOAD_STATE_SLOT], 0);
+    ptr = menuInsertSpacer(ptr);
 
     // Add settings and HTTP server
+    ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_OPEN_CONFIGS,
+        ptr, MENU_STRINGS[STRING_OPEN_CONFIGS], 0);
     ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_OPEN_SETTINGS,
         ptr, MENU_STRINGS[STRING_OPEN_SETTINGS], 0);
     ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_OPEN_SERVER,
@@ -1318,6 +1328,9 @@ void menuGenerate()
             break;
         case MENU_TYPE_SETTINGS :
             textPtr = menuGenerateSettings(textPtr);
+            break;
+        case MENU_TYPE_CONFIGS :
+            textPtr = menuGenerateConfigurations(textPtr);
             break;
         case MENU_TYPE_LOAD_ROM :
             textPtr = menuGenerateLoadRom(textPtr);
@@ -1442,8 +1455,7 @@ bool menuPerformSelection(uint8_t index)
     switch (menuAction)
     {
         case MENU_ACTION_TOP_MENU :
-            menuCurrent = ((menuCurrent == MENU_TYPE_PREVIEW_STATE_SLOT) ?
-                MENU_TYPE_LOAD_STATE_SLOT : menuTopMenu);
+            menuCurrent = menuTopMenu;
             break;
         case MENU_ACTION_SETTING :
             switch (entryIndex)
@@ -1601,6 +1613,9 @@ bool menuPerformSelection(uint8_t index)
                     // Start file browser
                     strncpy(browserPath, "/", MAX_PATH);
                     menuCurrent = MENU_TYPE_BROWSER;
+                    break;
+                case SETTING_ACTION_OPEN_CONFIGS :
+                    menuCurrent = MENU_TYPE_CONFIGS;
                     break;
                 case SETTING_ACTION_OPEN_SETTINGS :
                     menuCurrent = MENU_TYPE_SETTINGS;
@@ -1799,7 +1814,7 @@ bool menuPerformSelection(uint8_t index)
             // The first selection previews the saved active screen.
             if (statePreparePreview(entryIndex))
             {
-                stateSaveSlot = entryIndex;
+                menuPreviewSlot = entryIndex;
                 menuCurrent = MENU_TYPE_PREVIEW_STATE_SLOT;
                 return false;
             }

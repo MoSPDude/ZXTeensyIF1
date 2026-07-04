@@ -134,7 +134,7 @@ typedef enum {
     HTTP_STR_COUNT
 } http_string_t;
 
-const char* PROGMEM HTTP_STRINGS[] = {
+static const char* const PROGMEM HTTP_STRINGS[] = {
     " > Address: ",
     " > Waiting for IP address",
     " > Waiting for WiFi NTP",
