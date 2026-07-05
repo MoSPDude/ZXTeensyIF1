@@ -123,6 +123,22 @@ void TzxPlayerZXTeensy::sendDataCommand(uint16_t zeroLength, uint16_t oneLength,
     dataBuffer.writeBlock(command, 9);
 }
 
+void TzxPlayerZXTeensy::sendSamplesCommand(uint16_t pulseLength,
+    uint16_t numBytes, uint8_t numFinalBits, uint8_t firstByte)
+{
+    uint8_t command[9];
+    command[0] = BLOCK_SAMPLES;
+    command[1] = pulseLength & 0xFF;
+    command[2] = (pulseLength & 0xFF00) >> 8;
+    command[3] = command[1];
+    command[4] = command[2];
+    command[5] = numBytes & 0xFF;
+    command[6] = (numBytes & 0xFF00) >> 8;
+    command[7] = numFinalBits;
+    command[8] = firstByte;
+    dataBuffer.writeBlock(command, 9);
+}
+
 void TzxPlayerZXTeensy::insertStandardSpeedBlock(uint16_t numBytes, uint8_t flag)
 {
     sendPilotCommand(((flag & 0x80) ? 3223 : 8063), 2168);
@@ -148,7 +164,7 @@ bool TzxPlayerZXTeensy::runTape()
     while (elapsed >= pulseDuration)
     {
         edgeCycleCount += pulseDuration;
-        if (currentBlock != BLOCK_PAUSE)
+        if (currentBlock <= BLOCK_STOP)
         {
             currentLevel = !currentLevel;
         }
@@ -171,9 +187,15 @@ bool TzxPlayerZXTeensy::runTape()
             return false;
         }
         elapsed -= pulseDuration;
-        uint32_t newDuration = (((pulseData & 0x80) != 0) ?
-            oneDuration : zeroDuration) * TAPE_DELAY_CNT;
-        pulseDuration = newDuration;
+        if (currentBlock != BLOCK_SAMPLES)
+        {
+            uint32_t newDuration = (((pulseData & 0x80) != 0) ?
+                oneDuration : zeroDuration) * TAPE_DELAY_CNT;
+            pulseDuration = newDuration;
+        } else {
+            currentLevel = ((pulseData & 0x80) != 0);
+            pulseDuration = zeroDuration;
+        }
     }
     return true;
 }
@@ -336,6 +358,31 @@ bool TzxPlayerZXTeensy::loadPulseSequenceBlock()
     return false;
 }
 
+bool TzxPlayerZXTeensy::loadDirectRecordingBlock()
+{
+    uint16_t pulseLength = readTapeWord();
+    pauseAfterBlock = readTapeWord();
+    uint8_t numFinalBits = readTapeByte();
+    dataBlockSize = readTapeWord();
+    dataBlockSize |= (readTapeByte() << 16);
+    size_t count = truncateTapeLength(
+        (dataBlockSize > TAPE_BUFFER_SIZE) ?
+            TAPE_BUFFER_SIZE : dataBlockSize);
+    if (count > 0)
+    {
+        sendSamplesCommand(pulseLength, dataBlockSize, numFinalBits, readTapeByte());
+        insertTapeData(count - 1);
+        dataBlockSize -= count;
+        if (dataBlockSize == 0)
+        {
+            insertPauseBlock(pauseAfterBlock);
+            pauseAfterBlock = 0;
+        }
+        return true;
+    }
+    return false;
+}
+
 bool TzxPlayerZXTeensy::loadFromTape()
 {
     if (isTzxTapeFile)
@@ -382,6 +429,24 @@ bool TzxPlayerZXTeensy::loadFromTape()
                         return loadPureDataBlock();
                     }
                     break;
+                case 0x15 :
+                    // Load Direct Recording Block
+                    if (hasTapeLength(8))
+                    {
+                        return loadDirectRecordingBlock();
+                    }
+                    break;
+                case 0x18 :
+                case 0x19 :
+                    // CSW Recording, Generalized Data
+                    if (hasTapeLength(4))
+                    {
+                        uint32_t length = readTapeWord();
+                        length = truncateTapeLength(length | (readTapeWord() << 16));
+                        ignoreTapeData(length);
+                        return loadFromTape();
+                    }
+                    break;
                 case 0x20 :
                     // Load Insert Pause Block
                     if (hasTapeLength(2))
@@ -408,11 +473,115 @@ bool TzxPlayerZXTeensy::loadFromTape()
                 case 0x22 :
                     // Group End
                     return loadFromTape();
+                case 0x23 :
+                    // Jump To Block
+                    if (hasTapeLength(2))
+                    {
+                        // Jump relative to the next block
+                        int16_t target = (int16_t)readTapeWord();
+                        jumpRelative(target - 1);
+                        return loadFromTape();
+                    }
+                    break;
+                case 0x24 :
+                    // Loop Start
+                    if (hasTapeLength(2) && (tapeStackCount < TAPE_STACK_SIZE))
+                    {
+                        tapeStack[tapeStackCount].argument = readTapeWord();
+                        tapeStack[tapeStackCount].position = tapePosition;
+                        ++tapeStackCount;
+                        return loadFromTape();
+                    }
+                    break;
+                case 0x25 :
+                    // Loop End
+                    if (tapeStackCount > 0)
+                    {
+                        if (tapeStack[(tapeStackCount - 1)].argument > 0)
+                        {
+                            tapePosition = tapeStack[(tapeStackCount - 1)].position;
+                            --tapeStack[(tapeStackCount - 1)].argument;
+                        } else {
+                            --tapeStackCount;
+                        }
+                    }
+                    return loadFromTape();
+                case 0x26 :
+                    // Call Sequence
+                    if (hasTapeLength(2) && (tapeStackCount < TAPE_STACK_SIZE))
+                    {
+                        uint32_t length = readTapeWord();
+                        if (hasTapeLength(2 * length))
+                        {
+                            if (length > 0)
+                            {
+                                tapeStack[tapeStackCount].argument = 1;
+                                tapeStack[tapeStackCount].position = tapePosition - 3;
+                                ++tapeStackCount;
+                                int16_t target = (int16_t)readTapeWord();
+                                ignoreTapeData(2 * (length - 1));
+
+                                // Jump relative to the block AFTER the
+                                // Call Sequence
+                                jumpRelative(target - 1);
+                            }
+                            return loadFromTape();
+                        }
+                    }
+                    break;
+                case 0x27 :
+                    // Return From Sequence
+                    if (tapeStackCount > 0)
+                    {
+                        tapePosition = tapeStack[(tapeStackCount - 1)].position;
+                        if (readTapeByte() == 0x26)
+                        {
+                            uint32_t length = readTapeWord();
+                            if (hasTapeLength(2 * length))
+                            {
+                                size_t retPosition = tapePosition + (2 * length);
+                                uint16_t call = tapeStack[(tapeStackCount - 1)].argument;
+                                if (call < length)
+                                {
+                                    ignoreTapeData(2 * call);
+                                    int16_t target = (int16_t)readTapeWord();
+                                    ++tapeStack[(tapeStackCount - 1)].argument;
+
+                                    // Jump relative to the block AFTER the
+                                    // Call Sequence
+                                    tapePosition = retPosition;
+                                    jumpRelative(target - 1);
+                                } else {
+                                    tapePosition = retPosition;
+                                    --tapeStackCount;
+                                }
+                                return loadFromTape();
+                            }
+                        }
+                    }
+                    break;
+                case 0x28 :
+                    // Select
+                    if (hasTapeLength(2))
+                    {
+                        uint16_t length = readTapeWord();
+                        ignoreTapeData(length);
+                        return loadFromTape();
+                    }
+                    break;
                 case 0x2A :
                     // Load Stop Tape if 48K Block
                     if (hasTapeLength(4))
                     {
                         ignoreTapeData(4);
+                        return loadFromTape();
+                    }
+                    break;
+                case 0x2B :
+                    // Set Signal Level
+                    if (hasTapeLength(5))
+                    {
+                        ignoreTapeData(5);
                         return loadFromTape();
                     }
                     break;
@@ -436,7 +605,7 @@ bool TzxPlayerZXTeensy::loadFromTape()
                     }
                     break;
                 case 0x32 :
-                    // Archive info
+                    // Archive Info
                     if (hasTapeLength(2))
                     {
                         uint16_t length = truncateTapeLength(readTapeWord());
@@ -445,12 +614,30 @@ bool TzxPlayerZXTeensy::loadFromTape()
                     }
                     break;
                 case 0x33 :
-                    // Hardware type
+                    // Hardware Type
                     if (hasTapeLength(1))
                     {
                         uint16_t length = readTapeByte();
                         length = truncateTapeLength(3 * length);
                         ignoreTapeData(length);
+                        return loadFromTape();
+                    }
+                    break;
+                case 0x35 :
+                    // Custom Info
+                    if (hasTapeLength(14))
+                    {
+                        ignoreTapeData(10);
+                        uint32_t length = readTapeWord();
+                        length = truncateTapeLength(length | (readTapeWord() << 16));
+                        ignoreTapeData(length);
+                    }
+                    break;
+                case 0x5A :
+                    // Glue Block
+                    if (hasTapeLength(8))
+                    {
+                        ignoreTapeData(8);
                         return loadFromTape();
                     }
                     break;
@@ -470,15 +657,19 @@ bool TzxPlayerZXTeensy::loadFromTape()
     return false;
 }
 
-void TzxPlayerZXTeensy::scanTape(char (*tapeMarkNames)[MENU_STR_LEN])
+uint32_t TzxPlayerZXTeensy::doScanTape(bool seekBlock, bool seekRelative,
+    uint32_t blockNum, char (*tapeMarkNames)[MENU_STR_LEN])
 {
     uint8_t index = 0;
+    uint32_t blockCount = 0;
     size_t currentTapePosition = tapePosition;
-    tapePosition = (isTzxTapeFile ? 0x0A : 0x00);
+    if (!seekRelative)
+    {
+        tapePosition = (isTzxTapeFile ? 0x0A : 0x00);
+    }
     while ((tapePosition < tapeLength) && (index < 255))
     {
         uint8_t blockId;
-        char tmpName[MAX_PATH];
         size_t blockPosition = tapePosition;
         if (isTzxTapeFile)
         {
@@ -500,6 +691,7 @@ void TzxPlayerZXTeensy::scanTape(char (*tapeMarkNames)[MENU_STR_LEN])
                     size_t nextPosition = tapePosition + count;
                     if (count > 0)
                     {
+                        char tmpName[MAX_PATH];
                         char blockName[MAX_PATH];
                         uint8_t flag = readTapeByte();
                         if (flag & 0x80)
@@ -584,10 +776,13 @@ void TzxPlayerZXTeensy::scanTape(char (*tapeMarkNames)[MENU_STR_LEN])
                         }
 
                         // Store block
-                        tapeMarkPosition[index] = blockPosition;
-                        strncpy(tapeMarkNames[index], blockName, MENU_STR_LEN);
-                        tapeMarkNames[index][(MENU_STR_LEN - 1)] = 0;
-                        ++index;
+                        if (tapeMarkNames != 0)
+                        {
+                            tapeMarkPosition[index] = blockPosition;
+                            strncpy(tapeMarkNames[index], blockName, MENU_STR_LEN);
+                            tapeMarkNames[index][(MENU_STR_LEN - 1)] = 0;
+                            ++index;
+                        }
                     }
                     tapePosition = nextPosition;
                 }
@@ -602,10 +797,16 @@ void TzxPlayerZXTeensy::scanTape(char (*tapeMarkNames)[MENU_STR_LEN])
                     ignoreTapeData(length);
 
                     // Store block
-                    snprintf(tmpName, MAX_PATH, "Turbo Data %db", (int)length);
-                    strncpy(tapeMarkNames[index], tmpName, MENU_STR_LEN);
-                    tapeMarkPosition[index] = blockPosition;
-                    ++index;
+                    if (tapeMarkNames != 0)
+                    {
+                        if (snprintf(tapeMarkNames[index], MENU_STR_LEN,
+                            "Turbo Data %db", (int)length) >= MENU_STR_LEN)
+                        {
+                            tapeMarkNames[index][(MENU_STR_LEN - 1)] = 0;
+                        }
+                        tapeMarkPosition[index] = blockPosition;
+                        ++index;
+                    }
                 }
                 break;
             case 0x12 :
@@ -624,10 +825,40 @@ void TzxPlayerZXTeensy::scanTape(char (*tapeMarkNames)[MENU_STR_LEN])
                 // Pure Data Block
                 if (hasTapeLength(0x0A))
                 {
-                    ignoreTapeData(0x07);
+                    ignoreTapeData(7);
                     uint32_t length = readTapeWord();
                     length |= (readTapeByte() << 16);
                     ignoreTapeData(length);
+                }
+                break;
+            case 0x15 :
+                // Direct Recording Block
+                if (hasTapeLength(8))
+                {
+                    ignoreTapeData(5);
+                    uint32_t length = readTapeWord();
+                    length |= (readTapeByte() << 16);
+                    ignoreTapeData(length);
+                }
+                break;
+            case 0x18 :
+            case 0x19 :
+                // CSW Recording, Generalized Data
+                if (hasTapeLength(4))
+                {
+                    uint32_t length = readTapeWord();
+                    length = truncateTapeLength(length | (readTapeWord() << 16));
+                    ignoreTapeData(length);
+                    if (tapeMarkNames != 0)
+                    {
+                        if (snprintf(tapeMarkNames[index], MENU_STR_LEN,
+                            "UNSUPPORTED ID %d", blockId) >= MENU_STR_LEN)
+                        {
+                            tapeMarkNames[index][(MENU_STR_LEN - 1)] = 0;
+                        }
+                        tapeMarkPosition[index] = blockPosition;
+                        ++index;
+                    }
                 }
                 break;
             case 0x20 :
@@ -635,15 +866,19 @@ void TzxPlayerZXTeensy::scanTape(char (*tapeMarkNames)[MENU_STR_LEN])
                 if (hasTapeLength(2))
                 {
                     uint16_t durationMs = readTapeWord();
-                    if (durationMs == 0)
+                    if (tapeMarkNames != 0)
                     {
-                        strcpy(tapeMarkNames[index], "Stop Tape");
-                    } else if (snprintf(tapeMarkNames[index], MENU_STR_LEN, "Pause %d ms", durationMs) >= MENU_STR_LEN)
-                    {
-                        tapeMarkNames[index][(MENU_STR_LEN - 1)] = 0;
+                        if (durationMs == 0)
+                        {
+                            strcpy(tapeMarkNames[index], "Stop Tape");
+                        } else if (snprintf(tapeMarkNames[index], MENU_STR_LEN,
+                            "Pause %d ms", durationMs) >= MENU_STR_LEN)
+                        {
+                            tapeMarkNames[index][(MENU_STR_LEN - 1)] = 0;
+                        }
+                        tapeMarkPosition[index] = blockPosition;
+                        ++index;
                     }
-                    tapeMarkPosition[index] = blockPosition;
-                    ++index;
                 }
                 break;
             case 0x21 :
@@ -652,24 +887,62 @@ void TzxPlayerZXTeensy::scanTape(char (*tapeMarkNames)[MENU_STR_LEN])
                 if (hasTapeLength(1))
                 {
                     uint8_t length = truncateTapeLength(readTapeByte());
-                    if (length >= MENU_STR_LEN)
+                    if (tapeMarkNames != 0)
                     {
-                        length = MENU_STR_LEN - 1;
+                        uint8_t size = ((length >= MENU_STR_LEN) ?
+                            (MENU_STR_LEN - 1) : length);
+                        memcpy(tapeMarkNames[index],
+                            (void *)&(tapeBuffer[tapePosition]), size);
+                        tapeMarkNames[index][size] = 0;
+                        tapeMarkPosition[index] = blockPosition;
+                        ++index;
                     }
-                    memcpy(tmpName, (void *)&(tapeBuffer[tapePosition]), length);
-                    tmpName[length] = 0;
                     ignoreTapeData(length);
-                    strcpy(tapeMarkNames[index], tmpName);
-                    tapeMarkPosition[index] = blockPosition;
-                    ++index;
+                }
+                break;
+            case 0x23 :
+            case 0x24 :
+                // Jump To Block, Loop Start
+                ignoreTapeData(2);
+                break;
+            case 0x26:
+                // Call Sequence
+                if (hasTapeLength(2))
+                {
+                    uint32_t length = truncateTapeLength(readTapeWord() * 2);
+                    ignoreTapeData(length);
                 }
                 break;
             case 0x22 :
-                // Group End
+            case 0x25 :
+            case 0x27 :
+                // Group End, Loop End, Return From Sequence
                 break;
-            case 0x2A:
+            case 0x28 :
+                // Select
+                if (hasTapeLength(2))
+                {
+                    uint16_t length = readTapeWord();
+                    ignoreTapeData(length);
+                    if (tapeMarkNames != 0)
+                    {
+                        if (snprintf(tapeMarkNames[index], MENU_STR_LEN,
+                            "UNSUPPORTED ID %d", blockId) >= MENU_STR_LEN)
+                        {
+                            tapeMarkNames[index][(MENU_STR_LEN - 1)] = 0;
+                        }
+                        tapeMarkPosition[index] = blockPosition;
+                        ++index;
+                    }
+                }
+                break;
+            case 0x2A :
                 // Stop Tape if 48K Block
                 ignoreTapeData(4);
+                break;
+            case 0x2B :
+                // Set Signal Level
+                ignoreTapeData(5);
                 break;
             case 0x31 :
                 // Message
@@ -677,20 +950,21 @@ void TzxPlayerZXTeensy::scanTape(char (*tapeMarkNames)[MENU_STR_LEN])
                 {
                     ignoreTapeData(1);
                     uint8_t length = truncateTapeLength(readTapeByte());
-                    if (length >= MENU_STR_LEN)
+                    if (tapeMarkNames != 0)
                     {
-                        length = MENU_STR_LEN - 1;
+                        uint8_t size = ((length >= MENU_STR_LEN) ?
+                            (MENU_STR_LEN - 1) : length);
+                        memcpy(tapeMarkNames[index],
+                            (void *)&(tapeBuffer[tapePosition]), size);
+                        tapeMarkNames[index][size] = 0;
+                        tapeMarkPosition[index] = blockPosition;
+                        ++index;
                     }
-                    memcpy(tmpName, (void *)&(tapeBuffer[tapePosition]), length);
-                    tmpName[length] = 0;
                     ignoreTapeData(length);
-                    strcpy(tapeMarkNames[index], tmpName);
-                    tapeMarkPosition[index] = blockPosition;
-                    ++index;
                 }
                 break;
             case 0x32 :
-                // Archive info
+                // Archive Info
                 if (hasTapeLength(2))
                 {
                     uint16_t length = truncateTapeLength(readTapeWord());
@@ -698,7 +972,7 @@ void TzxPlayerZXTeensy::scanTape(char (*tapeMarkNames)[MENU_STR_LEN])
                 }
                 break;
             case 0x33 :
-                // Hardware type
+                // Hardware Type
                 if (hasTapeLength(1))
                 {
                     uint16_t length = readTapeByte();
@@ -706,17 +980,74 @@ void TzxPlayerZXTeensy::scanTape(char (*tapeMarkNames)[MENU_STR_LEN])
                     ignoreTapeData(length);
                 }
                 break;
+            case 0x35 :
+                // Custom Info
+                if (hasTapeLength(14))
+                {
+                    if (tapeMarkNames != 0)
+                    {
+                        memcpy(tapeMarkNames[index],
+                            (void *)&(tapeBuffer[tapePosition]), 10);
+                        tapeMarkNames[index][10] = 0;
+                        tapeMarkPosition[index] = blockPosition;
+                        ++index;
+                    }
+                    ignoreTapeData(10);
+                    uint32_t length = readTapeWord();
+                    length = truncateTapeLength(length | (readTapeWord() << 16));
+                    ignoreTapeData(length);
+                }
+            case 0x5A :
+                // Glue Block
+                ignoreTapeData(8);
+                break;
             default :
                 menuPrintDebug(false, F_CSTR("tzxPlayer %d unknown ID %d"),
                     (tapePosition - 1), blockId);
                 tapePosition = tapeLength;
                 break;
         }
+
+        // Determine if complete scan action
+        if (seekBlock)
+        {
+            ++blockCount;
+            if (blockCount >= blockNum)
+            {
+                return blockCount;
+            }
+        } else if ((tapeMarkNames == 0) && (tapePosition > currentTapePosition))
+        {
+            break;
+        } else {
+            ++blockCount;
+        }
     }
 
     // Store markers, and restore tape position
-    tapeMarkCount = index;
-    tapePosition = currentTapePosition;
+    if (!seekBlock)
+    {
+        tapeMarkCount = index;
+        tapePosition = currentTapePosition;
+    }
+    return blockCount;
+}
+
+void TzxPlayerZXTeensy::jumpRelative(int16_t target)
+{
+    if (target > 0)
+    {
+        doScanTape(true, true, target, 0);
+    } else if (target < 0)
+    {
+        uint32_t block = doScanTape(false, false, 0, 0);
+        doScanTape(true, false, block + target, 0);
+    }
+}
+
+void TzxPlayerZXTeensy::scanTape(char (*tapeMarkNames)[MENU_STR_LEN])
+{
+    doScanTape(false, false, 0, tapeMarkNames);
 }
 
 void TzxPlayerZXTeensy::seek(uint8_t index)
@@ -765,4 +1096,5 @@ void TzxPlayerZXTeensy::end()
     dataBuffer.clear();
     enabled = false;
     tapeMarkCount = 0;
+    tapeStackCount = 0;
 }

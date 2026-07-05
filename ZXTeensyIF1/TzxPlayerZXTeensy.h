@@ -19,8 +19,10 @@ class TzxPlayerZXTeensy
             BLOCK_SYNC,
             BLOCK_DATA,
             BLOCK_PULSES,
+            // NOTE: These blocks require special handling in runTape and getTapeByte
+            BLOCK_STOP,
             BLOCK_PAUSE,
-            BLOCK_STOP
+            BLOCK_SAMPLES
         } block_type_t;
 
     protected :
@@ -55,6 +57,15 @@ class TzxPlayerZXTeensy
         volatile bool tapeBufferEnded;
         volatile bool tapeBufferAutoPlay;
 
+        typedef struct {
+            size_t position;
+            uint16_t argument;
+        } tape_stack_t;
+
+        static const size_t TAPE_STACK_SIZE = 8;
+        tape_stack_t tapeStack[TAPE_STACK_SIZE];
+        uint8_t tapeStackCount;
+
     public :
         size_t tapeMarkPosition[255];
         uint8_t tapeMarkCount;
@@ -68,6 +79,8 @@ class TzxPlayerZXTeensy
         void sendSyncCommand(uint16_t firstLength, uint16_t secondLength);
         void sendDataCommand(uint16_t zeroLength, uint16_t oneLength,
             uint16_t numBytes, uint8_t numFinalBits, uint8_t firstByte);
+        void sendSamplesCommand(uint16_t pulseLength, uint16_t numBytes,
+            uint8_t numFinalBits, uint8_t firstByte);
 
         void insertStandardSpeedBlock(uint16_t numBytes, uint8_t flag);
         void insertPauseBlock(uint16_t durationMs);
@@ -76,6 +89,7 @@ class TzxPlayerZXTeensy
         bool loadTurboSpeedBlock();
         bool loadPureDataBlock();
         bool loadPulseSequenceBlock();
+        bool loadDirectRecordingBlock();
         bool loadFromTape();
 
         inline bool runTapeNextByte() __attribute__((always_inline, optimize("O3")))
@@ -87,6 +101,16 @@ class TzxPlayerZXTeensy
                     break;
                 case BLOCK_DATA :
                     doublePulse = true;
+                    if (dataBuffer.canRead())
+                    {
+                        pulseData = dataBuffer.readRaw();
+                    } else {
+                        pulseData = 0xAA;
+                        pulseShiftCount = 0;
+                        return false;
+                    }
+                    break;
+                case BLOCK_SAMPLES :
                     if (dataBuffer.canRead())
                     {
                         pulseData = dataBuffer.readRaw();
@@ -165,6 +189,9 @@ class TzxPlayerZXTeensy
 
         bool startTape();
         void bufferTape();
+        void jumpRelative(int16_t target);
+        uint32_t doScanTape(bool seekBlock, bool seekRelative,
+            uint32_t blockNum, char (*tapeMarkNames)[MENU_STR_LEN]);
 
         inline __attribute__((always_inline)) uint8_t readTapeByte()
         {
@@ -214,7 +241,7 @@ class TzxPlayerZXTeensy
             pulseDuration(0), edgeCycleCount(0), isTzxTapeFile(false),
             tapeBuffer(0), tapePosition(0), tapeLength(0), dataBlockSize(0), pauseAfterBlock(0),
             tapeBufferStarted(false), tapeBufferEnded(false), tapeBufferAutoPlay(false),
-            tapeMarkPosition{}, tapeMarkCount(0)
+            tapeStack{}, tapeStackCount(0), tapeMarkPosition{}, tapeMarkCount(0)
         {
         }
 
@@ -283,7 +310,7 @@ class TzxPlayerZXTeensy
 
         inline uint8_t getTapeByte() __attribute__((always_inline, hot, optimize("O3")))
         {
-            if ((currentBlock != BLOCK_PAUSE) &&
+            if ((currentBlock <= BLOCK_STOP) &&
                 ((ARM_DWT_CYCCNT - edgeCycleCount) >= pulseDuration))
             {
                 return (currentLevel ? 0xBF : 0xFF);
