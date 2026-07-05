@@ -9,10 +9,11 @@ static const size_t POKE_LINE_SIZE = 64;
 
 typedef struct {
     uint16_t address;
-    uint16_t value;
+    uint8_t value;
     uint8_t trainer;
     uint8_t bank;
     uint8_t sourceBank;
+    uint8_t selected;
 } poke_record_t;
 
 DMAMEM poke_record_t pokeRecords[POKE_MAX_RECORDS];
@@ -204,14 +205,17 @@ bool pokeParseFile(const char* pokeFilePath, char pokeTrainerNames[][MENU_STR_LE
             }
 
             poke_record_t* record = &(pokeRecords[recordCount++]);
+            record->selected = 0x00;
             record->trainer = trainer;
             record->bank = bank;
             record->sourceBank = bank;
             record->address = address;
-            record->value = value;
-            if (value == 256)
+            if (value > 0xFF)
             {
                 pokeSetBit(pokeTrainerUnsupported, trainer);
+                record->value = 0xFF;
+            } else {
+                record->value = value;
             }
             if (line[0] == 'Z')
             {
@@ -321,64 +325,58 @@ bool pokeIsApplyRequested()
 inline int8_t pokeGetTargetBank(uint8_t bank, uint16_t address, bool state128,
     uint8_t currentBank)
 {
-    if (bank != 8)
+    if (bank >= 8)
     {
-        return state128 ? bank : -1;
+        if (address < 0x8000)
+        {
+            return 5;
+        }
+        if (address < 0xC000)
+        {
+            return 2;
+        }
+        return state128 ? (currentBank & 0x07) : 0;
     }
-    if (address < 0x8000)
-    {
-        return 5;
-    }
-    if (address < 0xC000)
-    {
-        return 2;
-    }
-    return state128 ? (currentBank & 0x07) : 0;
+    return state128 ? bank : -1;
 }
 
 bool pokePrepareApply(bool state128, uint8_t currentBank)
 {
-    if (pokeApplyRequested && pokeHasSelectedTrainers())
+    uint8_t bankMask = 0;
+    for (uint16_t index = 0; index < pokeRecordCount; ++index)
     {
-        uint8_t bankMask = 0;
-        for (uint16_t index = 0; index < pokeRecordCount; ++index)
+        poke_record_t* record = &(pokeRecords[index]);
+        if (pokeIsTrainerSelected(record->trainer))
         {
-            poke_record_t* record = &(pokeRecords[index]);
-            if (pokeIsTrainerSelected(record->trainer))
+            int8_t bank = pokeGetTargetBank(record->sourceBank, record->address,
+                state128, currentBank);
+            if (bank >= 0)
             {
-                int8_t bank = pokeGetTargetBank(record->sourceBank, record->address,
-                    state128, currentBank);
-                if (bank < 0)
-                {
-                    menuPrintDebug(false, F_CSTR("POK bank %d invalid for 48K"),
-                        record->sourceBank);
-                    return false;
-                }
+                record->selected = 0xFF;
                 record->bank = bank;
                 bankMask |= (1 << bank);
+            } else {
+                menuPrintDebug(false, F_CSTR("POK bank %d invalid for 48K"),
+                    record->sourceBank);
+                return false;
             }
         }
-        if (bankMask != 0)
-        {
-            pokeSelectedBankMask = bankMask;
-            return true;
-        }
     }
-    return false;
+    pokeSelectedBankMask = bankMask;
+    return true;
 }
 
 void pokeApplyBank(uint8_t bank, volatile uint8_t* data)
 {
-    if ((bank < 8) && ((pokeSelectedBankMask & (1 << bank)) != 0))
+    if ((pokeSelectedBankMask & (1 << bank)) != 0)
     {
         for (uint16_t index = 0; index < pokeRecordCount; ++index)
         {
-            const poke_record_t* record = &(pokeRecords[index]);
-            if (pokeIsTrainerSelected(record->trainer) &&
-                (record->bank == bank))
+            poke_record_t* record = &(pokeRecords[index]);
+            if ((record->selected != 0x00) && (record->bank == bank))
             {
-                data[record->address & (ROM_PAGE_SIZE - 1)] =
-                    (uint8_t)record->value;
+                data[record->address & (ROM_PAGE_SIZE - 1)] = record->value;
+                record->selected = 0x00;
             }
         }
     }

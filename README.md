@@ -154,8 +154,8 @@ the DivMMC and enable the Interface 1.
 
 * ZXTEENSY/
     * CONFIGS/
-        * <NAME>.CFG (Saved configurations that appear as "NAME" in the Menu ROM for quick selection)
-    * STATE/<SLOT>/ (user save slots 0-14; slot 15 is reserved)
+        * \<NAME\>.CFG (Saved configurations that appear as "NAME" in the Menu ROM for quick selection)
+    * STATE/\<SLOT\>/ (Save slots 0-14; slot 15 is reserved)
         * STATE.Z80 (Z80 v3 snapshot for the save state)
         * SCREEN.SCR (6912-byte active Spectrum screen for load preview)
         * (Additional saved state files for the save slot)
@@ -237,8 +237,8 @@ In "Browse SD card", in other directories,
 
 POK trainers are applied by saving a temporary state to reserved slot 15,
 patching the selected RAM banks, and immediately restoring that state. POK
-trainers that require a prompted value (`256`) are not supported and are
-reported in the debug log.
+trainers that require a prompted value (`256`) are not supported and cannot be
+enabled.
 
 ### Preparing the SD Card
 

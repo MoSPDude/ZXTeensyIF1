@@ -104,8 +104,8 @@ typedef struct __attribute__((packed)) {
 
 File stateSaveFile;
 volatile bool stateSaveActive = false;
-volatile bool stateSaveBlockPending = false;
-volatile uint8_t stateSaveBlockValue = 0;
+volatile bool stateSaveActiveBlockPending = false;
+volatile uint8_t stateSaveActiveBlock = 0;
 bool stateSave128 = false;
 uint8_t stateSaveExpectedBlock = 0;
 uint8_t stateSaveActiveSlot = 0;
@@ -276,7 +276,7 @@ bool stateWriteFile(uint8_t slot, const char* filename,
         }
         file.close();
     } else {
-        menuPrintDebug(false, F_CSTR("Failed to save state %d '%s'"), slot, path);
+        menuPrintDebug(false, F_CSTR("stateWriteFile failed %d '%s'"), slot, path);
     }
     if (!success)
     {
@@ -453,7 +453,6 @@ bool stateBeginSave(uint8_t slot)
     {
         // The menu ROM probes whether 0x7FFD changes the RAM at 0xC000, to
         // determine if a 48K or 128K snapshot is needed
-        bool pokeSave = (slot == STATE_POKE_SLOT);
         uint8_t stateMode = menuRamArray[0][MEM_MODE];
         stateSave128 = (stateMode == Z80_MODE_128);
         if ((spectrumBank678 & 0x01) != 0)
@@ -463,7 +462,8 @@ bool stateBeginSave(uint8_t slot)
         }
 
         // Prepare to apply pokes to the snapshot
-        if (pokeSave && !pokePrepareApply(stateSave128, spectrumBankM))
+        if ((slot == STATE_POKE_SLOT) &&
+            !pokePrepareApply(stateSave128, spectrumBankM))
         {
             return false;
         }
@@ -479,10 +479,12 @@ bool stateBeginSave(uint8_t slot)
             {
                 if (stateWriteZ80Header())
                 {
-                    stateSaveExpectedBlock = 0;
-                    stateSaveBlockPending = false;
                     stateSaveActive = true;
+                    stateSaveExpectedBlock = 0;
+                    stateSaveActiveBlockPending = false;
                     stateSaveActiveSlot = slot;
+
+                    // Instruct menu ROM to start state save
                     menuBuffer.write(stateSave128 ? MENU_ROM_CMD_STATE_CAPTURE_128 :
                         MENU_ROM_CMD_STATE_CAPTURE_48);
                     return true;
@@ -494,7 +496,7 @@ bool stateBeginSave(uint8_t slot)
                 }
             }
         }
-        menuPrintDebug(false, F_CSTR("Failed to save state %d"), slot);
+        menuPrintDebug(false, F_CSTR("stateBeginSave failed %d"), slot);
     }
     stateResumeClosedDevices();
     return false;
@@ -507,10 +509,10 @@ bool isStateSaveActive()
 
 void stateSaveBlock(uint8_t block)
 {
-    if (stateSaveActive && !stateSaveBlockPending)
+    if (stateSaveActive && !stateSaveActiveBlockPending)
     {
-        stateSaveBlockValue = block;
-        stateSaveBlockPending = true;
+        stateSaveActiveBlock = block;
+        stateSaveActiveBlockPending = true;
     }
 }
 
@@ -590,9 +592,10 @@ void stateFinishSave(bool success)
         menuSaveConfiguration();
     } else {
         // Ensure the active slot is cleared on failure
-        menuPrintDebug(false, F_CSTR("Failed to save state %d"), stateSaveActiveSlot);
-        stateActiveSlot = -1;
         stateDeleteSlot(stateSaveActiveSlot);
+        menuPrintDebug(false, F_CSTR("stateFinishSave failed %d"),
+            stateSaveActiveSlot);
+        stateActiveSlot = -1;
     }
 
     // Finished saving the state
@@ -602,7 +605,7 @@ void stateFinishSave(bool success)
         pokeFinishApply();
         if (success)
         {
-            setState(STATE_RESET);
+            setState(STATE_RESET_MENU);
             return;
         }
     }
@@ -767,7 +770,8 @@ bool stateLoadOnStartup()
             stateLoadActive = true;
             restored = true;
         } else {
-            menuPrintDebug(false, F_CSTR("Failed to load state %d"), stateActiveSlot);
+            menuPrintDebug(false, F_CSTR("stateLoadOnStartup failed %d"),
+                stateActiveSlot);
         }
     }
     if (!restored)
@@ -815,10 +819,10 @@ void stateOnTick()
         }
     }
 
-    if (stateSaveBlockPending)
+    if (stateSaveActiveBlockPending)
     {
-        stateSaveBlockPending = false;
-        uint8_t block = stateSaveBlockValue;
+        stateSaveActiveBlockPending = false;
+        uint8_t block = stateSaveActiveBlock;
         if (block < STATE_SIGNAL_FINISH)
         {
             block &= 0x3F;
@@ -838,7 +842,7 @@ void stateOnTick()
                 // with address 0x4000 with the shadow copy from scratch RAM
                 if (page == 8)
                 {
-                    memcpy((void*)menuRamArray[2], (void*)&menuRamArray[1][0x500], 
+                    memcpy((void*)menuRamArray[2], (void*)&menuRamArray[1][0x500],
                         STATE_SCREEN_SIZE);
                 }
 
@@ -853,6 +857,8 @@ void stateOnTick()
                     (stateTestSimpleLz((uint8_t*)menuRamArray[2], ROM_PAGE_SIZE) >=
                         SNA_LOADER_BANK_5_SIZE))
                 {
+                    menuPrintDebug(false, F_CSTR("No loader space in state %d"),
+                        stateSaveActiveSlot);
                     stateFinishSave(false);
                     return;
                 }

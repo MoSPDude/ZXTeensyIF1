@@ -1411,9 +1411,9 @@ void handleStateResetEntry()
     }
 
     // Reset the soft ROM detection state
-    if (menuEnterOnReset)
+    if (menuEnterOnReset || (stateActiveSlot >= 0))
     {
-        // Reset and reload the configuration to enter the menu
+        // Reset and reload the configuration to enter the menu, or load state
         afterFirstReset = false;
         isDeviceDisabled = false;
     }
@@ -1699,6 +1699,10 @@ void handleStateReset()
     // Reset the SD SPI state
     resetSdSpi();
 
+    // Reset the menu and ZXC3 buffer
+    menuBuffer.clear();
+    zxC3EraseBuffer.clear();
+
     // Perform specific actions
     switch (globalState)
     {
@@ -1939,6 +1943,7 @@ FASTRUN void loop()
             menuSelected = false;
             if (menuPerformSelection(menuSelectedIndex))
             {
+                bool exitMenu = true;
                 switch (menuGetMenuAction())
                 {
                     case MENU_ACTION_IN_GAME_EXIT_BASIC :
@@ -1958,15 +1963,19 @@ FASTRUN void loop()
                         nmiRomTarget = ROM_ROM0;
                         break;
                     case MENU_ACTION_IN_GAME_SAVE_STATE :
+                        exitMenu = false;
                         if (!stateBeginSave(stateSaveSlot))
                         {
+                            menuRedraw = true;
                             menuBuffer.write(MENU_ROM_CMD_STATE_FAILED);
                         }
                         break;
                     case MENU_ACTION_IN_GAME_APPLY_POK :
+                        exitMenu = false;
                         if (!stateBeginSave(STATE_POKE_SLOT))
                         {
                             pokeFinishApply();
+                            menuRedraw = true;
                             menuBuffer.write(MENU_ROM_CMD_STATE_FAILED);
                         }
                         break;
@@ -1995,14 +2004,10 @@ FASTRUN void loop()
                 }
 
                 // Update ROM indexes, and exit the menu
-                if (!isGlobalStateReset())
+                if (exitMenu && !isGlobalStateReset())
                 {
-                    if ((menuGetMenuAction() != MENU_ACTION_IN_GAME_SAVE_STATE) &&
-                        (menuGetMenuAction() != MENU_ACTION_IN_GAME_APPLY_POK))
-                    {
-                        updateRomIndex(true);
-                        menuBuffer.write(MENU_ROM_CMD_IN_GAME_EXIT);
-                    }
+                    updateRomIndex(true);
+                    menuBuffer.write(MENU_ROM_CMD_IN_GAME_EXIT);
                 }
             } else {
                 // Refresh the menu, by default

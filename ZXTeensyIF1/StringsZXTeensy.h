@@ -100,7 +100,7 @@ static const char* const PROGMEM MENU_STRINGS[] = {
     "Save and Reset",
     "Disable and Reset",
     "Edit Settings",
-    "Load Configuration",
+    "Load Settings",
     "Browse SD card",
     "Load ROM",
     "Configure HTTP server",
@@ -185,7 +185,7 @@ static const char* const PROGMEM MENU_STRINGS[] = {
     "Cold Reset into Main Menu",
     "Back and Play Tape",
     "Break into BASIC",
-    "Apply POKEs",
+    "Apply Selected POKEs",
 };
 
 #endif
