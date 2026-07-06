@@ -6,7 +6,7 @@ extern bool menuPrintDebug(bool clearDebug, const char *fmt, ...);
 
 void TzxPlayerZXTeensy::sendStopCommand()
 {
-    uint8_t command[8];
+    uint8_t command[10];
     command[0] = BLOCK_STOP;
     command[1] = 0;
     command[2] = 0;
@@ -15,12 +15,14 @@ void TzxPlayerZXTeensy::sendStopCommand()
     command[5] = 0;
     command[6] = 0;
     command[7] = 0;
-    dataBuffer.writeBlock(command, 8);
+    command[8] = 0;
+    command[9] = 0;
+    dataBuffer.writeBlock(command, 10);
 }
 
 void TzxPlayerZXTeensy::sendPulseCommand(uint16_t length)
 {
-    uint8_t command[8];
+    uint8_t command[10];
     command[0] = BLOCK_SYNC;
     command[1] = length & 0xFF;
     command[2] = (length & 0xFF00) >> 8;
@@ -28,13 +30,15 @@ void TzxPlayerZXTeensy::sendPulseCommand(uint16_t length)
     command[4] = command[2];
     command[5] = 0x01;
     command[6] = 0x00;
-    command[7] = 0x01;
-    dataBuffer.writeBlock(command, 8);
+    command[7] = 0x00;
+    command[8] = 0x00;
+    command[9] = 0x01;
+    dataBuffer.writeBlock(command, 10);
 }
 
 void TzxPlayerZXTeensy::sendPulseSeqCommand(uint8_t numPulses, uint16_t firstLength)
 {
-    uint8_t command[10];
+    uint8_t command[12];
     command[0] = BLOCK_PULSES;
     command[1] = 0;
     command[2] = 0;
@@ -43,16 +47,18 @@ void TzxPlayerZXTeensy::sendPulseSeqCommand(uint8_t numPulses, uint16_t firstLen
     command[5] = numPulses;
     command[6] = 0;
     command[7] = 0;
-    command[8] = firstLength & 0xFF;
-    command[9] = (firstLength & 0xFF00) >> 8;
-    dataBuffer.writeBlock(command, 10);
+    command[8] = 0;
+    command[9] = 0;
+    command[10] = firstLength & 0xFF;
+    command[11] = (firstLength & 0xFF00) >> 8;
+    dataBuffer.writeBlock(command, 12);
 }
 
 void TzxPlayerZXTeensy::sendPauseCommand(uint16_t durationMs)
 {
     // Pulse width is 1ms
-    uint8_t command[8];
-    uint16_t numBytes = durationMs / 8;
+    uint8_t command[10];
+    uint32_t numBytes = durationMs / 8;
     uint16_t numFinalBits = durationMs % 8;
     if (numFinalBits > 0)
     {
@@ -67,14 +73,16 @@ void TzxPlayerZXTeensy::sendPauseCommand(uint16_t durationMs)
     command[4] = command[2];
     command[5] = numBytes & 0xFF;
     command[6] = (numBytes & 0xFF00) >> 8;
-    command[7] = numFinalBits;
-    dataBuffer.writeBlock(command, 8);
+    command[7] = (numBytes & 0xFF0000) >> 16;
+    command[8] = (numBytes & 0xFF000000) >> 24;
+    command[9] = numFinalBits;
+    dataBuffer.writeBlock(command, 10);
 }
 
 void TzxPlayerZXTeensy::sendPilotCommand(uint16_t numPulses, uint16_t pulseLength)
 {
-    uint8_t command[8];
-    uint16_t numBytes = numPulses / 8;
+    uint8_t command[10];
+    uint32_t numBytes = numPulses / 8;
     uint16_t numFinalBits = numPulses % 8;
     if (numFinalBits > 0)
     {
@@ -89,13 +97,15 @@ void TzxPlayerZXTeensy::sendPilotCommand(uint16_t numPulses, uint16_t pulseLengt
     command[4] = command[2];
     command[5] = numBytes & 0xFF;
     command[6] = (numBytes & 0xFF00) >> 8;
-    command[7] = numFinalBits;
-    dataBuffer.writeBlock(command, 8);
+    command[7] = (numBytes & 0xFF0000) >> 16;
+    command[8] = (numBytes & 0xFF000000) >> 24;
+    command[9] = numFinalBits;
+    dataBuffer.writeBlock(command, 10);
 }
 
 void TzxPlayerZXTeensy::sendSyncCommand(uint16_t firstLength, uint16_t secondLength)
 {
-    uint8_t command[8];
+    uint8_t command[10];
     command[0] = BLOCK_SYNC;
     command[1] = firstLength & 0xFF;
     command[2] = (firstLength & 0xFF00) >> 8;
@@ -103,14 +113,16 @@ void TzxPlayerZXTeensy::sendSyncCommand(uint16_t firstLength, uint16_t secondLen
     command[4] = (secondLength & 0xFF00) >> 8;
     command[5] = 0x01;
     command[6] = 0x00;
-    command[7] = 0x02;
-    dataBuffer.writeBlock(command, 8);
+    command[7] = 0x00;
+    command[8] = 0x00;
+    command[9] = 0x02;
+    dataBuffer.writeBlock(command, 10);
 }
 
 void TzxPlayerZXTeensy::sendDataCommand(uint16_t zeroLength, uint16_t oneLength,
-    uint16_t numBytes, uint8_t numFinalBits, uint8_t firstByte)
+    uint32_t numBytes, uint8_t numFinalBits, uint8_t firstByte)
 {
-    uint8_t command[9];
+    uint8_t command[11];
     command[0] = BLOCK_DATA;
     command[1] = zeroLength & 0xFF;
     command[2] = (zeroLength & 0xFF00) >> 8;
@@ -118,15 +130,17 @@ void TzxPlayerZXTeensy::sendDataCommand(uint16_t zeroLength, uint16_t oneLength,
     command[4] = (oneLength & 0xFF00) >> 8;
     command[5] = numBytes & 0xFF;
     command[6] = (numBytes & 0xFF00) >> 8;
-    command[7] = numFinalBits;
-    command[8] = firstByte;
-    dataBuffer.writeBlock(command, 9);
+    command[7] = (numBytes & 0xFF0000) >> 16;
+    command[8] = (numBytes & 0xFF000000) >> 24;
+    command[9] = numFinalBits;
+    command[10] = firstByte;
+    dataBuffer.writeBlock(command, 11);
 }
 
 void TzxPlayerZXTeensy::sendSamplesCommand(uint16_t pulseLength,
-    uint16_t numBytes, uint8_t numFinalBits, uint8_t firstByte)
+    uint32_t numBytes, uint8_t numFinalBits, uint8_t firstByte)
 {
-    uint8_t command[9];
+    uint8_t command[11];
     command[0] = BLOCK_SAMPLES;
     command[1] = pulseLength & 0xFF;
     command[2] = (pulseLength & 0xFF00) >> 8;
@@ -134,12 +148,14 @@ void TzxPlayerZXTeensy::sendSamplesCommand(uint16_t pulseLength,
     command[4] = command[2];
     command[5] = numBytes & 0xFF;
     command[6] = (numBytes & 0xFF00) >> 8;
-    command[7] = numFinalBits;
-    command[8] = firstByte;
-    dataBuffer.writeBlock(command, 9);
+    command[7] = (numBytes & 0xFF0000) >> 16;
+    command[8] = (numBytes & 0xFF000000) >> 24;
+    command[9] = numFinalBits;
+    command[10] = firstByte;
+    dataBuffer.writeBlock(command, 11);
 }
 
-void TzxPlayerZXTeensy::insertStandardSpeedBlock(uint16_t numBytes, uint8_t flag)
+void TzxPlayerZXTeensy::insertStandardSpeedBlock(uint32_t numBytes, uint8_t flag)
 {
     sendPilotCommand(((flag & 0x80) ? 3223 : 8063), 2168);
     sendSyncCommand(667, 735);
@@ -194,7 +210,7 @@ bool TzxPlayerZXTeensy::runTape()
             pulseDuration = newDuration;
         } else {
             currentLevel = ((pulseData & 0x80) != 0);
-            pulseDuration = zeroDuration;
+            pulseDuration = (zeroDuration * TAPE_DELAY_CNT);
         }
     }
     return true;

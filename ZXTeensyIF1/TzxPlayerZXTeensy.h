@@ -38,7 +38,7 @@ class TzxPlayerZXTeensy
         volatile block_type_t currentBlock;
         volatile uint16_t zeroDuration;
         volatile uint16_t oneDuration;
-        volatile uint16_t numBytes;
+        volatile uint32_t numBytes;
         volatile uint8_t numFinalBits;
 
         volatile bool doublePulse;
@@ -78,11 +78,11 @@ class TzxPlayerZXTeensy
         void sendPilotCommand(uint16_t numPulses, uint16_t pulseLength);
         void sendSyncCommand(uint16_t firstLength, uint16_t secondLength);
         void sendDataCommand(uint16_t zeroLength, uint16_t oneLength,
-            uint16_t numBytes, uint8_t numFinalBits, uint8_t firstByte);
-        void sendSamplesCommand(uint16_t pulseLength, uint16_t numBytes,
+            uint32_t numBytes, uint8_t numFinalBits, uint8_t firstByte);
+        void sendSamplesCommand(uint16_t pulseLength, uint32_t numBytes,
             uint8_t numFinalBits, uint8_t firstByte);
 
-        void insertStandardSpeedBlock(uint16_t numBytes, uint8_t flag);
+        void insertStandardSpeedBlock(uint32_t numBytes, uint8_t flag);
         void insertPauseBlock(uint16_t durationMs);
 
         bool loadStandardSpeedBlock();
@@ -173,6 +173,8 @@ class TzxPlayerZXTeensy
                 oneDuration |= (dataBuffer.readRaw() << 8);
                 numBytes = dataBuffer.readRaw();
                 numBytes |= (dataBuffer.readRaw() << 8);
+                numBytes |= (dataBuffer.readRaw() << 16);
+                numBytes |= (dataBuffer.readRaw() << 24);
                 numFinalBits = dataBuffer.readRaw();
             } else {
                 currentBlock = BLOCK_IDLE;
