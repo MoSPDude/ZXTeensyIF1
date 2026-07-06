@@ -190,6 +190,7 @@ class TzxPlayerZXTeensy
         bool startTape();
         void bufferTape();
         void jumpRelative(int16_t target);
+        bool decodeBasicHeader(char* blockName, uint8_t* data);
         uint32_t doScanTape(bool seekBlock, bool seekRelative,
             uint32_t blockNum, char (*tapeMarkNames)[MENU_STR_LEN]);
 

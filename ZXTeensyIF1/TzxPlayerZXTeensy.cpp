@@ -657,6 +657,82 @@ bool TzxPlayerZXTeensy::loadFromTape()
     return false;
 }
 
+bool TzxPlayerZXTeensy::decodeBasicHeader(char* blockName, uint8_t* data)
+{
+    // Decode tape header
+    char tmpName[MAX_PATH];
+    uint8_t flag = readTapeByte();
+    switch (flag)
+    {
+        case 0 :
+            strcpy(blockName, "Program: ");
+            break;
+        case 1 :
+            strcpy(blockName, "Num. array: ");
+            break;
+        case 2 :
+            strcpy(blockName, "Chr. array: ");
+            break;
+        case 3 :
+            strcpy(blockName, "Bytes: ");
+            break;
+        default :
+            return false;
+    }
+    memcpy(tmpName, (void *)&(tapeBuffer[tapePosition]), 10);
+    tmpName[10] = 0;
+    int i = 9;
+    while (i >= 0)
+    {
+        if (tmpName[i] == ' ')
+        {
+            tmpName[i] = 0;
+            --i;
+        } else {
+            break;
+        }
+    }
+    while (i >= 0)
+    {
+        if ((tmpName[i] < ' ') || (tmpName[i] >= 128))
+        {
+            tmpName[i] = '?';
+        }
+        --i;
+    }
+    strcat(blockName, tmpName);
+    ignoreTapeData(10);
+    uint16_t length = readTapeWord();
+    uint16_t param1 = readTapeWord();
+    ignoreTapeData(2);
+    switch (flag)
+    {
+        case 0 :
+            if (param1 < 0x8000)
+            {
+                snprintf(tmpName, MAX_PATH, " LINE %0d", param1);
+                strcat(blockName, tmpName);
+            }
+            break;
+        case 1 :
+        case 2 :
+            strcpy(tmpName, ((flag == 2) ? " DATA ?$()" : " DATA ?()"));
+            tmpName[6] = 0x60 + (param1 & 0x1F);
+            strcat(blockName, tmpName);
+            break;
+        case 3 :
+            if ((param1 == 0x4000) && (length == 6912))
+            {
+                strcat(blockName, " SCREEN$");
+            } else {
+                snprintf(tmpName, MAX_PATH, " CODE %d,%d", param1, length);
+                strcat(blockName, tmpName);
+            }
+            break;
+    }
+    return true;
+}
+
 uint32_t TzxPlayerZXTeensy::doScanTape(bool seekBlock, bool seekRelative,
     uint32_t blockNum, char (*tapeMarkNames)[MENU_STR_LEN])
 {
@@ -666,6 +742,12 @@ uint32_t TzxPlayerZXTeensy::doScanTape(bool seekBlock, bool seekRelative,
     if (!seekRelative)
     {
         tapePosition = (isTzxTapeFile ? 0x0A : 0x00);
+    }
+    if (tapeMarkNames != 0)
+    {
+        strcpy(tapeMarkNames[index], "Start of Tape");
+        tapeMarkPosition[index] = tapePosition;
+        ++index;
     }
     while ((tapePosition < tapeLength) && (index < 255))
     {
@@ -687,102 +769,25 @@ uint32_t TzxPlayerZXTeensy::doScanTape(bool seekBlock, bool seekRelative,
                     {
                         ignoreTapeData(2);
                     }
-                    uint16_t count = truncateTapeLength(readTapeWord());
-                    size_t nextPosition = tapePosition + count;
-                    if (count > 0)
-                    {
-                        char tmpName[MAX_PATH];
-                        char blockName[MAX_PATH];
-                        uint8_t flag = readTapeByte();
-                        if (flag & 0x80)
-                        {
-                            // Subtract 2 for flag and checksum bytes
-                            snprintf(blockName, MAX_PATH, "Standard Data %db",
-                                ((count > 2) ? (count - 2) : 0));
-                        } else if (hasTapeLength(0x12))
-                        {
-                            // Decode tape header
-                            flag = readTapeByte();
-                            switch (flag)
-                            {
-                                case 0 :
-                                    strcpy(blockName, "Program: ");
-                                    break;
-                                case 1 :
-                                    strcpy(blockName, "Num. array: ");
-                                    break;
-                                case 2 :
-                                    strcpy(blockName, "Chr. array: ");
-                                    break;
-                                default :
-                                    strcpy(blockName, "Bytes: ");
-                                    break;
-                            }
-                            memcpy(tmpName, (void *)&(tapeBuffer[tapePosition]), 10);
-                            tmpName[10] = 0;
-                            int i = 9;
-                            while (i >= 0)
-                            {
-                                if (tmpName[i] == ' ')
-                                {
-                                    tmpName[i] = 0;
-                                    --i;
-                                } else {
-                                    break;
-                                }
-                            }
-                            while (i >= 0)
-                            {
-                                if ((tmpName[i] < ' ') || (tmpName[i] >= 128))
-                                {
-                                    tmpName[i] = '?';
-                                }
-                                --i;
-                            }
-                            strcat(blockName, tmpName);
-                            ignoreTapeData(10);
-                            uint16_t length = readTapeWord();
-                            uint16_t param1 = readTapeWord();
-                            ignoreTapeData(2);
-                            switch (flag)
-                            {
-                                case 0 :
-                                    if (param1 < 0x8000)
-                                    {
-                                        snprintf(tmpName, MAX_PATH, " LINE %0d", param1);
-                                        strcat(blockName, tmpName);
-                                    }
-                                    break;
-                                case 1 :
-                                case 2 :
-                                    strcpy(tmpName, ((flag == 2) ? " DATA ?$()" : " DATA ?()"));
-                                    tmpName[6] = 0x60 + (param1 & 0x1F);
-                                    strcat(blockName, tmpName);
-                                    break;
-                                case 3 :
-                                    if ((param1 == 0x4000) && (length == 6912))
-                                    {
-                                        strcat(blockName, " SCREEN$");
-                                    } else {
-                                        snprintf(tmpName, MAX_PATH, " CODE %d,%d", param1, length);
-                                        strcat(blockName, tmpName);
-                                    }
-                                    break;
-                                default :
-                                    break;
-                            }
-                        } else {
-                            strcpy(blockName, "Header");
-                        }
+                    uint16_t length = truncateTapeLength(readTapeWord());
+                    size_t nextPosition = tapePosition + length;
 
-                        // Store block
-                        if (tapeMarkNames != 0)
+                    // Store block
+                    if (tapeMarkNames != 0)
+                    {
+                        char blockName[MAX_PATH];
+                        if ((length == 19) && ((readTapeByte() & 0x80) == 0x00) &&
+                            decodeBasicHeader(blockName, (uint8_t*)&(tapeBuffer[tapePosition])))
                         {
-                            tapeMarkPosition[index] = blockPosition;
                             strncpy(tapeMarkNames[index], blockName, MENU_STR_LEN);
                             tapeMarkNames[index][(MENU_STR_LEN - 1)] = 0;
-                            ++index;
+                        } else {
+                            // Subtract 2 for flag and checksum bytes
+                            snprintf(tapeMarkNames[index], MENU_STR_LEN,
+                                "Standard Data %db", ((length > 2) ? (length - 2) : 0));
                         }
+                        tapeMarkPosition[index] = blockPosition;
+                        ++index;
                     }
                     tapePosition = nextPosition;
                 }
@@ -794,19 +799,25 @@ uint32_t TzxPlayerZXTeensy::doScanTape(bool seekBlock, bool seekRelative,
                     ignoreTapeData(0x0F);
                     uint32_t length = readTapeWord();
                     length |= (readTapeByte() << 16);
-                    ignoreTapeData(length);
+                    size_t nextPosition = tapePosition + truncateTapeLength(length);
 
                     // Store block
                     if (tapeMarkNames != 0)
                     {
-                        if (snprintf(tapeMarkNames[index], MENU_STR_LEN,
-                            "Turbo Data %db", (int)length) >= MENU_STR_LEN)
+                        char blockName[MAX_PATH];
+                        if ((length == 19) && ((readTapeByte() & 0x80) == 0x00) &&
+                            decodeBasicHeader(blockName, (uint8_t*)&(tapeBuffer[tapePosition])))
                         {
+                            strncpy(tapeMarkNames[index], blockName, MENU_STR_LEN);
                             tapeMarkNames[index][(MENU_STR_LEN - 1)] = 0;
+                        } else {
+                            snprintf(tapeMarkNames[index], MENU_STR_LEN,
+                                "Turbo Data %db", (int)length);
                         }
                         tapeMarkPosition[index] = blockPosition;
                         ++index;
                     }
+                    tapePosition = nextPosition;
                 }
                 break;
             case 0x12 :
