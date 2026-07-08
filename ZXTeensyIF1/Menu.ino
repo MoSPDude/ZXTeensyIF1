@@ -56,7 +56,7 @@ typedef enum {
     MENU_TYPE_NTP_TZ,
     MENU_TYPE_BROWSER,
     MENU_TYPE_BROWSER_OPEN,
-    MENU_TYPE_BROWSER_OPEN_ZXC2,
+    MENU_TYPE_BROWSER_OPEN_ROM,
     MENU_TYPE_BROWSER_MOUNT_HDF,
     MENU_TYPE_BROWSER_MOUNT_DSK,
     MENU_TYPE_POK_BROWSER,
@@ -95,6 +95,7 @@ typedef enum {
     SETTING_ACTION_TOGGLE_DIVMMC_ROM,
     SETTING_ACTION_TOGGLE_IF1,
     SETTING_ACTION_TOGGLE_MF128,
+    SETTING_ACTION_TOGGLE_GENIE128,
     SETTING_ACTION_TOGGLE_USB,
     SETTING_ACTION_TOGGLE_FIRE_BUTTONS,
     SETTING_ACTION_TOGGLE_UART,
@@ -498,12 +499,14 @@ char* menuAddBrowserFile(uint32_t index, char* ptr, const char* filename,
         {
             if (stricmp(fileext + 1, "rom") == 0)
             {
+                // Open ROM type selector, as ".rom" could be various types
                 icon = ICON_TYPE_CART;
-                action = MENU_ACTION_BROWSER_LOAD_CART;
+                action = MENU_ACTION_BROWSER_OPEN_ROM;
             } else if (stricmp(fileext + 1, "bin") == 0)
             {
+                // Open ROM type selector, as ".bin" could be various types
                 icon = ICON_TYPE_ZXC2;
-                action = MENU_ACTION_BROWSER_OPEN_ZXC2;
+                action = MENU_ACTION_BROWSER_OPEN_ROM;
             } else if ((stricmp(fileext + 1, "z80") == 0) ||
                 (stricmp(fileext + 1, "sna") == 0))
             {
@@ -800,13 +803,17 @@ char* menuGenerateNtpTz(char* ptr)
     return ptr;
 }
 
-char* menuGenerateBrowserOpenZXC2(char* ptr)
+char* menuGenerateBrowserOpenRom(char* ptr)
 {
     ptr = menuInsertSetting(MENU_ACTION_BROWSER_CD, BROWSER_PARENT_INDEX,
         ptr, MENU_STRINGS[STRING_CANCEL], 0);
     ptr = menuInsertSetting(MENU_ACTION_BROWSER_LOAD_CART, 0, ptr, MENU_STRINGS[STRING_LOAD_ROM], 0);
     ptr = menuInsertSetting(MENU_ACTION_BROWSER_LOAD_ZXC2, 0, ptr, MENU_STRINGS[STRING_LOAD_ZXC2], 0);
     ptr = menuInsertSetting(MENU_ACTION_BROWSER_LOAD_ZXC3, 0, ptr, MENU_STRINGS[STRING_LOAD_ZXC3], 0);
+    if ((menuTopMenu != MENU_TYPE_MAIN) && mf128Present)
+    {
+        ptr = menuInsertSetting(MENU_ACTION_BROWSER_LOAD_MF128, 0, ptr, MENU_STRINGS[STRING_LOAD_MF128], 0);
+    }
     return ptr;
 }
 
@@ -830,11 +837,7 @@ char* menuGenerateBrowserMountHdf(char* ptr)
 
 char* menuGenerateBrowserOpen(char* ptr)
 {
-    ptr = menuInsertSetting(MENU_ACTION_BROWSER_CD, BROWSER_PARENT_INDEX,
-        ptr, MENU_STRINGS[STRING_CANCEL], 0);
-    ptr = menuInsertSetting(MENU_ACTION_BROWSER_LOAD_CART, 0, ptr, MENU_STRINGS[STRING_LOAD_ROM], 0);
-    ptr = menuInsertSetting(MENU_ACTION_BROWSER_LOAD_ZXC2, 0, ptr, MENU_STRINGS[STRING_LOAD_ZXC2], 0);
-    ptr = menuInsertSetting(MENU_ACTION_BROWSER_LOAD_ZXC3, 0, ptr, MENU_STRINGS[STRING_LOAD_ZXC3], 0);
+    ptr = menuGenerateBrowserOpenRom(ptr);
     ptr = menuInsertSetting(MENU_ACTION_BROWSER_LOAD_Z80, 0, ptr, MENU_STRINGS[STRING_LOAD_Z80], 0);
     ptr = menuInsertSetting(MENU_ACTION_BROWSER_LOAD_TZX, 0, ptr, MENU_STRINGS[STRING_LOAD_TZX], 0);
     if (menuHasMdrEmu)
@@ -1152,6 +1155,16 @@ char* menuGenerateSettings(char* ptr)
     {
         ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_MF128,
             ptr, MENU_STRINGS[STRING_ENABLE_MF128], mf128Present);
+        if (mf128Present)
+        {
+            tmpFile = SD.open(GENIE128_ROM_PATH, FILE_READ);
+            if (tmpFile)
+            {
+                ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_GENIE128,
+                    ptr, MENU_STRINGS[STRING_ENABLE_GENIE128], mf128LoadGenie);
+                tmpFile.close();
+            }
+        }
     }
     ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_PRINTER,
         ptr, MENU_STRINGS[STRING_ENABLE_PRINTER], printerPresent);
@@ -1377,8 +1390,8 @@ void menuGenerate()
         case MENU_TYPE_BROWSER_OPEN :
             textPtr = menuGenerateBrowserOpen(textPtr);
             break;
-        case MENU_TYPE_BROWSER_OPEN_ZXC2 :
-            textPtr = menuGenerateBrowserOpenZXC2(textPtr);
+        case MENU_TYPE_BROWSER_OPEN_ROM :
+            textPtr = menuGenerateBrowserOpenRom(textPtr);
             break;
         case MENU_TYPE_BROWSER_MOUNT_HDF :
             textPtr = menuGenerateBrowserMountHdf(textPtr);
@@ -1545,6 +1558,10 @@ bool menuPerformSelection(uint8_t index)
                         mf128Present = !mf128Present;
                         menuConfigChanged = true;
                     }
+                    break;
+                case SETTING_ACTION_TOGGLE_GENIE128 :
+                    mf128LoadGenie = !mf128LoadGenie;
+                    menuConfigChanged = true;
                     break;
                 case SETTING_ACTION_TOGGLE_USB :
                     usbPresent = !usbPresent;
@@ -1732,10 +1749,10 @@ bool menuPerformSelection(uint8_t index)
                 menuCurrent = menuTopMenu;
             }
             break;
-        case MENU_ACTION_BROWSER_OPEN_ZXC2 :
+        case MENU_ACTION_BROWSER_OPEN_ROM :
             if (updateBrowserPath(entryIndex))
             {
-                menuCurrent = MENU_TYPE_BROWSER_OPEN_ZXC2;
+                menuCurrent = MENU_TYPE_BROWSER_OPEN_ROM;
             } else {
                 menuCurrent = menuTopMenu;
             }
@@ -1799,10 +1816,21 @@ bool menuPerformSelection(uint8_t index)
         case MENU_ACTION_BROWSER_LOAD_ZXC2 :
         case MENU_ACTION_BROWSER_LOAD_ZXC3 :
             if ((menuCurrent == MENU_TYPE_BROWSER_OPEN) ||
-                (menuCurrent == MENU_TYPE_BROWSER_OPEN_ZXC2) ||
+                (menuCurrent == MENU_TYPE_BROWSER_OPEN_ROM) ||
                 updateBrowserPath(entryIndex))
             {
                 return true;
+            } else {
+                menuCurrent = menuTopMenu;
+            }
+            break;
+        case MENU_ACTION_BROWSER_LOAD_MF128 :
+            if ((menuCurrent == MENU_TYPE_BROWSER_OPEN) ||
+                (menuCurrent == MENU_TYPE_BROWSER_OPEN_ROM) ||
+                updateBrowserPath(entryIndex))
+            {
+                menuCurrent = menuTopMenu;
+                return false;
             } else {
                 menuCurrent = menuTopMenu;
             }
@@ -2246,6 +2274,7 @@ void menuClearConfiguration()
     divMmcRomPresent = false;
     interface1Present = false;
     mf128Present = false;
+    mf128LoadGenie = false;
     uartPresent = false;
     usbPresent = false;
     gamepadButtons = false;
@@ -2337,6 +2366,10 @@ void menuLoadConfiguration(const char* cfgCfgName)
                     } else if (strncmp("mf128Present = ", cfgPtr, 15) == 0)
                     {
                         mf128Present = ((cfgPtr[15] == '1') ? true : false);
+                        ++count;
+                    } else if (strncmp("mf128LoadGenie = ", cfgPtr, 17) == 0)
+                    {
+                        mf128LoadGenie = ((cfgPtr[17] == '1') ? true : false);
                         ++count;
                     } else if (strncmp("modemPresent = ", cfgPtr, 15) == 0)
                     {
@@ -2461,6 +2494,7 @@ void menuSaveConfiguration()
             cfgFile.printf("divMmcRomPresent = %0d\n", divMmcRomPresent);
             cfgFile.printf("interface1Present = %0d\n", interface1Present);
             cfgFile.printf("mf128Present = %0d\n", mf128Present);
+            cfgFile.printf("mf128LoadGenie = %0d\n", mf128LoadGenie);
             cfgFile.printf("uartPresent = %0d\n", uartPresent);
             cfgFile.printf("usbPresent = %0d\n", usbPresent);
             cfgFile.printf("gamepadButtons = %0d\n", gamepadButtons);

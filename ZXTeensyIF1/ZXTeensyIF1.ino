@@ -32,7 +32,7 @@ typedef enum {
     MENU_ACTION_LOAD_RTC_SETUP,
     MENU_ACTION_BROWSER_CD,
     MENU_ACTION_BROWSER_OPEN,
-    MENU_ACTION_BROWSER_OPEN_ZXC2,
+    MENU_ACTION_BROWSER_OPEN_ROM,
     MENU_ACTION_BROWSER_OPEN_HDF,
     MENU_ACTION_BROWSER_OPEN_DSK,
     MENU_ACTION_BROWSER_LOAD_CART,
@@ -41,6 +41,7 @@ typedef enum {
     MENU_ACTION_BROWSER_LOAD_Z80,
     MENU_ACTION_BROWSER_LOAD_TZX,
     MENU_ACTION_BROWSER_LOAD_MDR,
+    MENU_ACTION_BROWSER_LOAD_MF128,
     MENU_ACTION_BROWSER_OPEN_POK,
     MENU_ACTION_BROWSER_MOUNT_SDA,
     MENU_ACTION_BROWSER_MOUNT_SDB,
@@ -303,6 +304,7 @@ volatile uint8_t* divMmcRamPtr;
 volatile bool mf128Present = false;
 volatile bool mf128Enabled = false;
 volatile bool mf128ActiveNMI = false;
+volatile bool mf128LoadGenie = false;
 
 // Interface 1
 volatile bool interface1Present = false;
@@ -1738,7 +1740,7 @@ void handleStateReset()
     {
         menuBeginMain();
     } else {
-        // Enable DSK, MDR and TZX peripherals, and prevent direct SD card access
+        // Enable DSK, MDR and TZX peripherals
         if (dskPresent && beginSdfsSd())
         {
             dskEnabled = true;
@@ -1758,6 +1760,14 @@ void handleStateReset()
                 divMmcExtRamEnabled = false;
                 tzxPlayer.begin(divMmcExtRamArray[0], size);
             }
+        }
+
+        // Load Genie 128 disassembler into the Multiface 128
+        if (mf128Present && mf128LoadGenie)
+        {
+            loadRomImage(GENIE128_ROM_PATH,
+                (char*)&(romArray[ROM_PAGE_MF128][RAM_PAGE_SIZE]),
+                RAM_PAGE_SIZE);
         }
 
         // Enable the DivMMC
@@ -2031,6 +2041,16 @@ FASTRUN void loop()
                                 tzxEnabled = true;
                                 tzxPlayer.begin(divMmcExtRamArray[0], size);
                             }
+                        }
+                        break;
+                    case MENU_ACTION_BROWSER_LOAD_MF128 :
+                        if (mf128Present && beginSdfsSd())
+                        {
+                            memset((void*)&(romArray[ROM_PAGE_MF128][RAM_PAGE_SIZE]),
+                                0xFF, RAM_PAGE_SIZE);
+                            loadRomImage(menuGetBrowserPath(),
+                                (char*)&(romArray[ROM_PAGE_MF128][RAM_PAGE_SIZE]),
+                                RAM_PAGE_SIZE);
                         }
                         break;
                     case MENU_ACTION_BROWSER_MOUNT_FDA :

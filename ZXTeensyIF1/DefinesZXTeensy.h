@@ -2,7 +2,7 @@
 #ifndef DEFINES_ZX_TEENSY_H
 #define DEFINES_ZX_TEENSY_H
 
-#define ZXTEENSY_VERSION "20260706"
+#define ZXTEENSY_VERSION "20260708"
 #define ENABLE_BUILTIN_ROM_IF1
 //define DEBUG_OUTPUT
 //define ENABLE_JOYSTICK_DEBUG
@@ -13,6 +13,7 @@
 
 #define ESXMMC_BIN_PATH ((const char*)F("/ZXTEENSY/esxmmc.bin"))
 #define MF128_ROM_PATH ((const char*)F("/ZXTEENSY/mf128.rom"))
+#define GENIE128_ROM_PATH ((const char*)F("/ZXTEENSY/genie128.rom"))
 #define LPRINT_ROM_PATH ((const char*)F("/ZXTEENSY/lprint32.rom"))
 #define MODEM_ROM_PATH ((const char*)F("/ZXTEENSY/vtx.rom"))
 #define IF1_ROM_PATH ((const char*)F("/ZXTEENSY/if1.rom"))

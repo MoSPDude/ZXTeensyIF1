@@ -69,6 +69,7 @@ typedef struct __attribute__((packed)) {
     uint8_t divMmcExtRamEnabled;
     uint8_t mf128Enabled;
     uint8_t mf128ActiveNMI;
+    uint8_t mf128LoadGenie;
     uint8_t zxC2Present;
     uint8_t zxC3Present;
     uint8_t zxC2Lock;
@@ -379,6 +380,7 @@ void stateCaptureDeviceData(void* data)
     state->divMmcExtRamEnabled = divMmcExtRamEnabled;
     state->mf128Enabled = mf128Enabled;
     state->mf128ActiveNMI = mf128ActiveNMI;
+    state->mf128LoadGenie = mf128LoadGenie;
     state->zxC2Present = zxC2Present;
     state->zxC3Present = zxC3Present;
     state->zxC2Lock = zxC2Lock;
@@ -681,6 +683,7 @@ void stateApplyDeviceData()
     mf128Enabled = stateRestoreDevice.mf128Enabled;
     spectrumBankM = stateRestoreDevice.spectrumBankM;
     mf128ActiveNMI = stateRestoreDevice.mf128ActiveNMI;
+    mf128LoadGenie = stateRestoreDevice.mf128LoadGenie;
     zxC2Present = stateRestoreDevice.zxC2Present;
     zxC3Present = stateRestoreDevice.zxC3Present;
     zxC2Lock = stateRestoreDevice.zxC2Lock;
