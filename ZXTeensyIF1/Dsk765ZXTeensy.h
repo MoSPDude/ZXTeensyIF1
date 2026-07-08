@@ -38,7 +38,7 @@ class Dsk765ZXTeensy
         FDRV_PTR fdd_b;
 
     public :
-        constexpr Dsk765ZXTeensy() : readDataStatus(0xFF), motorOn(false), 
+        constexpr Dsk765ZXTeensy() : readDataStatus(0xFF), motorOn(false),
             statusRegister(0), fdc(0), fdd_a(0), fdd_b(0)
         {
         }

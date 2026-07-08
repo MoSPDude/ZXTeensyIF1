@@ -8,7 +8,7 @@ static const uint32_t STATE_48_FILE_SIZE = 49248;
 static const uint32_t STATE_128_FILE_SIZE = 131183;
 static const size_t STATE_SCREEN_SIZE = 0x1B00;
 static const uint8_t STATE_SIGNAL_FINISH = 0xC0;
-static const uint16_t STATE_DEVICE_VERSION = 1;
+static const uint16_t STATE_DEVICE_VERSION = 2;
 
 typedef enum {
     STATE_FILE_STATE,
@@ -100,6 +100,7 @@ typedef struct __attribute__((packed)) {
     uint32_t mouseX;
     uint32_t mouseY;
     uint32_t tapePosition;
+    uint32_t tapeBufferPosition;
     uint32_t tapeLength;
 } state_device_data_t;
 
@@ -110,7 +111,7 @@ volatile uint8_t stateSaveActiveBlock = 0;
 bool stateSave128 = false;
 uint8_t stateSaveExpectedBlock = 0;
 uint8_t stateSaveActiveSlot = 0;
-state_device_data_t stateRestoreDevice;
+DMAMEM state_device_data_t stateRestoreDevice;
 volatile bool stateLoadActive = false;
 volatile bool stateLoadFinalStage = false;
 
@@ -410,9 +411,10 @@ void stateCaptureDeviceData(void* data)
     state->divMmcSecondHdfSdIdle = divMmcSecondHdf.getSdIdle();
     state->mouseX = mouseX;
     state->mouseY = mouseY;
-    size_t tapeLength;
-    state->tapePosition = tzxPlayer.getPosition(&tapeLength);
-    state->tapeLength = tapeLength;
+    size_t tapePosition, tapeBufferPosition;
+    state->tapeLength = tzxPlayer.getPosition(&tapePosition, &tapeBufferPosition);
+    state->tapePosition = tapePosition;
+    state->tapeBufferPosition = tapeBufferPosition;
     state->divMmcPresent = divMmcPresent;
     state->divMmcExtRamPresent = divMmcExtRamPresent;
     state->divMmcRomPresent = divMmcRomPresent;
@@ -444,6 +446,7 @@ void stateCloseOtherHandles()
     {
         dskController.end();
     }
+    tzxPlayer.close();
     divMmcHdf.end();
     divMmcSecondHdf.end();
     beginSdfsSd();
@@ -540,6 +543,10 @@ void stateResumeClosedDevices()
     if (printerEnabled || lprintEnabled)
     {
         printerPort.begin();
+    }
+    if (tzxEnabled)
+    {
+        tzxEnabled = tzxPlayer.reopen(menuGetTapeFileName());
     }
 }
 
@@ -642,6 +649,7 @@ void stateApplyConfiguration()
     cfgData.dskFdaPath[MAX_PATH - 1] = 0;
     cfgData.dskFdbPath[MAX_PATH - 1] = 0;
     cfgData.modemUrl[MAX_PATH - 1] = 0;
+    cfgData.tapeFileName[MAX_PATH - 1] = 0;
 
     // Clear the configuration name as this changes configuration
     cfgData.cfgName[0] = 0;
@@ -698,8 +706,10 @@ void stateApplyDeviceData()
     tzxPresent = stateRestoreDevice.tzxPresent;
     if (stateRestoreDevice.tzxEnabled && (stateRestoreDevice.tapeLength > 0))
     {
-        tzxPlayer.begin(divMmcExtRamArray[0], stateRestoreDevice.tapeLength);
-        tzxPlayer.setPosition(stateRestoreDevice.tapePosition);
+        tzxPlayer.begin(cfgData.tapeFileName, divMmcExtRamArray[0],
+            stateRestoreDevice.tapeLength);
+        tzxPlayer.setPosition(stateRestoreDevice.tapePosition,
+            stateRestoreDevice.tapeBufferPosition);
         tzxEnabled = true;
     } else {
         tzxEnabled = false;

@@ -15,7 +15,7 @@ class PrinterZXTeensy
         bool enabled;
         uint32_t printDelayCount;
         File outFile;
-        
+
         inline bool openPrinter()
         {
             if (!outFile)

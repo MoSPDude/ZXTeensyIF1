@@ -172,7 +172,7 @@ class RtcZXTeensy
                     case 'D' : // Dec
                         mnts = 12;
                         break;
-                    default : 
+                    default :
                         mnts = 0;
                         break;
                 }

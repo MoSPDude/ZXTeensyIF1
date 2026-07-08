@@ -1046,38 +1046,6 @@ bool loadSnapshotFile(File RomFile, bool isSnaFile)
     return snaLoaderPresent;
 }
 
-bool loadTzxPlayerFile(const char* fileName, size_t* count)
-{
-    // Reset the tape player state
-    tzxPresent = false;
-
-    // The tape is loaded in the DivMMC RAM area
-    File tzxFile = SD.open(fileName, FILE_READ);
-    if (tzxFile)
-    {
-        *count = tzxFile.readBytes((char *)divMmcExtRamArray[0], RAM_PAGE_SIZE);
-        if (*count > 0)
-        {
-            tzxPresent = true;
-            divMmcExtRamEnabled = false;
-            for (uint8_t i_ = 1; i_ < EXT_RAM_PAGE_COUNT; ++i_)
-            {
-                size_t blk_count_ = tzxFile.readBytes((char *)divMmcExtRamArray[i_],
-                    RAM_PAGE_SIZE);
-                *count += blk_count_;
-                if (blk_count_ < RAM_PAGE_SIZE)
-                {
-                    break;
-                }
-            }
-        }
-        tzxFile.close();
-    } else {
-        *count = 0;
-    }
-    return (*count > 0);
-}
-
 bool loadMdrEmulatorFile(const char* fileName)
 {
     bool result = false;
@@ -1552,6 +1520,7 @@ void handleStateResetEntry()
                     // Load the configured foreground ROM
                     if (!loadForegroundRom() && afterFirstReset)
                     {
+                        menuEnterOnReset = true;
                         afterFirstReset = false;
                         handleStateResetEntry();
                         return;
@@ -1753,12 +1722,12 @@ void handleStateReset()
         }
         if (tzxPresent && beginSdfsSd())
         {
-            size_t size;
-            if (loadTzxPlayerFile(menuGetBrowserPath(), &size))
+            if (tzxPlayer.begin(menuGetTapeFileName(), divMmcExtRamArray[0], 0))
             {
                 tzxEnabled = true;
                 divMmcExtRamEnabled = false;
-                tzxPlayer.begin(divMmcExtRamArray[0], size);
+            } else {
+                tzxPresent = false;
             }
         }
 
@@ -2035,12 +2004,8 @@ FASTRUN void loop()
                     case MENU_ACTION_BROWSER_LOAD_TZX :
                         if (!divMmcExtRamEnabled && beginSdfsSd())
                         {
-                            size_t size;
-                            if (loadTzxPlayerFile(menuGetBrowserPath(), &size))
-                            {
-                                tzxEnabled = true;
-                                tzxPlayer.begin(divMmcExtRamArray[0], size);
-                            }
+                            tzxEnabled = tzxPlayer.begin(menuGetTapeFileName(),
+                                divMmcExtRamArray[0], 0);
                         }
                         break;
                     case MENU_ACTION_BROWSER_LOAD_MF128 :

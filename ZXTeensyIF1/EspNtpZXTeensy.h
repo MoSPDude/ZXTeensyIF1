@@ -116,14 +116,14 @@ class EspNtpZXTeensy
                             nextState = STATE_CHECK_NTP;
                             break;
                         case STATE_CHECK_NTP :
-                            nextState = ((commandResponse == '1') ? 
+                            nextState = ((commandResponse == '1') ?
                                 STATE_GET_TIME : STATE_SET_NTP);
                             break;
                         case STATE_SET_NTP :
                             nextState = STATE_GET_TIME;
                             break;
                         default :
-                            nextState = ((commandResponse == '1') ? 
+                            nextState = ((commandResponse == '1') ?
                                 STATE_IDLE : STATE_GET_TIME);
                             break;
                     }
@@ -138,7 +138,7 @@ class EspNtpZXTeensy
         }
 
     public :
-        EspNtpZXTeensy() : espUart(0), hasSyncTime(false), currentState(STATE_IDLE), 
+        EspNtpZXTeensy() : espUart(0), hasSyncTime(false), currentState(STATE_IDLE),
             commandResponse(0), ascTimePtr(0), buffer(), bufferIdx(0)
         {
         }

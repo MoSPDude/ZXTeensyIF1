@@ -68,7 +68,7 @@ void flashUpdate(const char *fwFileName)
 
     // Create flash buffer to hold new firmware
     uint32_t buffer_addr, buffer_size;
-    if (firmware_buffer_init( &buffer_addr, &buffer_size ) == FLASH_BUFFER_TYPE) 
+    if (firmware_buffer_init( &buffer_addr, &buffer_size ) == FLASH_BUFFER_TYPE)
     {
        // read hex file, write new firmware to flash, clean up, reboot
        File hexFile = SD.open(fwFileName, FILE_READ);

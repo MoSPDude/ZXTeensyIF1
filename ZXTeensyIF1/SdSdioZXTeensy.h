@@ -39,7 +39,7 @@ template <size_t READ_BUFFER_SIZE> class SdSdioZXTeensy
 
     protected :
         RingBuffer<READ_BUFFER_SIZE> sdSpiReadBuffer;
-        
+
         SdioCard* sdioCard;
         bool isSdIdle;
         uint8_t currentState;

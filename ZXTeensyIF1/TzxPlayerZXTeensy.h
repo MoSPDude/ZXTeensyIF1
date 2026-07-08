@@ -7,6 +7,8 @@
 #include "WString.h"
 #include "RingBuffer.h"
 #include "DefinesZXTeensy.h"
+#include <SD.h>
+#include <SdFat.h>
 
 //#define DEBUG_TAPE_OUTPUT
 
@@ -47,8 +49,12 @@ class TzxPlayerZXTeensy
         volatile uint32_t pulseDuration;
         volatile uint32_t edgeCycleCount;
 
+        static const size_t FILE_BUFFER_SIZE = (0x2000 * 48);
+        static const size_t FILE_BUFFER_MARK = (FILE_BUFFER_SIZE - DATA_BUFFER_SIZE);
+        File tapeFile;
         volatile bool isTzxTapeFile;
         volatile uint8_t* tapeBuffer;
+        volatile size_t bufferPosition;
         volatile size_t tapePosition;
         volatile size_t tapeLength;
         volatile uint32_t dataBlockSize;
@@ -91,6 +97,7 @@ class TzxPlayerZXTeensy
         bool loadPulseSequenceBlock();
         bool loadDirectRecordingBlock();
         bool loadFromTape();
+        bool manageTape();
 
         inline bool runTapeNextByte() __attribute__((always_inline, optimize("O3")))
         {
@@ -192,28 +199,29 @@ class TzxPlayerZXTeensy
         bool startTape();
         void bufferTape();
         void jumpRelative(int16_t target);
-        bool decodeBasicHeader(char* blockName, uint8_t* data);
+        bool decodeBasicHeader(char* blockName);
         uint32_t doScanTape(bool seekBlock, bool seekRelative,
             uint32_t blockNum, char (*tapeMarkNames)[MENU_STR_LEN]);
 
         inline __attribute__((always_inline)) uint8_t readTapeByte()
         {
-            uint8_t data = tapeBuffer[tapePosition];
+            uint8_t data = *(getTapeBufferPtr());
             tapePosition += 1;
             return data;
         }
 
         inline __attribute__((always_inline)) uint16_t readTapeWord()
         {
-            uint16_t data = tapeBuffer[tapePosition];
-            data |= (tapeBuffer[(tapePosition + 1)] << 8);
+            volatile uint8_t* ptr = getTapeBufferPtr();
+            uint16_t data = *ptr++;
+            data |= (*ptr << 8);
             tapePosition += 2;
             return data;
         }
 
         inline __attribute__((always_inline)) void insertTapeData(size_t size)
         {
-            dataBuffer.writeBlock((uint8_t*)&(tapeBuffer[tapePosition]), size);
+            dataBuffer.writeBlock((uint8_t*)getTapeBufferPtr(), size);
             tapePosition += size;
         }
 
@@ -236,21 +244,29 @@ class TzxPlayerZXTeensy
             tapePosition += size;
         }
 
+        inline __attribute__((always_inline)) volatile uint8_t* getTapeBufferPtr()
+        {
+            return tapeBuffer + (tapePosition - bufferPosition);
+        }
+
     public :
         constexpr TzxPlayerZXTeensy() : enabled(false), isBuffering(false), isPlaying(false),
             isPaused(false), currentLevel(false), currentBlock(BLOCK_IDLE),
             zeroDuration(0), oneDuration(0), numBytes(0), numFinalBits(0),
             doublePulse(false), pulseData(0xAA), pulseShiftCount(0),
-            pulseDuration(0), edgeCycleCount(0), isTzxTapeFile(false),
-            tapeBuffer(0), tapePosition(0), tapeLength(0), dataBlockSize(0), pauseAfterBlock(0),
-            tapeBufferStarted(false), tapeBufferEnded(false), tapeBufferAutoPlay(false),
+            pulseDuration(0), edgeCycleCount(0), tapeFile(), isTzxTapeFile(false),
+            tapeBuffer(0), bufferPosition(0), tapePosition(0),
+            tapeLength(0), dataBlockSize(0), pauseAfterBlock(0), tapeBufferStarted(false),
+            tapeBufferEnded(false), tapeBufferAutoPlay(false),
             tapeStack{}, tapeStackCount(0), tapeMarkPosition{}, tapeMarkCount(0)
         {
         }
 
         void scanTape(char (*tapeMarkNames)[MENU_STR_LEN]);
         void seek(uint8_t index);
-        void begin(volatile uint8_t* buffer, size_t size);
+        bool begin(char* fileName, volatile uint8_t* buffer, size_t length);
+        bool reopen(char* fileName);
+        void close();
         void end();
 
         // NOTE: onTick is main loop, so optimize
@@ -321,16 +337,14 @@ class TzxPlayerZXTeensy
             return (currentLevel ? 0xFF : 0xBF);
         }
 
-        inline size_t getPosition(size_t* length)
+        inline size_t getPosition(size_t* position, size_t* buffer)
         {
-            if (length != 0)
-            {
-                *length = tapeLength;
-            }
-            return tapePosition;
+            *position = tapePosition;
+            *buffer = bufferPosition;
+            return tapeLength;
         }
 
-        inline void setPosition(size_t position)
+        inline void setPosition(size_t position, size_t buffer)
         {
             isPlaying = false;
             isPaused = false;
@@ -340,6 +354,7 @@ class TzxPlayerZXTeensy
             currentBlock = BLOCK_IDLE;
             dataBuffer.clear();
             tapePosition = ((position <= tapeLength) ? position : tapeLength);
+            bufferPosition = ((buffer <= tapeLength) ? buffer : tapeLength);
         }
 };
 
