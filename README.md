@@ -75,6 +75,10 @@ The ZX Interface 1 v2 ROM is included in compiled firmware, and as noted on othe
 sources "Amstrad have kindly given their permission for the redistribution
 of their copyrighted material but retain that copyright"
 
+The ZXTEENSY directory contains the peripheral ROM images - the exact redistribution
+status of these is unknown, but they have been gathered from sources from the Internet,
+and provided for convenience and safe-keeping.
+
 This is a project that I started with a view of wanting a DivMMC clone that works with a
 ZX Interface 1 attached to my ZX Max 128 - as I own a ZX Microdrive as well as a ZXPicoMD
 (https://github.com/TomDDG/ZXPicoMD) ... and didn't want to keep disconnecting the ZX
@@ -161,6 +165,8 @@ the DivMMC and enable the Interface 1.
         * (Additional saved state files for the save slot)
     * MENU.ROM
     * MF128.ROM (MD5SUM: ca8c9d97c8aedd718d1081fad2e3af8d)
+    * GENIE128.ROM (MD5SUM: b942f2e658d15da9747791a15a9a110d)
+        * Genie 128K disassembler Multiface 128 RAM image
     * ESXMMC.BIN (MD5SUM: fa50b0258e52b8d72bd83cc2fb6e1013)
     * SPECTRA_IF1_ED2_ME_ROM_Formatted.bin (MD5SUM: 052ad91ee822604960e8ca8d32a3ddb9)
     * IF1.ROM (Optional, MD5SUM: 31b704ae925305e74f50699271fddd9a)
@@ -225,8 +231,7 @@ In "Browse SD card", in other directories,
 
 | File extension | File type |
 |----------------|-----------|
-| .rom | ZX Interface 2 cartridge |
-| .bin | ZXC2 or ZXC3 flash cartridge |
+| .rom, .bin | ROM cartridge, or RAM image |
 | .z80, .sna | Z80 snapshot |
 | .hdf, .img | DivMMC SD card |
 | .dsk | Spectrum +3 disk |
