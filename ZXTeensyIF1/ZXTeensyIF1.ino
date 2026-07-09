@@ -1726,6 +1726,10 @@ void handleStateReset()
             {
                 tzxEnabled = true;
                 divMmcExtRamEnabled = false;
+                if (!tzxPlayer.isStreamingFile())
+                {
+                    menuClearTapeFileName();
+                }
             } else {
                 tzxPresent = false;
             }
@@ -2006,6 +2010,10 @@ FASTRUN void loop()
                         {
                             tzxEnabled = tzxPlayer.begin(menuGetTapeFileName(),
                                 divMmcExtRamArray[0], 0);
+                            if (tzxEnabled && !tzxPlayer.isStreamingFile())
+                            {
+                                menuClearTapeFileName();
+                            }
                         }
                         break;
                     case MENU_ACTION_BROWSER_LOAD_MF128 :

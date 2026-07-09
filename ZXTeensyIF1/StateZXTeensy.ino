@@ -101,6 +101,8 @@ typedef struct __attribute__((packed)) {
     uint32_t mouseY;
     uint32_t tapePosition;
     uint32_t tapeBufferPosition;
+    uint32_t tapeFillPosition;
+    uint32_t tapeBufferFillPosition;
     uint32_t tapeLength;
 } state_device_data_t;
 
@@ -411,10 +413,13 @@ void stateCaptureDeviceData(void* data)
     state->divMmcSecondHdfSdIdle = divMmcSecondHdf.getSdIdle();
     state->mouseX = mouseX;
     state->mouseY = mouseY;
-    size_t tapePosition, tapeBufferPosition;
-    state->tapeLength = tzxPlayer.getPosition(&tapePosition, &tapeBufferPosition);
+    size_t tapePosition, tapeBufferPosition, tapeFillPosition, tapeBufferFillPosition;
+    state->tapeLength = tzxPlayer.savePositionState(&tapePosition, &tapeBufferPosition,
+        &tapeFillPosition, &tapeBufferFillPosition);
     state->tapePosition = tapePosition;
     state->tapeBufferPosition = tapeBufferPosition;
+    state->tapeFillPosition = tapeFillPosition;
+    state->tapeBufferFillPosition = tapeBufferFillPosition;
     state->divMmcPresent = divMmcPresent;
     state->divMmcExtRamPresent = divMmcExtRamPresent;
     state->divMmcRomPresent = divMmcRomPresent;
@@ -706,11 +711,15 @@ void stateApplyDeviceData()
     tzxPresent = stateRestoreDevice.tzxPresent;
     if (stateRestoreDevice.tzxEnabled && (stateRestoreDevice.tapeLength > 0))
     {
-        tzxPlayer.begin(cfgData.tapeFileName, divMmcExtRamArray[0],
+        tzxEnabled = tzxPlayer.begin(cfgData.tapeFileName, divMmcExtRamArray[0],
             stateRestoreDevice.tapeLength);
-        tzxPlayer.setPosition(stateRestoreDevice.tapePosition,
-            stateRestoreDevice.tapeBufferPosition);
-        tzxEnabled = true;
+        if (tzxEnabled)
+        {
+            tzxPlayer.restorePositionState(stateRestoreDevice.tapePosition,
+                stateRestoreDevice.tapeBufferPosition,
+                stateRestoreDevice.tapeFillPosition,
+                stateRestoreDevice.tapeBufferFillPosition);
+        }
     } else {
         tzxEnabled = false;
     }

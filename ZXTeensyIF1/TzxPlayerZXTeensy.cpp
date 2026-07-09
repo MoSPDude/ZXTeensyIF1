@@ -234,7 +234,7 @@ void TzxPlayerZXTeensy::bufferTape()
     if ((dataBlockSize > 0) &&
         (dataBuffer.getFree() > (TAPE_BUFFER_SIZE + COMMAND_SIZE)))
     {
-        manageTape();
+        manageTape(false);
         uint16_t count = truncateTapeLength(
             (dataBlockSize > TAPE_BUFFER_SIZE) ?
                 TAPE_BUFFER_SIZE : dataBlockSize);
@@ -404,8 +404,9 @@ bool TzxPlayerZXTeensy::loadFromTape()
 {
     if (isTzxTapeFile)
     {
-        if ((tapePosition < tapeLength) && manageTape())
+        if (tapePosition < tapeLength)
         {
+            manageTape(false);
             uint8_t blockId = readTapeByte();
             switch (blockId)
             {
@@ -669,10 +670,8 @@ bool TzxPlayerZXTeensy::loadFromTape()
     } else if (hasTapeLength(2))
     {
         pauseAfterBlock = 1000;
-        if (manageTape())
-        {
-            return loadStandardSpeedBlock();
-        }
+        manageTape(false);
+        return loadStandardSpeedBlock();
     }
     tapePosition = tapeLength;
     return false;
@@ -774,10 +773,7 @@ uint32_t TzxPlayerZXTeensy::doScanTape(bool seekBlock, bool seekRelative,
     {
         uint8_t blockId;
         size_t blockPosition = tapePosition;
-        if (!manageTape())
-        {
-            break;
-        }
+        manageTape(false);
         if (isTzxTapeFile)
         {
             blockId = readTapeByte();
@@ -1083,16 +1079,63 @@ void TzxPlayerZXTeensy::scanTape(char (*tapeMarkNames)[MENU_STR_LEN])
     doScanTape(false, false, 0, tapeMarkNames);
 }
 
-bool TzxPlayerZXTeensy::manageTape()
+void TzxPlayerZXTeensy::manageTape(bool reload)
 {
-    if ((bufferPosition > tapePosition) ||
-        ((tapePosition - bufferPosition) >= FILE_BUFFER_MARK))
+    if (isStreamed)
     {
-        bufferPosition = tapePosition;
-        tapeFile.seek(bufferPosition, SeekSet);
-        tapeFile.readBytes((char*)tapeBuffer, FILE_BUFFER_SIZE);
+        size_t position = 0;
+        size_t fillPosition = 0;
+        if (tapePosition < bufferPosition)
+        {
+            reload = true;
+        } else {
+            position = tapePosition - bufferPosition;
+            if (position < FILE_BUFFER_SIZE)
+            {
+                fillPosition = tapeFillPosition - bufferFillPosition;
+                reload |= ((fillPosition >= FILE_BUFFER_SIZE) ||
+                    ((bufferFillPosition >= tapePosition) &&
+                        (position < fillPosition)));
+            } else {
+                reload = true;
+            }
+        }
+
+        if (reload)
+        {
+            tapeFile.seek(tapePosition, SeekSet);
+            size_t size = tapeFile.readBytes((char*)tapeBuffer, FILE_BUFFER_SIZE);
+
+            // Update the indices
+            bufferPosition = tapePosition;
+            tapeFillPosition = tapePosition + size;
+            bufferFillPosition = tapeFillPosition;
+        } else {
+            if ((tapeFillPosition < tapeLength) &&
+                ((position - fillPosition) >= TAPE_BUFFER_SIZE))
+            {
+                size_t size = tapeFile.readBytes((char*)&(tapeBuffer[fillPosition]),
+                    (position - fillPosition));
+                tapeFillPosition += size;
+            }
+            if ((position >= FILE_BUFFER_MARK) && (tapePosition < bufferFillPosition))
+            {
+                // Rotate the buffer
+                size_t size = (FILE_BUFFER_SIZE - position);
+                if (size > 0)
+                {
+                    uint8_t tail[DATA_BUFFER_SIZE];
+                    memcpy((void*)tail, (void*)&(tapeBuffer[position]), size);
+                    memmove((void*)&(tapeBuffer[size]), (void*)tapeBuffer, position);
+                    memcpy((void*)tapeBuffer, (void*)tail, size);
+                }
+
+                // Update the indices
+                bufferPosition = tapePosition;
+                bufferFillPosition = tapeFillPosition;
+            }
+        }
     }
-    return true;
 }
 
 void TzxPlayerZXTeensy::seek(uint8_t index)
@@ -1107,7 +1150,7 @@ void TzxPlayerZXTeensy::seek(uint8_t index)
         currentBlock = BLOCK_IDLE;
         dataBuffer.clear();
         tapePosition = tapeMarkPosition[index];
-        manageTape();
+        manageTape(false);
     }
 }
 
@@ -1135,14 +1178,23 @@ bool TzxPlayerZXTeensy::begin(char* fileName, volatile uint8_t* buffer, size_t l
         tapeLength = length;
         if (tapeFile)
         {
-            bufferPosition = length;
-            manageTape();
-            if (tapeLength <= FILE_BUFFER_MARK)
+            if (length <= BUFFER_SIZE)
             {
+                bufferPosition = 0;
+                bufferFillPosition = 0;
+                tapeFillPosition = length;
+                isStreamed = false;
+                tapeFile.readBytes((char*)tapeBuffer, length);
                 tapeFile.close();
+            } else {
+                isStreamed = true;
+                manageTape(true);
             }
         } else {
             bufferPosition = 0;
+            bufferFillPosition = 0;
+            tapeFillPosition = length;
+            isStreamed = false;
         }
 
         // Determine if TZX or TAP file
@@ -1162,7 +1214,7 @@ bool TzxPlayerZXTeensy::begin(char* fileName, volatile uint8_t* buffer, size_t l
 
 bool TzxPlayerZXTeensy::reopen(char* fileName)
 {
-    if (tapeFile || (tapeLength <= FILE_BUFFER_MARK))
+    if (tapeFile || (tapeLength <= BUFFER_SIZE))
     {
         return true;
     }

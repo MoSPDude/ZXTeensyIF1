@@ -49,12 +49,16 @@ class TzxPlayerZXTeensy
         volatile uint32_t pulseDuration;
         volatile uint32_t edgeCycleCount;
 
-        static const size_t FILE_BUFFER_SIZE = (0x2000 * 48);
+        static const size_t BUFFER_SIZE = (0x2000 * 48);
+        static const size_t FILE_BUFFER_SIZE = (0x2000 * 4);
         static const size_t FILE_BUFFER_MARK = (FILE_BUFFER_SIZE - DATA_BUFFER_SIZE);
         File tapeFile;
+        bool isStreamed;
         volatile bool isTzxTapeFile;
         volatile uint8_t* tapeBuffer;
         volatile size_t bufferPosition;
+        volatile size_t tapeFillPosition;
+        volatile size_t bufferFillPosition;
         volatile size_t tapePosition;
         volatile size_t tapeLength;
         volatile uint32_t dataBlockSize;
@@ -97,7 +101,7 @@ class TzxPlayerZXTeensy
         bool loadPulseSequenceBlock();
         bool loadDirectRecordingBlock();
         bool loadFromTape();
-        bool manageTape();
+        void manageTape(bool reload);
 
         inline bool runTapeNextByte() __attribute__((always_inline, optimize("O3")))
         {
@@ -254,11 +258,12 @@ class TzxPlayerZXTeensy
             isPaused(false), currentLevel(false), currentBlock(BLOCK_IDLE),
             zeroDuration(0), oneDuration(0), numBytes(0), numFinalBits(0),
             doublePulse(false), pulseData(0xAA), pulseShiftCount(0),
-            pulseDuration(0), edgeCycleCount(0), tapeFile(), isTzxTapeFile(false),
-            tapeBuffer(0), bufferPosition(0), tapePosition(0),
-            tapeLength(0), dataBlockSize(0), pauseAfterBlock(0), tapeBufferStarted(false),
-            tapeBufferEnded(false), tapeBufferAutoPlay(false),
-            tapeStack{}, tapeStackCount(0), tapeMarkPosition{}, tapeMarkCount(0)
+            pulseDuration(0), edgeCycleCount(0), tapeFile(), isStreamed(false),
+            isTzxTapeFile(false), tapeBuffer(0), bufferPosition(0), tapeFillPosition(0),
+            bufferFillPosition(0), tapePosition(0), tapeLength(0), dataBlockSize(0),
+            pauseAfterBlock(0), tapeBufferStarted(false), tapeBufferEnded(false),
+            tapeBufferAutoPlay(false), tapeStack{}, tapeStackCount(0), tapeMarkPosition{},
+            tapeMarkCount(0)
         {
         }
 
@@ -337,14 +342,24 @@ class TzxPlayerZXTeensy
             return (currentLevel ? 0xFF : 0xBF);
         }
 
-        inline size_t getPosition(size_t* position, size_t* buffer)
+        inline size_t getPosition(size_t* position)
         {
             *position = tapePosition;
-            *buffer = bufferPosition;
             return tapeLength;
         }
 
-        inline void setPosition(size_t position, size_t buffer)
+        inline size_t savePositionState(size_t* position, size_t* tapeBufferPosition,
+                size_t* fillPosition, size_t* tapeBufferFillPosition)
+        {
+            *position = tapePosition;
+            *tapeBufferPosition = bufferPosition;
+            *fillPosition = tapeFillPosition;
+            *tapeBufferFillPosition = bufferFillPosition;
+            return tapeLength;
+        }
+
+        inline void restorePositionState(size_t position, size_t tapeBufferPosition,
+            size_t fillPosition, size_t tapeBufferFillPosition)
         {
             isPlaying = false;
             isPaused = false;
@@ -353,8 +368,15 @@ class TzxPlayerZXTeensy
             dataBlockSize = 0;
             currentBlock = BLOCK_IDLE;
             dataBuffer.clear();
-            tapePosition = ((position <= tapeLength) ? position : tapeLength);
-            bufferPosition = ((buffer <= tapeLength) ? buffer : tapeLength);
+            tapePosition = position;
+            bufferPosition = tapeBufferPosition;
+            tapeFillPosition = fillPosition;
+            bufferFillPosition = tapeBufferFillPosition;
+        }
+
+        inline bool isStreamingFile()
+        {
+            return isStreamed;
         }
 };
 

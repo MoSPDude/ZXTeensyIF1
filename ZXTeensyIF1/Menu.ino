@@ -226,8 +226,8 @@ char* menuInsertInGameStatus(char* ptr)
     char label[(MENU_STR_LEN + 1)];
     if (tzxEnabled)
     {
-        size_t position, buffer;
-        size_t length = tzxPlayer.getPosition(&position, &buffer);
+        size_t position;
+        size_t length = tzxPlayer.getPosition(&position);
         double temp = position;
         temp = (temp * 100) / length;
         int a = temp;
@@ -1256,7 +1256,6 @@ char* menuGenerateConfigurations(char* ptr)
     {
         if (cfgDirectory.isDirectory())
         {
-            bool hasConfigs = false;
             uint8_t count = 0;
             while (count < BROWSER_ENTRY_LIMIT)
             {
@@ -1295,13 +1294,8 @@ char* menuGenerateConfigurations(char* ptr)
                 {
                     if (entry.getName(cfgDisplayName, MAX_PATH))
                     {
-                        uint8_t previousEntries = menuEntries;
                         ptr = menuAddMainFile(cfgEntry->dirIndex, ptr,
                             cfgDisplayName);
-                        if (menuEntries != previousEntries)
-                        {
-                            hasConfigs = true;
-                        }
                     }
                     entry.close();
                 }
@@ -1310,10 +1304,6 @@ char* menuGenerateConfigurations(char* ptr)
                 {
                     break;
                 }
-            }
-            if (hasConfigs)
-            {
-                ptr = menuInsertSpacer(ptr);
             }
         }
         cfgDirectory.close();
@@ -2144,6 +2134,11 @@ char* menuGetModemUrl()
 char* menuGetTapeFileName()
 {
     return ((strlen(cfgData.tapeFileName) > 0) ? cfgData.tapeFileName : 0);
+}
+
+void menuClearTapeFileName()
+{
+    cfgData.tapeFileName[0] = 0;
 }
 
 File menuGetMenuRomFile(const char* cfgRomName, rom_type_t* romType)
