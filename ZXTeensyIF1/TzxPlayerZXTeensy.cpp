@@ -867,10 +867,22 @@ uint32_t TzxPlayerZXTeensy::doScanTape(bool seekBlock, bool seekRelative,
                 // Direct Recording Block
                 if (hasTapeLength(8))
                 {
-                    ignoreTapeData(5);
+                    uint32_t rate = readTapeWord();
+                    ignoreTapeData(3);
                     uint32_t length = readTapeWord();
                     length |= (readTapeByte() << 16);
                     ignoreTapeData(length);
+                    if (tapeMarkNames != 0)
+                    {
+                        size_t durationMs = (rate * length * 8) / 3500ULL;
+                        if (snprintf(tapeMarkNames[index], MENU_STR_LEN,
+                            "Direct Recording %dms", durationMs) >= MENU_STR_LEN)
+                        {
+                            tapeMarkNames[index][(MENU_STR_LEN - 1)] = 0;
+                        }
+                        tapeMarkPosition[index] = blockPosition;
+                        ++index;
+                    }
                 }
                 break;
             case 0x18 :

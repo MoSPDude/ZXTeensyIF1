@@ -44,6 +44,7 @@ template <size_t READ_BUFFER_SIZE> class SdHdfZXTeensy
         File sdCard;
         char sdCardPath[MAX_PATH];
         bool validSdCard;
+        bool readOnlySdCard;
         bool isSdIdle;
         uint8_t currentState;
         uint8_t currentCommand;
@@ -77,9 +78,22 @@ template <size_t READ_BUFFER_SIZE> class SdHdfZXTeensy
         {
             if (!validSdCard)
             {
-                sdCard = SD.open(sdCardPath, FILE_WRITE_BEGIN);
-                currentSector = numSectors;
-                validSdCard = true;
+                if (!readOnlySdCard)
+                {
+                    sdCard = SD.open(sdCardPath, FILE_WRITE_BEGIN);
+                    if (!sdCard)
+                    {
+                        readOnlySdCard = true;
+                        sdCard = SD.open(sdCardPath, FILE_READ);
+                    }
+                } else {
+                    sdCard = SD.open(sdCardPath, FILE_READ);
+                }
+                if (sdCard)
+                {
+                    currentSector = numSectors;
+                    validSdCard = true;
+                }
             }
         }
 
@@ -93,14 +107,20 @@ template <size_t READ_BUFFER_SIZE> class SdHdfZXTeensy
                     ++dataIndex;
                     if (dataIndex >= 0x202)
                     {
-                        // Consume the CRC bytes, then send data response
-                        writeReadData(0x05);
-                        writeReadData(0x00);
-                        writeReadData(0x00);
+                        if (readOnlySdCard)
+                        {
+                            // Card is locked
+                            writeReadData(0x0D);
+                        } else {
+                            // Consume the CRC bytes, then send data response
+                            writeReadData(0x05);
+                            writeReadData(0x00);
+                            writeReadData(0x00);
 
-                        // Write the data
-                        sdCard.write((uint8_t*)dataBuffer, 512);
-                        ++currentSector;
+                            // Write the data
+                            sdCard.write((uint8_t*)dataBuffer, 512);
+                            ++currentSector;
+                        }
                         currentState = STATE_IDLE;
                         dataActive = false;
                     }
@@ -257,10 +277,10 @@ template <size_t READ_BUFFER_SIZE> class SdHdfZXTeensy
 
     public :
         constexpr SdHdfZXTeensy() : sdCard(), sdCardPath(), validSdCard(false),
-            isSdIdle(true), currentState(STATE_IDLE), currentCommand(CMD_IDLE),
-            commandAppCmd(false), commandArgument(0), dataActive(false),
-            dataRegister(0), dataIndex(0), dataBuffer(), sectorOffset(0),
-            currentSector(0), numSectors(0)
+            readOnlySdCard(false), isSdIdle(true), currentState(STATE_IDLE),
+            currentCommand(CMD_IDLE), commandAppCmd(false), commandArgument(0),
+            dataActive(false), dataRegister(0), dataIndex(0), dataBuffer(),
+            sectorOffset(0), currentSector(0), numSectors(0)
         {
             sdCardPath[0] = 0;
         }
@@ -312,6 +332,7 @@ template <size_t READ_BUFFER_SIZE> class SdHdfZXTeensy
             // Load the image header
             numSectors = 0;
             currentSector = 0;
+            readOnlySdCard = false;
             strcpy(sdCardPath, filename);
             openSdCard();
             if (sdCard)
