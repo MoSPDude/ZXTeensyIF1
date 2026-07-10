@@ -31,8 +31,8 @@
 #define FWUPDATE_HEX_PATH "ZXTEENSY.HEX"
 #define MODEM_URL_PATH ((const char*)F("\"glasstty.com\",6502"))
 
-// Run the Teensy 4.1 with slight overclock at 768MHz
-#define TEENSY_CLK_FREQ 768000000ULL
+// Run the Teensy 4.1 with slight overclock at 752MHz
+#define TEENSY_CLK_FREQ 752000000ULL
 
 // Tick the SD and Serial at 7MHz
 #define TICK_FREQ 7000000ULL

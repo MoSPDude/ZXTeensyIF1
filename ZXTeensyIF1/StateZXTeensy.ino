@@ -43,6 +43,7 @@ typedef struct __attribute__((packed)) {
     uint8_t wifiNtpPresent;
     uint8_t wifiNtpTz;
     uint8_t dskPresent;
+    uint8_t dskEnableDriveB;
     uint8_t modemPresent;
     uint8_t printerPresent;
     uint8_t lprintPresent;
@@ -431,6 +432,7 @@ void stateCaptureDeviceData(void* data)
     state->wifiNtpPresent = wifiNtpPresent;
     state->wifiNtpTz = wifiNtpTz;
     state->dskPresent = dskPresent;
+    state->dskEnableDriveB = dskEnableDriveB;
     state->modemPresent = modemPresent;
     state->printerPresent = printerPresent;
     state->lprintPresent = lprintPresent;
@@ -543,7 +545,8 @@ void stateResumeClosedDevices()
 {
     if (dskEnabled)
     {
-        dskController.begin(menuGetFdcFdaPath(), menuGetFdcFdbPath());
+        dskController.begin(menuGetFdcFdaPath(), dskEnableDriveB,
+            menuGetFdcFdbPath());
     }
     if (printerEnabled || lprintEnabled)
     {
@@ -642,6 +645,7 @@ void stateApplyConfiguration()
     wifiNtpPresent = stateRestoreDevice.wifiNtpPresent;
     wifiNtpTz = stateRestoreDevice.wifiNtpTz;
     dskPresent = stateRestoreDevice.dskPresent;
+    dskEnableDriveB = stateRestoreDevice.dskEnableDriveB;
     modemPresent = stateRestoreDevice.modemPresent;
     printerPresent = stateRestoreDevice.printerPresent;
     lprintPresent = stateRestoreDevice.lprintPresent;

@@ -103,6 +103,7 @@ typedef enum {
     SETTING_ACTION_TOGGLE_MODEM,
     SETTING_ACTION_TOGGLE_NTP,
     SETTING_ACTION_TOGGLE_FDC,
+    SETTING_ACTION_TOGGLE_FDC_FDB,
     SETTING_ACTION_TOGGLE_PRINTER,
     SETTING_ACTION_TOGGLE_LPRINT,
     SETTING_ACTION_CLEAR_PRINTER,
@@ -235,7 +236,29 @@ char* menuInsertInGameStatus(char* ptr)
         int a = temp;
         temp *= 100;
         int b = (int)(temp) % 100;
-        if (snprintf(label, (MENU_STR_LEN + 1), " > Tape: %d.%02d%%", a, b) >= (MENU_STR_LEN + 1))
+        if (snprintf(label, (MENU_STR_LEN + 1), " > Tape: %d.%02d%%", a, b) >=
+            (MENU_STR_LEN + 1))
+        {
+            label[MENU_STR_LEN] = 0;
+        }
+        ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_NO_OP,
+            ptr, label, 0);
+    }
+
+    // Show disk position
+    if (dskEnabled)
+    {
+        if (dskEnableDriveB)
+        {
+            if (snprintf(label, (MENU_STR_LEN + 1), " > FDD A: %d, B: %d %s",
+                dskController.getCurCyl(0), dskController.getCurCyl(1),
+                (dskController.isMotorOn() ? "RUN" : "")) >= (MENU_STR_LEN + 1))
+            {
+                label[MENU_STR_LEN] = 0;
+            }
+        } else if (snprintf(label, (MENU_STR_LEN + 1), " > FDD A: %d %s",
+            dskController.getCurCyl(0), (dskController.isMotorOn() ? "RUN" : "")) >=
+            (MENU_STR_LEN + 1))
         {
             label[MENU_STR_LEN] = 0;
         }
@@ -625,6 +648,11 @@ char* menuGeneratePokBrowser(char* ptr)
     return ptr;
 }
 
+char* menuGenerateFDD(char* ptr)
+{
+    return ptr;
+}
+
 char* menuGenerateInGame(char* ptr)
 {
     ptr = menuInsertSetting(MENU_ACTION_IN_GAME_EXIT, 0, ptr, MENU_STRINGS[STRING_CANCEL], 0);
@@ -680,6 +708,21 @@ char* menuGenerateInGame(char* ptr)
                 ptr, MENU_STRINGS[STRING_ENABLE_FIRE_BUTTONS], gamepadButtons);
         }
         needSpacer = true;
+    }
+    if (dskPresent)
+    {
+        if (menuGetFdcFdaPath() != 0)
+        {
+            ptr = menuInsertSetting(MENU_ACTION_IN_GAME_UNMOUNT_FDA, 0, ptr,
+                MENU_STRINGS[STRING_IN_GAME_UNMOUNT_FDA], 0);
+            needSpacer = true;
+        }
+        if (dskEnableDriveB && (menuGetFdcFdbPath() != 0))
+        {
+            ptr = menuInsertSetting(MENU_ACTION_IN_GAME_UNMOUNT_FDB, 0, ptr,
+                MENU_STRINGS[STRING_IN_GAME_UNMOUNT_FDB], 0);
+            needSpacer = true;
+        }
     }
     if (needSpacer)
     {
@@ -824,7 +867,10 @@ char* menuGenerateBrowserMountDsk(char* ptr)
     ptr = menuInsertSetting(MENU_ACTION_BROWSER_CD, BROWSER_PARENT_INDEX,
         ptr, MENU_STRINGS[STRING_CANCEL], 0);
     ptr = menuInsertSetting(MENU_ACTION_BROWSER_MOUNT_FDA, 0, ptr, MENU_STRINGS[STRING_MOUNT_FDA], 0);
-    ptr = menuInsertSetting(MENU_ACTION_BROWSER_MOUNT_FDB, 0, ptr, MENU_STRINGS[STRING_MOUNT_FDB], 0);
+    if (dskEnableDriveB)
+    {
+        ptr = menuInsertSetting(MENU_ACTION_BROWSER_MOUNT_FDB, 0, ptr, MENU_STRINGS[STRING_MOUNT_FDB], 0);
+    }
     return ptr;
 }
 
@@ -1042,21 +1088,8 @@ char* menuGenerateLoadRom(char* ptr)
 
 char* menuGenerateSettings(char* ptr)
 {
-    ptr = menuInsertSetting(MENU_ACTION_TOP_MENU, 0, ptr, MENU_STRINGS[STRING_CANCEL], 0);
-
-    // Add firmware update option, if available
-    File tmpFile = SD.open(FWUPDATE_HEX_PATH, FILE_READ);
-    if (tmpFile)
-    {
-        menuHasUpdateFw = true;
-        tmpFile.close();
-        ptr = menuInsertSetting(MENU_ACTION_UPDATE_FW, 0, ptr,
-            MENU_STRINGS[STRING_UPDATE_FW], 0);
-    } else {
-        menuHasUpdateFw = false;
-    }
-
     // Add settings menu
+    ptr = menuInsertSetting(MENU_ACTION_TOP_MENU, 0, ptr, MENU_STRINGS[STRING_CANCEL], 0);
     ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_MENU,
         ptr, MENU_STRINGS[STRING_BOOT_MENU], bootIntoMenu);
     ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_MENU_IN_GAME,
@@ -1079,11 +1112,12 @@ char* menuGenerateSettings(char* ptr)
         {
             if (stricmp("/", tmpPath) != 0)
             {
-                tmpFile = SD.open(tmpPath, FILE_READ);
+                File tmpFile = SD.open(tmpPath, FILE_READ);
                 if (tmpFile)
                 {
-                    if (snprintf(label, (MENU_STR_LEN + 1), " > sda: %s",
-                        tmpFile.name()) >= (MENU_STR_LEN + 1))
+                    if (snprintf(label, (MENU_STR_LEN + 1), "%ssda %s",
+                        MENU_STRINGS[STRING_UNMOUNT_SD], tmpFile.name()) >=
+                            (MENU_STR_LEN + 1))
                     {
                         label[MENU_STR_LEN] = 0;
                     }
@@ -1095,7 +1129,7 @@ char* menuGenerateSettings(char* ptr)
                 }
             } else {
                 ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_UNMOUNT_SDA,
-                    ptr, " > sda: SD card", 0);
+                    ptr, MENU_STRINGS[STRING_UNMOUNT_SD_SDA], 0);
                 isSdSda = true;
             }
         }
@@ -1109,11 +1143,12 @@ char* menuGenerateSettings(char* ptr)
         {
             if (stricmp("/", tmpPath) != 0)
             {
-                tmpFile = SD.open(tmpPath, FILE_READ);
+                File tmpFile = SD.open(tmpPath, FILE_READ);
                 if (tmpFile)
                 {
-                    if (snprintf(label, (MENU_STR_LEN + 1), " > sdb: %s",
-                        tmpFile.name()) >= (MENU_STR_LEN + 1))
+                    if (snprintf(label, (MENU_STR_LEN + 1), "%ssdb %s",
+                        MENU_STRINGS[STRING_UNMOUNT_SD], tmpFile.name()) >=
+                            (MENU_STR_LEN + 1))
                     {
                         label[MENU_STR_LEN] = 0;
                     }
@@ -1128,7 +1163,7 @@ char* menuGenerateSettings(char* ptr)
                 cfgData.divMmcSdbPath[0] = 0;
             } else {
                 ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_UNMOUNT_SDB,
-                    ptr, " > sdb: SD card", 0);
+                    ptr, MENU_STRINGS[STRING_UNMOUNT_SD_SDB], 0);
             }
         }
         if (!isSdSda && (menuGetDivMmcSdbPath() == 0))
@@ -1141,14 +1176,18 @@ char* menuGenerateSettings(char* ptr)
         ptr, MENU_STRINGS[STRING_ENABLE_FDC], dskPresent);
     if (dskPresent)
     {
+        ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_FDC_FDB,
+            ptr, MENU_STRINGS[STRING_ENABLE_FDC_FDB], dskEnableDriveB);
         char label[(MENU_STR_LEN + 1)];
         char* tmpPath = menuGetFdcFdaPath();
         if (tmpPath != 0)
         {
-            tmpFile = SD.open(tmpPath, FILE_READ);
+            File tmpFile = SD.open(tmpPath, FILE_READ);
             if (tmpFile)
             {
-                if (snprintf(label, (MENU_STR_LEN + 1), " > A: %s", tmpFile.name()) >= (MENU_STR_LEN + 1))
+                if (snprintf(label, (MENU_STR_LEN + 1), "%sA: %s",
+                    MENU_STRINGS[STRING_UNMOUNT_FDD], tmpFile.name()) >=
+                        (MENU_STR_LEN + 1))
                 {
                     label[MENU_STR_LEN] = 0;
                 }
@@ -1160,12 +1199,14 @@ char* menuGenerateSettings(char* ptr)
             }
         }
         tmpPath = menuGetFdcFdbPath();
-        if (tmpPath != 0)
+        if (dskEnableDriveB && (tmpPath != 0))
         {
-            tmpFile = SD.open(tmpPath, FILE_READ);
+            File tmpFile = SD.open(tmpPath, FILE_READ);
             if (tmpFile)
             {
-                if (snprintf(label, (MENU_STR_LEN + 1), " > B: %s", tmpFile.name()) >= (MENU_STR_LEN + 1))
+                if (snprintf(label, (MENU_STR_LEN + 1), "%sB: %s",
+                    MENU_STRINGS[STRING_UNMOUNT_FDD], tmpFile.name()) >=
+                        (MENU_STR_LEN + 1))
                 {
                     label[MENU_STR_LEN] = 0;
                 }
@@ -1188,7 +1229,7 @@ char* menuGenerateSettings(char* ptr)
             ptr, MENU_STRINGS[STRING_ENABLE_MF128], mf128Present);
         if (mf128Present)
         {
-            tmpFile = SD.open(GENIE128_ROM_PATH, FILE_READ);
+            File tmpFile = SD.open(GENIE128_ROM_PATH, FILE_READ);
             if (tmpFile)
             {
                 ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_GENIE128,
@@ -1252,17 +1293,17 @@ char* menuGenerateSettings(char* ptr)
 
     // Add tools
     bool hasToolSpacer = false;
-    tmpFile = SD.open(RTC_SETUP_Z80_PATH, FILE_READ);
-    if (tmpFile)
+    File toolFile = SD.open(RTC_SETUP_Z80_PATH, FILE_READ);
+    if (toolFile)
     {
         hasToolSpacer = true;
         ptr = menuInsertSpacer(ptr);
         ptr = menuInsertSetting(MENU_ACTION_LOAD_RTC_SETUP, 0, ptr,
             MENU_STRINGS[STRING_LOAD_RTC_CONFIG], 0);
-        tmpFile.close();
+        toolFile.close();
     }
-    tmpFile = SD.open(NETMAN_Z80_PATH, FILE_READ);
-    if (tmpFile)
+    toolFile = SD.open(NETMAN_Z80_PATH, FILE_READ);
+    if (toolFile)
     {
         if (!hasToolSpacer)
         {
@@ -1270,7 +1311,7 @@ char* menuGenerateSettings(char* ptr)
         }
         ptr = menuInsertSetting(MENU_ACTION_LOAD_NETMAN, 0, ptr,
             MENU_STRINGS[STRING_LOAD_NETMAN], 0);
-        tmpFile.close();
+        toolFile.close();
     }
     return ptr;
 }
@@ -1363,6 +1404,19 @@ char* menuGenerateMain(char* ptr)
         ptr, MENU_STRINGS[STRING_OPEN_SETTINGS], 0);
     ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_OPEN_SERVER,
         ptr, MENU_STRINGS[STRING_OPEN_HTTP_SERVER], 0);
+
+    // Add firmware update option, if available
+    File tmpFile = SD.open(FWUPDATE_HEX_PATH, FILE_READ);
+    if (tmpFile)
+    {
+        menuHasUpdateFw = true;
+        tmpFile.close();
+        ptr = menuInsertSpacer(ptr);
+        ptr = menuInsertSetting(MENU_ACTION_UPDATE_FW, 0, ptr,
+            MENU_STRINGS[STRING_UPDATE_FW], 0);
+    } else {
+        menuHasUpdateFw = false;
+    }
 
     // Add debug and status
     ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_OPEN_DEBUG,
@@ -1606,6 +1660,10 @@ bool menuPerformSelection(uint8_t index)
                     break;
                 case SETTING_ACTION_TOGGLE_FDC :
                     dskPresent = !dskPresent;
+                    menuConfigChanged = true;
+                    break;
+                case SETTING_ACTION_TOGGLE_FDC_FDB :
+                    dskEnableDriveB = !dskEnableDriveB;
                     menuConfigChanged = true;
                     break;
                 case SETTING_ACTION_TOGGLE_PRINTER :
@@ -1891,14 +1949,27 @@ bool menuPerformSelection(uint8_t index)
                     menuBrowserPath, MAX_PATH);
                 if (menuTopMenu != MENU_TYPE_MAIN)
                 {
+                    menuCurrent = menuTopMenu;
                     return false;
                 } else {
                     dskPresent = true;
+                    if (menuAction == MENU_ACTION_BROWSER_MOUNT_FDB)
+                    {
+                        dskEnableDriveB = true;
+                    }
                     menuConfigChanged = true;
                 }
             }
             menuCurrent = menuTopMenu;
             break;
+        case MENU_ACTION_IN_GAME_UNMOUNT_FDA :
+            cfgData.dskFdaPath[0] = 0;
+            menuCurrent = menuTopMenu;
+            return false;
+        case MENU_ACTION_IN_GAME_UNMOUNT_FDB :
+            cfgData.dskFdbPath[0] = 0;
+            menuCurrent = menuTopMenu;
+            return false;
         case MENU_ACTION_START_SERVER :
             httpStartServer();
             break;
@@ -2323,6 +2394,7 @@ void menuClearConfiguration()
     wifiNtpPresent = false;
     wifiNtpTz = 48;
     dskPresent = false;
+    dskEnableDriveB = false;
     modemPresent = false;
     printerPresent = false;
     lprintPresent = false;
@@ -2388,6 +2460,10 @@ void menuLoadConfiguration(const char* cfgCfgName)
                     } else if (strncmp("dskPresent = ", cfgPtr, 13) == 0)
                     {
                         dskPresent = ((cfgPtr[13] == '1') ? true : false);
+                        ++count;
+                    } else if (strncmp("dskEnableDriveB = ", cfgPtr, 18) == 0)
+                    {
+                        dskEnableDriveB = ((cfgPtr[18] == '1') ? true : false);
                         ++count;
                     } else if (strncmp("dskFdaPath = ", cfgPtr, 13) == 0)
                     {
@@ -2545,6 +2621,7 @@ void menuSaveConfiguration()
             cfgFile.printf("wifiNtpPresent = %0d\n", wifiNtpPresent);
             cfgFile.printf("wifiNtpTz = %0d\n", wifiNtpTz);
             cfgFile.printf("dskPresent = %0d\n", dskPresent);
+            cfgFile.printf("dskEnableDriveB = %0d\n", dskEnableDriveB);
             cfgFile.printf("modemPresent = %0d\n", modemPresent);
             cfgFile.printf("printerPresent = %0d\n", printerPresent);
             cfgFile.printf("lprintPresent = %0d\n", lprintPresent);

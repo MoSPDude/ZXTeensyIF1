@@ -36,37 +36,44 @@ class Dsk765ZXTeensy
         FDC_PTR fdc;
         FDRV_PTR fdd_a;
         FDRV_PTR fdd_b;
+        bool hasDriveB;
 
     public :
         constexpr Dsk765ZXTeensy() : readDataStatus(0xFF), motorOn(false),
-            statusRegister(0), fdc(0), fdd_a(0), fdd_b(0)
+            statusRegister(0), fdc(0), fdd_a(0), fdd_b(0), hasDriveB(false)
         {
         }
 
-        void begin(const char* diskAPath, const char* diskBPath)
+        void begin(const char* diskAPath, bool enableDriveB, const char* diskBPath)
         {
             // Ensure controller is reset
             end();
 
             // Create the FDC, and attach drives with disks
             fdc = fdc_new();
+            fdd_a = fd_newdsk();
+            fd_settype(fdd_a, FD_30);
+            fd_setheads(fdd_a, 1);
+            fd_setcyls(fdd_a, 42);
             if (diskAPath != 0)
             {
-                fdd_a = fd_newdsk();
-                fd_settype(fdd_a, FD_30);
-                fd_setheads(fdd_a, 1);
-                fd_setcyls(fdd_a, 42);
                 fdd_setfilename(fdd_a, diskAPath);
             } else {
-                fdd_a = fd_new();
+                fd_eject(fdd_a);
             }
-            if (diskBPath != 0)
+            if (enableDriveB)
             {
+                hasDriveB = true;
                 fdd_b = fd_newdsk();
                 fd_settype(fdd_b, FD_30);
                 fd_setheads(fdd_b, 1);
                 fd_setcyls(fdd_b, 42);
-                fdd_setfilename(fdd_b, diskBPath);
+                if (diskBPath != 0)
+                {
+                    fdd_setfilename(fdd_b, diskBPath);
+                } else {
+                    fd_eject(fdd_b);
+                }
             } else {
                 fdd_b = fd_new();
             }
@@ -89,10 +96,32 @@ class Dsk765ZXTeensy
             readBuffer.clear();
             if (fdc != 0)
             {
+                hasDriveB = false;
                 fdc_destroy(&fdc);
                 fd_destroy(&fdd_a);
                 fd_destroy(&fdd_b);
                 fdc = 0;
+            }
+        }
+
+        void insertDisks(const char* diskAPath, const char* diskBPath)
+        {
+            if (diskAPath == 0)
+            {
+                fd_eject(fdd_a);
+            } else if (stricmp(diskAPath, fdd_getfilename(fdd_a)) != 0)
+            {
+                fdd_setfilename(fdd_a, diskAPath);
+            }
+            if (hasDriveB)
+            {
+                if (diskBPath == 0)
+                {
+                    fd_eject(fdd_b);
+                } else if (stricmp(diskBPath, fdd_getfilename(fdd_b)) != 0)
+                {
+                    fdd_setfilename(fdd_b, diskBPath);
+                }
             }
         }
 
@@ -153,6 +182,11 @@ class Dsk765ZXTeensy
         inline __attribute__((always_inline)) bool isMotorOn()
         {
             return motorOn;
+        }
+
+        inline __attribute__((always_inline)) bool getCurCyl(bool driveB)
+        {
+            return (driveB ? fd_getcurcyl(fdd_b) : fd_getcurcyl(fdd_a));
         }
 
         inline __attribute__((always_inline)) uint8_t readData()

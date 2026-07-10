@@ -59,6 +59,8 @@ typedef enum {
     MENU_ACTION_IN_GAME_SEEK_TAPE,
     MENU_ACTION_IN_GAME_SAVE_STATE,
     MENU_ACTION_IN_GAME_APPLY_POK,
+    MENU_ACTION_IN_GAME_UNMOUNT_FDA,
+    MENU_ACTION_IN_GAME_UNMOUNT_FDB,
     MENU_ACTION_IN_GAME_MF128,
     MENU_ACTION_IN_GAME_DIVMMC,
     MENU_ACTION_IN_GAME_RESET,
@@ -417,6 +419,7 @@ volatile bool tzxEnabled = false;
 Dsk765ZXTeensy dskController;
 volatile bool dskPresent = false;
 volatile bool dskEnabled = false;
+volatile bool dskEnableDriveB = false;
 
 // Centronics printer port
 PrinterZXTeensy printerPort;
@@ -1713,7 +1716,8 @@ void handleStateReset()
         if (dskPresent && beginSdfsSd())
         {
             dskEnabled = true;
-            dskController.begin(menuGetFdcFdaPath(), menuGetFdcFdbPath());
+            dskController.begin(menuGetFdcFdaPath(), dskEnableDriveB,
+                menuGetFdcFdbPath());
         }
         if (mdrPresent && beginSdfsSd() &&
             loadMdrEmulatorFile(menuGetBrowserPath()))
@@ -2035,9 +2039,12 @@ FASTRUN void loop()
                         break;
                     case MENU_ACTION_BROWSER_MOUNT_FDA :
                     case MENU_ACTION_BROWSER_MOUNT_FDB :
+                    case MENU_ACTION_IN_GAME_UNMOUNT_FDA :
+                    case MENU_ACTION_IN_GAME_UNMOUNT_FDB :
                         if (dskEnabled && !dskController.isMotorOn() && beginSdfsSd())
                         {
-                            dskController.begin(menuGetFdcFdaPath(), menuGetFdcFdbPath());
+                            dskController.insertDisks(menuGetFdcFdaPath(),
+                                menuGetFdcFdbPath());
                         }
                         break;
                     default :
