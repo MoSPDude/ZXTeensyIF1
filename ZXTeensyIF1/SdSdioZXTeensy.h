@@ -30,6 +30,7 @@ template <size_t READ_BUFFER_SIZE> class SdSdioZXTeensy
             CMD_SEND_OP_COND    = 8,
             CMD_SEND_CSD        = 9,
             CMD_SEND_CID        = 10,
+            CMD_SET_BLOCKLEN    = 16,
             CMD_READ_SINGLE_BLOCK = 17,
             CMD_WRITE_BLOCK     = 24,
             APP_SEND_OP_COND    = 41,
@@ -125,8 +126,8 @@ template <size_t READ_BUFFER_SIZE> class SdSdioZXTeensy
                                 currentSector = commandArgument;
                                 sdioCard->readSector(currentSector, (uint8_t*)dataBuffer);
                                 ++currentSector;
-                                writeReadData(0xFE);
-                                sdSpiReadBuffer.writeBlock((uint8_t*)dataBuffer, 512);
+                                sdSpiReadBuffer.writeBlockWithToken(0xFE,
+                                    (uint8_t*)dataBuffer, 512);
 
                                 // Generate the two CRC bytes
                                 writeReadData(0x00);
@@ -176,15 +177,20 @@ template <size_t READ_BUFFER_SIZE> class SdSdioZXTeensy
                                 sdioCard->readCID((cid_t*)cid);
                             }
                             writeStatusData();
-                            writeReadData(0xFE);
-                            for (int i = 0; i < 16; ++i)
-                            {
-                                writeReadData(cid[i]);
-                            }
+                            sdSpiReadBuffer.writeBlockWithToken(0xFE, cid, 16);
 
                             // Generate the two CRC bytes
                             writeReadData(0x00);
                             writeReadData(0x00);
+                        }
+                        break;
+                    case CMD_SET_BLOCKLEN :
+                        if (commandArgument == 512)
+                        {
+                            writeStatusData();
+                        } else {
+                            // Parameter error
+                            writeErrorData(0x40);
                         }
                         break;
                     case CMD_APP_CMD :
@@ -232,15 +238,15 @@ template <size_t READ_BUFFER_SIZE> class SdSdioZXTeensy
                     }
                     break;
                 case STATE_CMD_ARG4 :
-                    commandArgument = (data << 24);
+                    commandArgument = ((uint32_t)data << 24);
                     ++currentState;
                     break;
                 case STATE_CMD_ARG3 :
-                    commandArgument |= (data << 16);
+                    commandArgument |= ((uint32_t)data << 16);
                     ++currentState;
                     break;
                 case STATE_CMD_ARG2 :
-                    commandArgument |= (data << 8);
+                    commandArgument |= ((uint32_t)data << 8);
                     ++currentState;
                     break;
                 case STATE_CMD_ARG1 :

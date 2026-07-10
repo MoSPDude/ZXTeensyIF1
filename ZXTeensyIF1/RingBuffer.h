@@ -58,6 +58,23 @@ template <size_t BUFFER_SIZE> class RingBuffer
             bufferHead = head;
         }
 
+        inline __attribute__((always_inline)) void writeBlockWithToken(uint8_t token,
+            uint8_t* data, size_t size)
+        {
+            size_t tmpHead = (bufferHead + 1) % BUFFER_SIZE;;
+            size_t head = (tmpHead + size) % BUFFER_SIZE;
+            buffer[bufferHead] = token;
+            if (head < tmpHead)
+            {
+                size_t partSize = (BUFFER_SIZE - tmpHead);
+                memcpy((void*)&(buffer[tmpHead]), data, partSize);
+                memcpy((void*)buffer, &(data[partSize]), (size - partSize));
+            } else {
+                memcpy((void*)&(buffer[tmpHead]), data, size);
+            }
+            bufferHead = head;
+        }
+
         inline __attribute__((always_inline)) uint8_t readRaw()
         {
             uint8_t data = buffer[bufferTail];
