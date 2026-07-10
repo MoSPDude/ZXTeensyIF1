@@ -106,7 +106,9 @@ typedef enum {
     SETTING_ACTION_TOGGLE_PRINTER,
     SETTING_ACTION_TOGGLE_LPRINT,
     SETTING_ACTION_CLEAR_PRINTER,
+    SETTING_ACTION_MOUNT_SD_SDA,
     SETTING_ACTION_UNMOUNT_SDA,
+    SETTING_ACTION_MOUNT_SD_SDB,
     SETTING_ACTION_UNMOUNT_SDB,
     SETTING_ACTION_UNMOUNT_FDA,
     SETTING_ACTION_UNMOUNT_FDB,
@@ -1070,40 +1072,69 @@ char* menuGenerateSettings(char* ptr)
             ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_DIVMMC_ROM,
                 ptr, MENU_STRINGS[STRING_ENABLE_DIVMMC_ROM], divMmcRomPresent);
         }
+        bool isSdSda = false;
         char label[(MENU_STR_LEN + 1)];
         char* tmpPath = menuGetDivMmcSdaPath();
         if (tmpPath != 0)
         {
-            tmpFile = SD.open(tmpPath, FILE_READ);
-            if (tmpFile)
+            if (stricmp("/", tmpPath) != 0)
             {
-                if (snprintf(label, (MENU_STR_LEN + 1), " > sda: %s", tmpFile.name()) >= (MENU_STR_LEN + 1))
+                tmpFile = SD.open(tmpPath, FILE_READ);
+                if (tmpFile)
                 {
-                    label[MENU_STR_LEN] = 0;
+                    if (snprintf(label, (MENU_STR_LEN + 1), " > sda: %s",
+                        tmpFile.name()) >= (MENU_STR_LEN + 1))
+                    {
+                        label[MENU_STR_LEN] = 0;
+                    }
+                    ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_UNMOUNT_SDA,
+                        ptr, label, 0);
+                    tmpFile.close();
+                } else {
+                    cfgData.divMmcSdaPath[0] = 0;
                 }
-                ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_UNMOUNT_SDA,
-                    ptr, label, 0);
-                tmpFile.close();
             } else {
-                cfgData.divMmcSdaPath[0] = 0;
+                ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_UNMOUNT_SDA,
+                    ptr, " > sda: SD card", 0);
+                isSdSda = true;
             }
+        }
+        if (menuGetDivMmcSdaPath() == 0)
+        {
+            ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_MOUNT_SD_SDA,
+                ptr, MENU_STRINGS[STRING_MOUNT_SD_SDA], 0);
         }
         tmpPath = menuGetDivMmcSdbPath();
         if (tmpPath != 0)
         {
-            tmpFile = SD.open(tmpPath, FILE_READ);
-            if (tmpFile)
+            if (stricmp("/", tmpPath) != 0)
             {
-                if (snprintf(label, (MENU_STR_LEN + 1), " > sdb: %s", tmpFile.name()) >= (MENU_STR_LEN + 1))
+                tmpFile = SD.open(tmpPath, FILE_READ);
+                if (tmpFile)
                 {
-                    label[MENU_STR_LEN] = 0;
+                    if (snprintf(label, (MENU_STR_LEN + 1), " > sdb: %s",
+                        tmpFile.name()) >= (MENU_STR_LEN + 1))
+                    {
+                        label[MENU_STR_LEN] = 0;
+                    }
+                    ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_UNMOUNT_SDB,
+                        ptr, label, 0);
+                    tmpFile.close();
+                } else {
+                    cfgData.divMmcSdbPath[0] = 0;
                 }
-                ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_UNMOUNT_SDB,
-                    ptr, label, 0);
-                tmpFile.close();
-            } else {
+            } else if (isSdSda)
+            {
                 cfgData.divMmcSdbPath[0] = 0;
+            } else {
+                ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_UNMOUNT_SDB,
+                    ptr, " > sdb: SD card", 0);
             }
+        }
+        if (!isSdSda && (menuGetDivMmcSdbPath() == 0))
+        {
+            ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_MOUNT_SD_SDB,
+                ptr, MENU_STRINGS[STRING_MOUNT_SD_SDB], 0);
         }
     }
     ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_FDC,
@@ -1591,8 +1622,16 @@ bool menuPerformSelection(uint8_t index)
                 case SETTING_ACTION_CLEAR_PRINTER :
                     menuClearPrinterFile();
                     break;
+                case SETTING_ACTION_MOUNT_SD_SDA :
+                    strcpy(cfgData.divMmcSdaPath, "/");
+                    menuConfigChanged = true;
+                    break;
                 case SETTING_ACTION_UNMOUNT_SDA :
                     cfgData.divMmcSdaPath[0] = 0;
+                    menuConfigChanged = true;
+                    break;
+                case SETTING_ACTION_MOUNT_SD_SDB :
+                    strcpy(cfgData.divMmcSdbPath, "/");
                     menuConfigChanged = true;
                     break;
                 case SETTING_ACTION_UNMOUNT_SDB :
@@ -2290,6 +2329,7 @@ void menuClearConfiguration()
     bootIntoMenu = true;
     menuEnableInGame = true;
     memset(&cfgData, 0, sizeof(cfgData));
+    strcpy(cfgData.divMmcSdaPath, "/");
     strcpy(cfgData.modemUrl, MODEM_URL_PATH);
 }
 

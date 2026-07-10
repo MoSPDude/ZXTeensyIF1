@@ -1750,19 +1750,26 @@ void handleStateReset()
             divMmcRomEnabled = divMmcRomPresent;
             char* sdaPath = menuGetDivMmcSdaPath();
             char* sdbPath = menuGetDivMmcSdbPath();
-            if ((sdaPath != 0) && divMmcHdf.begin(sdaPath))
+            if (sdaPath == 0)
             {
-                divMmcDriveSlot[0] = DIVMMC_HDF_A;
+                divMmcDriveSlot[0] = DIVMMC_NONE;
+            } else if (stricmp("/", sdaPath) != 0)
+            {
+                divMmcDriveSlot[0] = (divMmcHdf.begin(sdaPath) ?
+                    DIVMMC_HDF_A : DIVMMC_NONE);
             } else {
                 divMmcDriveSlot[0] = DIVMMC_SDHC;
             }
-            if ((sdbPath != 0) && divMmcSecondHdf.begin(sdbPath))
+            if (sdbPath == 0)
             {
-                divMmcDriveSlot[1] = DIVMMC_HDF_B;
+                divMmcDriveSlot[1] = DIVMMC_NONE;
+            } else if (stricmp("/", sdbPath) != 0)
+            {
+                divMmcDriveSlot[1] = (divMmcSecondHdf.begin(sdbPath) ?
+                    DIVMMC_HDF_B : DIVMMC_NONE);
             } else {
-                divMmcDriveSlot[1] = ((divMmcRomEnabled &&
-                    (divMmcDriveSlot[0] != DIVMMC_SDHC)) ?
-                        DIVMMC_SDHC : DIVMMC_NONE);
+                divMmcDriveSlot[1] = ((divMmcDriveSlot[0] != DIVMMC_SDHC) ?
+                    DIVMMC_SDHC : DIVMMC_NONE);
             }
         } else {
             divMmcExtRamEnabled = false;
