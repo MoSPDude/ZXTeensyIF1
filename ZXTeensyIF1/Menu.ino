@@ -153,8 +153,6 @@ static const uint8_t BROWSER_ENTRY_LIMIT = 254;
 static const uint8_t BROWSER_PAGE_ENTRY_LIMIT =
     ((RAM_PAGE_SIZE / MENU_STR_LEN) - 4);
 static const uint32_t BROWSER_PARENT_INDEX = 0xFFFFFFFFUL;
-static const uint32_t BROWSER_NEXT_PAGE_INDEX = 0xFFFFFFFEUL;
-static const uint32_t BROWSER_PREVIOUS_PAGE_INDEX = 0xFFFFFFFDUL;
 
 // Menu TZX and POK listings
 char menuDynamicList[255][MENU_STR_LEN];
@@ -170,12 +168,9 @@ typedef struct {
 
 browser_sort_entry_t menuBrowserLowerBound;
 browser_sort_entry_t menuBrowserNextLowerBound;
-browser_sort_entry_t menuBrowserPreviousLowerBound;
 bool menuBrowserHasLowerBound = false;
 bool menuBrowserHasNextLowerBound = false;
-bool menuBrowserHasPreviousLowerBound = false;
-DMAMEM browser_sort_entry_t
-    menuBrowserPreviousEntries[BROWSER_PAGE_ENTRY_LIMIT + 1];
+bool menuBrowserPreviousPage = false;
 
 bool menuSetFileSortEntry(browser_sort_entry_t* sortEntry, FsFile* entry,
     char* displayName);
@@ -188,6 +183,9 @@ void menuInsertPreviousBrowserEntry(browser_sort_entry_t* entries,
     uint8_t* count, uint8_t limit, const browser_sort_entry_t* candidate);
 uint8_t menuCollectBrowserEntries(FsFile& directory, 
     const browser_sort_entry_t* afterEntry, browser_sort_entry_t* entries, 
+    uint8_t limit, char* displayName);
+uint8_t menuCollectPreviousBrowserEntries(FsFile& directory,
+    const browser_sort_entry_t* beforeEntry, browser_sort_entry_t* entries,
     uint8_t limit, char* displayName);
 void menuResetBrowserPage();
 
@@ -1076,8 +1074,6 @@ uint8_t menuCollectBrowserEntries(FsFile& directory,
     uint8_t limit, char* displayName)
 {
     uint8_t count = 0;
-    uint8_t previousCount = 0;
-    menuBrowserHasPreviousLowerBound = false;
     if (limit == 0)
     {
         return count;
@@ -1100,12 +1096,6 @@ uint8_t menuCollectBrowserEntries(FsFile& directory,
                 {
                     menuInsertSortedBrowserEntry(entries, &count, limit,
                         &candidate);
-                } else if (menuBrowserStartIndex >
-                    BROWSER_PAGE_ENTRY_LIMIT)
-                {
-                    menuInsertPreviousBrowserEntry(
-                        menuBrowserPreviousEntries, &previousCount,
-                        limit, &candidate);
                 }
             }
             entry.close();
@@ -1113,10 +1103,35 @@ uint8_t menuCollectBrowserEntries(FsFile& directory,
             break;
         }
     }
-    if (previousCount > BROWSER_PAGE_ENTRY_LIMIT)
+    return count;
+}
+
+uint8_t menuCollectPreviousBrowserEntries(FsFile& directory,
+    const browser_sort_entry_t* beforeEntry, browser_sort_entry_t* entries,
+    uint8_t limit, char* displayName)
+{
+    uint8_t count = 0;
+    if ((limit == 0) || (beforeEntry == 0))
     {
-        menuBrowserPreviousLowerBound = menuBrowserPreviousEntries[0];
-        menuBrowserHasPreviousLowerBound = true;
+        return count;
+    }
+
+    while (true)
+    {
+        FsFile entry = directory.openNextFile(O_RDONLY);
+        if (entry)
+        {
+            browser_sort_entry_t candidate;
+            if (menuSetFileSortEntry(&candidate, &entry, displayName) &&
+                (menuCompareBrowserFiles(&candidate, beforeEntry) <= 0))
+            {
+                menuInsertPreviousBrowserEntry(entries, &count, limit,
+                    &candidate);
+            }
+            entry.close();
+        } else {
+            break;
+        }
     }
     return count;
 }
@@ -1126,7 +1141,7 @@ void menuResetBrowserPage()
     menuBrowserStartIndex = 0;
     menuBrowserHasLowerBound = false;
     menuBrowserHasNextLowerBound = false;
-    menuBrowserHasPreviousLowerBound = false;
+    menuBrowserPreviousPage = false;
 }
 
 char* menuGenerateBrowser(char* ptr)
@@ -1149,23 +1164,47 @@ char* menuGenerateBrowser(char* ptr)
         if (directory)
         {
             uint8_t count = 0;
+            uint8_t renderStart = 0;
             if (directory.isDirectory())
             {
                 ptr = menuInsertSetting(MENU_ACTION_BROWSER_CD,
                     BROWSER_PARENT_INDEX, ptr, "..", 0);
-                count = menuCollectBrowserEntries(directory,
-                    (menuBrowserHasLowerBound ? &menuBrowserLowerBound : 0),
-                    browserSortEntries, (BROWSER_PAGE_ENTRY_LIMIT + 1), 
-                    browserDisplayName);
-                if (count > BROWSER_PAGE_ENTRY_LIMIT)
+                if (menuBrowserPreviousPage && menuBrowserHasLowerBound)
                 {
-                    count = BROWSER_PAGE_ENTRY_LIMIT;
-                    menuBrowserNextLowerBound =
-                        browserSortEntries[BROWSER_PAGE_ENTRY_LIMIT - 1];
-                    menuBrowserHasNextLowerBound = true;
+                    browser_sort_entry_t nextLowerBound =
+                        menuBrowserLowerBound;
+                    count = menuCollectPreviousBrowserEntries(directory,
+                        &nextLowerBound, browserSortEntries,
+                        (BROWSER_PAGE_ENTRY_LIMIT + 1), browserDisplayName);
+                    if (count > BROWSER_PAGE_ENTRY_LIMIT)
+                    {
+                        menuBrowserLowerBound = browserSortEntries[0];
+                        menuBrowserHasLowerBound = true;
+                        renderStart = 1;
+                        count = BROWSER_PAGE_ENTRY_LIMIT;
+                    } else {
+                        menuBrowserHasLowerBound = false;
+                        menuBrowserStartIndex = 0;
+                    }
+                    menuBrowserNextLowerBound = nextLowerBound;
+                    menuBrowserHasNextLowerBound = (count > 0);
                 } else {
-                    menuBrowserHasNextLowerBound = false;
+                    count = menuCollectBrowserEntries(directory,
+                        (menuBrowserHasLowerBound ?
+                            &menuBrowserLowerBound : 0),
+                        browserSortEntries, (BROWSER_PAGE_ENTRY_LIMIT + 1),
+                        browserDisplayName);
+                    if (count > BROWSER_PAGE_ENTRY_LIMIT)
+                    {
+                        count = BROWSER_PAGE_ENTRY_LIMIT;
+                        menuBrowserNextLowerBound =
+                            browserSortEntries[BROWSER_PAGE_ENTRY_LIMIT - 1];
+                        menuBrowserHasNextLowerBound = true;
+                    } else {
+                        menuBrowserHasNextLowerBound = false;
+                    }
                 }
+                menuBrowserPreviousPage = false;
 
                 // Add previous and next page selections
                 if (menuBrowserStartIndex > 0)
@@ -1195,7 +1234,7 @@ char* menuGenerateBrowser(char* ptr)
                     for (uint8_t index = 0; index < count; ++index)
                     {
                         const browser_sort_entry_t* browserEntry =
-                            &(browserSortEntries[index]);
+                            &(browserSortEntries[index + renderStart]);
                         FsFile entry;
                         if (entry.open(&directory, browserEntry->dirIndex, O_RDONLY))
                         {
@@ -1990,16 +2029,15 @@ bool menuPerformSelection(uint8_t index)
                     menuBrowserLowerBound = menuBrowserNextLowerBound;
                     menuBrowserStartIndex += BROWSER_PAGE_ENTRY_LIMIT;
                     menuBrowserHasLowerBound = true;
+                    menuBrowserPreviousPage = false;
                 } else {
                     menuResetBrowserPage();
                 }
             } else {
-                if (menuBrowserHasPreviousLowerBound && 
-                    (menuBrowserStartIndex > BROWSER_PAGE_ENTRY_LIMIT))
+                if (menuBrowserStartIndex > BROWSER_PAGE_ENTRY_LIMIT)
                 {
                     menuBrowserStartIndex -= BROWSER_PAGE_ENTRY_LIMIT;
-                    menuBrowserLowerBound = menuBrowserPreviousLowerBound;
-                    menuBrowserHasLowerBound = true;
+                    menuBrowserPreviousPage = true;
                 } else {
                     menuResetBrowserPage();
                 }
