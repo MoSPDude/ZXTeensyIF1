@@ -715,7 +715,7 @@ void stateApplyDeviceData()
     tzxPresent = stateRestoreDevice.tzxPresent;
     if (stateRestoreDevice.tzxEnabled && (stateRestoreDevice.tapeLength > 0))
     {
-        tzxEnabled = tzxPlayer.begin(cfgData.tapeFileName, divMmcExtRamArray[0],
+        tzxEnabled = tzxPlayer.begin(menuGetTapeFileName(), divMmcExtRamArray[0],
             stateRestoreDevice.tapeLength);
         if (tzxEnabled)
         {
