@@ -4,6 +4,8 @@
 
 typedef enum {
     STRING_CANCEL,
+    STRING_NEXT_PAGE,
+    STRING_PREVIOUS_PAGE,
     STRING_RESTART,
     STRING_DISABLE,
     STRING_OPEN_SETTINGS,
@@ -105,6 +107,8 @@ typedef enum {
 
 static const char* const PROGMEM MENU_STRINGS[] = {
     "Back",
+    " > Next Pages",
+    " < Previous Pages",
     "Save and Reset",
     "Disable and Reset",
     "Edit Configuration",

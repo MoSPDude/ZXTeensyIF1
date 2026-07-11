@@ -148,7 +148,10 @@ volatile menu_action_t menuAction;
 
 // Menu file browser
 char menuBrowserPath[MAX_PATH];
+uint32_t menuBrowserStartIndex = 0;
 static const uint8_t BROWSER_ENTRY_LIMIT = 254;
+static const uint8_t BROWSER_PAGE_ENTRY_LIMIT =
+    ((RAM_PAGE_SIZE / MENU_STR_LEN) - 4);
 static const uint32_t BROWSER_PARENT_INDEX = 0xFFFFFFFFUL;
 
 // Menu TZX and POK listings
@@ -168,6 +171,15 @@ bool menuSetFileSortEntry(browser_sort_entry_t* sortEntry, FsFile* entry,
 int menuCompareBrowserFiles(const browser_sort_entry_t* first,
     const browser_sort_entry_t* second);
 void menuSortBrowserFiles(browser_sort_entry_t* entries, uint8_t count);
+void menuInsertSortedBrowserEntry(browser_sort_entry_t* entries, uint8_t* count,
+    uint8_t limit, const browser_sort_entry_t* candidate);
+uint8_t menuCollectBrowserEntries(const browser_sort_entry_t* afterEntry,
+    browser_sort_entry_t* entries, uint8_t limit, char* displayName);
+bool menuFindBrowserLowerBound(uint32_t startIndex,
+    browser_sort_entry_t* entries, char* displayName,
+    browser_sort_entry_t* lowerBound, bool* hasLowerBound);
+bool menuHasBrowserEntryAfter(const browser_sort_entry_t* afterEntry,
+    char* displayName);
 
 // Menu page creation
 uint8_t menuPage;
@@ -953,8 +965,19 @@ int menuCompareBrowserFiles(const browser_sort_entry_t* first,
         return first->isDirectory ? -1 : 1;
     }
 
+    int result = memcmp(first->sortKey, second->sortKey,
+        sizeof(first->sortKey));
+    if (result != 0)
+    {
+        return result;
+    }
+
     // Entries with matching visible file names retain directory order
-    return memcmp(first->sortKey, second->sortKey, sizeof(first->sortKey));
+    if (first->dirIndex != second->dirIndex)
+    {
+        return ((first->dirIndex < second->dirIndex) ? -1 : 1);
+    }
+    return 0;
 }
 
 void menuSortBrowserFiles(browser_sort_entry_t* entries, uint8_t count)
@@ -974,44 +997,167 @@ void menuSortBrowserFiles(browser_sort_entry_t* entries, uint8_t count)
     }
 }
 
+void menuInsertSortedBrowserEntry(browser_sort_entry_t* entries, uint8_t* count,
+    uint8_t limit, const browser_sort_entry_t* candidate)
+{
+    if (limit == 0)
+    {
+        return;
+    }
+
+    uint8_t position;
+    if (*count < limit)
+    {
+        position = *count;
+        ++(*count);
+    } else {
+        if (menuCompareBrowserFiles(candidate, &(entries[limit - 1])) >= 0)
+        {
+            return;
+        }
+        position = (limit - 1);
+    }
+
+    while ((position > 0) &&
+        (menuCompareBrowserFiles(candidate, &(entries[position - 1])) < 0))
+    {
+        entries[position] = entries[position - 1];
+        --position;
+    }
+    entries[position] = *candidate;
+}
+
+uint8_t menuCollectBrowserEntries(const browser_sort_entry_t* afterEntry,
+    browser_sort_entry_t* entries, uint8_t limit, char* displayName)
+{
+    uint8_t count = 0;
+    if (limit == 0)
+    {
+        return count;
+    }
+
+    FsFile directory = SD.sdfs.open(menuBrowserPath, O_RDONLY);
+    if (directory)
+    {
+        if (directory.isDirectory())
+        {
+            while (true)
+            {
+                FsFile entry = directory.openNextFile(O_RDONLY);
+                if (entry)
+                {
+                    browser_sort_entry_t candidate;
+                    if (menuSetFileSortEntry(&candidate, &entry,
+                        displayName) &&
+                        ((afterEntry == 0) ||
+                            (menuCompareBrowserFiles(&candidate,
+                                afterEntry) > 0)))
+                    {
+                        menuInsertSortedBrowserEntry(entries, &count, limit,
+                            &candidate);
+                    }
+                    entry.close();
+                } else {
+                    break;
+                }
+            }
+        }
+        directory.close();
+    }
+    return count;
+}
+
+bool menuFindBrowserLowerBound(uint32_t startIndex,
+    browser_sort_entry_t* entries, char* displayName,
+    browser_sort_entry_t* lowerBound, bool* hasLowerBound)
+{
+    *hasLowerBound = false;
+    while (startIndex > 0)
+    {
+        uint8_t limit = ((startIndex > BROWSER_PAGE_ENTRY_LIMIT) ?
+            BROWSER_PAGE_ENTRY_LIMIT : (uint8_t)startIndex);
+        uint8_t count = menuCollectBrowserEntries(
+            (*hasLowerBound ? lowerBound : 0), entries, limit, displayName);
+        if (count < limit)
+        {
+            return false;
+        }
+        *lowerBound = entries[count - 1];
+        *hasLowerBound = true;
+        startIndex -= count;
+    }
+    return true;
+}
+
+bool menuHasBrowserEntryAfter(const browser_sort_entry_t* afterEntry,
+    char* displayName)
+{
+    browser_sort_entry_t entry;
+    return (menuCollectBrowserEntries(afterEntry, &entry, 1,
+        displayName) > 0);
+}
+
 char* menuGenerateBrowser(char* ptr)
 {
-    browser_sort_entry_t browserSortEntries[BROWSER_ENTRY_LIMIT];
+    browser_sort_entry_t browserSortEntries[BROWSER_PAGE_ENTRY_LIMIT];
     char browserDisplayName[MAX_PATH];
 
     if (beginSdfsSd())
     {
+        bool browserDirectoryReady = false;
         FsFile directory = SD.sdfs.open(menuBrowserPath, O_RDONLY);
+        if (!directory)
+        {
+            strcpy(menuBrowserPath, "/");
+            menuBrowserStartIndex = 0;
+            directory = SD.sdfs.open(menuBrowserPath, O_RDONLY);
+        }
         if (directory)
         {
-            if (directory.isDirectory())
+            browserDirectoryReady = directory.isDirectory();
+            directory.close();
+        }
+
+        if (browserDirectoryReady)
+        {
+            browser_sort_entry_t lowerBound;
+            bool hasLowerBound = false;
+            if ((menuBrowserStartIndex > 0) &&
+                !menuFindBrowserLowerBound(menuBrowserStartIndex,
+                    browserSortEntries, browserDisplayName, &lowerBound,
+                    &hasLowerBound))
             {
-                ptr = menuInsertSetting(MENU_ACTION_BROWSER_CD,
-                    BROWSER_PARENT_INDEX, ptr, "..", 0);
+                menuBrowserStartIndex = 0;
+                hasLowerBound = false;
+            }
 
-                // Store only the visible file name and directory index needed
-                // to sort, render and later resolve each entry.
-                uint8_t count = 0;
-                while (count < BROWSER_ENTRY_LIMIT)
-                {
-                    FsFile entry = directory.openNextFile(O_RDONLY);
-                    if (entry)
-                    {
-                        browser_sort_entry_t* browserEntry =
-                            &(browserSortEntries[count]);
-                        if (menuSetFileSortEntry(browserEntry, &entry,
-                            browserDisplayName))
-                        {
-                            ++count;
-                        }
-                        entry.close();
-                    } else {
-                        // End of listing
-                        break;
-                    }
-                }
+            uint8_t count = menuCollectBrowserEntries(
+                (hasLowerBound ? &lowerBound : 0), browserSortEntries,
+                BROWSER_PAGE_ENTRY_LIMIT, browserDisplayName);
+            bool hasNext = ((count == BROWSER_PAGE_ENTRY_LIMIT) &&
+                menuHasBrowserEntryAfter(&(browserSortEntries[count - 1]),
+                    browserDisplayName));
+            uint32_t nextIndex = (menuBrowserStartIndex + count);
 
-                menuSortBrowserFiles(browserSortEntries, count);
+            ptr = menuInsertSetting(MENU_ACTION_BROWSER_CD,
+                BROWSER_PARENT_INDEX, ptr, "..", 0);
+            if (menuBrowserStartIndex > 0)
+            {
+                uint32_t backIndex = ((menuBrowserStartIndex >
+                    BROWSER_PAGE_ENTRY_LIMIT) ?
+                    (menuBrowserStartIndex - BROWSER_PAGE_ENTRY_LIMIT) : 0);
+                ptr = menuInsertSetting(MENU_ACTION_BROWSER_PAGE, backIndex,
+                    ptr, MENU_STRINGS[STRING_PREVIOUS_PAGE], 0);
+            }
+            if (hasNext)
+            {
+                ptr = menuInsertSetting(MENU_ACTION_BROWSER_PAGE, nextIndex,
+                    ptr, MENU_STRINGS[STRING_NEXT_PAGE], 0);
+            }
+
+            directory = SD.sdfs.open(menuBrowserPath, O_RDONLY);
+            if (directory)
+            {
                 for (uint8_t index = 0; index < count; ++index)
                 {
                     const browser_sort_entry_t* browserEntry =
@@ -1031,10 +1177,16 @@ char* menuGenerateBrowser(char* ptr)
                         break;
                     }
                 }
-                directory.close();
-            } else {
+                if (hasNext && (menuEntries < 255) && (ptr <= menuEndPtr))
+                {
+                    ptr = menuInsertSetting(MENU_ACTION_BROWSER_PAGE,
+                        nextIndex, ptr, MENU_STRINGS[STRING_NEXT_PAGE], 0);
+                }
                 directory.close();
             }
+        } else {
+            ptr = menuInsertSetting(MENU_ACTION_TOP_MENU, 0, ptr,
+                MENU_STRINGS[STRING_CANCEL], 0);
         }
     } else {
         ptr = menuInsertSetting(MENU_ACTION_TOP_MENU, 0, ptr,
@@ -1725,6 +1877,7 @@ bool menuPerformSelection(uint8_t index)
                 case SETTING_ACTION_OPEN_BROWSER :
                     // Start file browser
                     strncpy(menuBrowserPath, "/", MAX_PATH);
+                    menuBrowserStartIndex = 0;
                     menuCurrent = MENU_TYPE_BROWSER;
                     break;
                 case SETTING_ACTION_OPEN_CONFIGS :
@@ -1793,6 +1946,10 @@ bool menuPerformSelection(uint8_t index)
         case MENU_ACTION_LOAD_RTC_SETUP :
             strncpy(menuBrowserPath, RTC_SETUP_Z80_PATH, MAX_PATH);
             return true;
+        case MENU_ACTION_BROWSER_PAGE :
+            menuBrowserStartIndex = entryIndex;
+            menuCurrent = MENU_TYPE_BROWSER;
+            break;
         case MENU_ACTION_BROWSER_CD :
             if (updateBrowserPath(entryIndex))
             {
@@ -2138,14 +2295,17 @@ void menuUpdateCfgFileName(uint32_t fileIndex)
 
 bool updateBrowserPath(uint32_t fileIndex)
 {
+    bool resetBrowserStartIndex = false;
     FsFile directory = SD.sdfs.open(menuBrowserPath, O_RDONLY);
     if (directory)
     {
-        if (directory.isDirectory() && (fileIndex != BROWSER_PARENT_INDEX))
+        bool wasDirectory = directory.isDirectory();
+        if (wasDirectory && (fileIndex != BROWSER_PARENT_INDEX))
         {
             FsFile entry;
             if (entry.open(&directory, fileIndex, O_RDONLY))
             {
+                bool entryIsDirectory = entry.isDirectory();
                 char name[MAX_PATH];
                 if (entry.getName(name, MAX_PATH))
                 {
@@ -2157,6 +2317,7 @@ bool updateBrowserPath(uint32_t fileIndex)
                             strcat(menuBrowserPath, "/");
                         }
                         strcat(menuBrowserPath, name);
+                        resetBrowserStartIndex = entryIsDirectory;
                     }
                 }
                 entry.close();
@@ -2169,10 +2330,12 @@ bool updateBrowserPath(uint32_t fileIndex)
                 {
                     // Remove last directory
                     *fileext = 0;
+                    resetBrowserStartIndex = wasDirectory;
                 } else if (strlen(menuBrowserPath) > 1)
                 {
                     // Return to root directory
                     *(fileext + 1) = 0;
+                    resetBrowserStartIndex = wasDirectory;
                 } else {
                     // Exit the browser
                     directory.close();
@@ -2184,6 +2347,11 @@ bool updateBrowserPath(uint32_t fileIndex)
     } else {
         // Fall back to root if the existing path is no longer found
         strcpy(menuBrowserPath, "/");
+        resetBrowserStartIndex = true;
+    }
+    if (resetBrowserStartIndex)
+    {
+        menuBrowserStartIndex = 0;
     }
     return true;
 }
