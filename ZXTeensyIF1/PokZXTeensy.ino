@@ -3,9 +3,7 @@
 
 static const uint8_t POKE_MAX_TRAINERS = 253;
 static const uint16_t POKE_MAX_RECORDS = 256;
-static const size_t POKE_TRAINER_NAME_LENGTH = 30;
 static const size_t POKE_SELECTION_SIZE = ((POKE_MAX_TRAINERS + 7) / 8);
-static const size_t POKE_LINE_SIZE = 64;
 
 typedef struct {
     uint16_t address;
@@ -39,21 +37,18 @@ void pokeSetBit(uint8_t* bits, uint8_t index)
     bits[index >> 3] |= (1 << (index & 0x07));
 }
 
-int pokeReadLine(File& file, char* line)
+bool pokeReadLine(File& file, char* line)
 {
     String str = file.readStringUntil('\n');
     size_t length = str.length();
-    if (length >= (POKE_LINE_SIZE - 1))
+    if (length == 0)
     {
-        return -1;
-    } else if (length > 0)
+        return false;
+    } else if (snprintf(line, MAX_PATH, "%s", str.c_str()) >= MAX_PATH)
     {
-        strcpy(line, str.c_str());
-        return 1;
-    } else {
-        line[0] = 0;
-        return 0;
+        line[(MAX_PATH - 1)] = 0;
     }
+    return true;
 }
 
 void pokeTrimRight(char* value)
@@ -137,27 +132,24 @@ bool pokeParseFile(const char* pokeFilePath, char pokeTrainerNames[][MENU_STR_LE
     int16_t trainer = -1;
     uint16_t recordCount = 0;
     uint32_t lineNumber = 0;
-    char line[POKE_LINE_SIZE];
+    char line[MAX_PATH];
     while (true)
     {
-        int lineResult = pokeReadLine(file, line);
-        if (lineResult == 0)
+        // Load the next line to end of file
+        bool lineResult = pokeReadLine(file, line);
+        if (lineResult)
         {
+            ++lineNumber;
+            pokeTrimRight(line);
+            if (line[0] == 0)
+            {
+                continue;
+            }
+        } else {
             break;
-        }
-        ++lineNumber;
-        if (lineResult < 0)
-        {
-            menuPrintDebug(false, F_CSTR("POK line %d is too long"), lineNumber);
-            errorReported = true;
-            break;
-        }
-        pokeTrimRight(line);
-        if (line[0] == 0)
-        {
-            continue;
         }
 
+        // Parse the current line
         if (line[0] == 'N')
         {
             if (trainerOpen || ((trainer + 1) >= POKE_MAX_TRAINERS))
@@ -167,20 +159,25 @@ bool pokeParseFile(const char* pokeFilePath, char pokeTrainerNames[][MENU_STR_LE
                 errorReported = true;
                 break;
             }
-            ++trainer;
             char* name = line + 1;
             while ((*name == ' ') || (*name == '\t'))
             {
                 ++name;
             }
-            if ((*name == 0) || (strlen(name) > POKE_TRAINER_NAME_LENGTH))
+            if (*name == 0)
             {
                 menuPrintDebug(false, F_CSTR("Invalid POK name at line %d"),
                     lineNumber);
                 errorReported = true;
                 break;
             }
-            strcpy(pokeTrainerNames[trainer], name);
+            ++trainer;
+            if (snprintf(pokeTrainerNames[trainer], MENU_STR_LEN, "%s", name) >=
+                MENU_STR_LEN)
+            {
+                name[(MENU_STR_LEN - 2)] = '>';
+                name[(MENU_STR_LEN - 1)] = 0;
+            }
             trainerOpen = true;
         } else if ((line[0] == 'M') || (line[0] == 'Z'))
         {
