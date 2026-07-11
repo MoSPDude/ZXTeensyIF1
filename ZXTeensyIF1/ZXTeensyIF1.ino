@@ -61,6 +61,8 @@ typedef enum {
     MENU_ACTION_IN_GAME_APPLY_POK,
     MENU_ACTION_IN_GAME_UNMOUNT_FDA,
     MENU_ACTION_IN_GAME_UNMOUNT_FDB,
+    MENU_ACTION_IN_GAME_EJECT_TAPE,
+    MENU_ACTION_IN_GAME_NMI,
     MENU_ACTION_IN_GAME_MF128,
     MENU_ACTION_IN_GAME_DIVMMC,
     MENU_ACTION_IN_GAME_RESET,
@@ -1735,7 +1737,7 @@ void handleStateReset()
                     menuClearTapeFileName();
                 }
             } else {
-                tzxPresent = false;
+                tzxEnabled = false;
             }
         }
 
@@ -1816,6 +1818,9 @@ void handleStateReset()
                 }
             }
         }
+
+        // Indicate if TZX files can be loaded into DivMMC RAM
+        tzxPresent = !divMmcExtRamEnabled;
 
         // Page in the ZXC2 cartridge, or snapshot loader ROM
         if (stateStartLoad)
@@ -1976,6 +1981,9 @@ FASTRUN void loop()
                     case MENU_ACTION_IN_GAME_EXIT :
                         nmiRomTarget = ROM_ROM0;
                         break;
+                    case MENU_ACTION_IN_GAME_NMI :
+                        nmiRomTarget = ROM_ROM3;
+                        break;
                     case MENU_ACTION_IN_GAME_MF128 :
                         nmiRomTarget = ROM_MF128;
                         break;
@@ -2026,6 +2034,11 @@ FASTRUN void loop()
                                 menuClearTapeFileName();
                             }
                         }
+                        break;
+                    case MENU_ACTION_IN_GAME_EJECT_TAPE :
+                        tzxPlayer.end();
+                        menuClearTapeFileName();
+                        tzxEnabled = false;
                         break;
                     case MENU_ACTION_BROWSER_LOAD_MF128 :
                         if (mf128Present && beginSdfsSd())
@@ -3106,7 +3119,7 @@ FASTRUN void isrRdEvent()
                         romArraySelected = BANK_MENU;
                         updateRomPtr(true);
                     } else if (mf128Present && !mf128ActiveNMI &&
-                        (nmiRomTarget != ROM_DIVMMC) &&
+                        (nmiRomTarget != ROM_DIVMMC) && (nmiRomTarget != ROM_ROM3) &&
                         ((romArraySelected & (BANK_ROM0 | BANK_ROM1 | BANK_ROM3 |
                             BANK_MF128)) != 0))
                     {
@@ -3129,7 +3142,7 @@ FASTRUN void isrRdEvent()
                 writeRomData(0x66);
 
                 // Send the NMI to the DivMMC, if not Multiface 128
-                if (divMmcRomEnabled && !mf128ActiveNMI &&
+                if (divMmcRomEnabled && !mf128ActiveNMI && (nmiRomTarget != ROM_ROM3) &&
                     ((romArraySelected & (BANK_ROM0 | BANK_ROM1 | BANK_ROM3)) != 0))
                 {
                     divMmcAutoMap = true;

@@ -2,9 +2,11 @@
 #include "StringsZXTeensy.h"
 #include "DefinesZXTeensy.h"
 
-static const uint8_t CHAR_BORDER = 20;
-static const uint8_t CHAR_DIR = 21;
-static const uint8_t CHAR_TICK = 22;
+static const uint8_t CHAR_BORDER = 19;
+static const uint8_t CHAR_DIR = 20;
+static const uint8_t CHAR_TICK = 21;
+// NOTE: The characters below are hard coded values in strings
+static const uint8_t CHAR_EJECT = 22;
 static const uint8_t CHAR_DSK = 23;
 static const uint8_t CHAR_ZXC_L = 24;
 static const uint8_t CHAR_ZXC_R = 25;
@@ -217,6 +219,33 @@ char* menuInsertSetting(menu_action_t action, uint32_t index, char* ptr, const c
     return (ptr + 1);
 }
 
+char* menuInsertEject(menu_action_t action, uint32_t index, char* ptr, const char* drive,
+    const char* path)
+{
+    char label[(MENU_STR_LEN + 1)];
+    if (path != 0)
+    {
+        // Parse filename from the full path
+        const char* name = strrchr(path, '/');
+        name = ((name != 0) ? (name + 1) : path);
+        if (snprintf(label, (MENU_STR_LEN + 1), " \x16 %s %s",
+            drive, name) >= (MENU_STR_LEN + 1))
+        {
+            label[MENU_STR_LEN] = 0;
+        }
+    } else {
+        // Drive is empty
+        action = MENU_ACTION_SETTING;
+        index = SETTING_ACTION_NO_OP;
+        if (snprintf(label, (MENU_STR_LEN + 1), " \x17 %s %s",
+            drive, MENU_STRINGS[STRING_EMPTY_FDD]) >= (MENU_STR_LEN + 1))
+        {
+            label[MENU_STR_LEN] = 0;
+        }
+    }
+    return menuInsertSetting(action, index, ptr, label, false);
+}
+
 inline __attribute__((always_inline)) char* menuInsertSpacer(char* ptr)
 {
     return menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_NO_OP,
@@ -225,48 +254,8 @@ inline __attribute__((always_inline)) char* menuInsertSpacer(char* ptr)
 
 char* menuInsertInGameStatus(char* ptr)
 {
-    // Show tape position
-    char label[(MENU_STR_LEN + 1)];
-    if (tzxEnabled)
-    {
-        size_t position;
-        size_t length = tzxPlayer.getPosition(&position);
-        double temp = position;
-        temp = (temp * 100) / length;
-        int a = temp;
-        temp *= 100;
-        int b = (int)(temp) % 100;
-        if (snprintf(label, (MENU_STR_LEN + 1), " > Tape: %d.%02d%%", a, b) >=
-            (MENU_STR_LEN + 1))
-        {
-            label[MENU_STR_LEN] = 0;
-        }
-        ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_NO_OP,
-            ptr, label, 0);
-    }
-
-    // Show disk position
-    if (dskEnabled)
-    {
-        if (dskEnableDriveB)
-        {
-            if (snprintf(label, (MENU_STR_LEN + 1), " > FDD A: %d, B: %d %s",
-                dskController.getCurCyl(0), dskController.getCurCyl(1),
-                (dskController.isMotorOn() ? "RUN" : "")) >= (MENU_STR_LEN + 1))
-            {
-                label[MENU_STR_LEN] = 0;
-            }
-        } else if (snprintf(label, (MENU_STR_LEN + 1), " > FDD A: %d %s",
-            dskController.getCurCyl(0), (dskController.isMotorOn() ? "RUN" : "")) >=
-            (MENU_STR_LEN + 1))
-        {
-            label[MENU_STR_LEN] = 0;
-        }
-        ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_NO_OP,
-            ptr, label, 0);
-    }
-
     // Show current ROMs
+    char label[(MENU_STR_LEN + 1)];
     strcpy(label, " > ROM:         ");
     if ((romArrayPresent & BANK_ROM0) != 0)
     {
@@ -337,20 +326,31 @@ char* menuInsertInGameStatus(char* ptr)
         ptr, label, 0);
 
     // Show current RAM
-    if (zxC2Present)
+    if (zxC2Present || divMmcPresent)
     {
-        if (snprintf(label, (MENU_STR_LEN + 1), " > ZXC2: %d%s", (zxC2RomBank >> 1),
-            (zxC2Lock ? " LOCK" : "")) >= (MENU_STR_LEN + 1))
+        char zxc2Label[(MENU_STR_LEN + 1)], divMmcLabel[(MENU_STR_LEN + 1)];
+        if (zxC2Present)
         {
-            label[MENU_STR_LEN] = 0;
+            if (snprintf(zxc2Label, (MENU_STR_LEN + 1), " /x18/x19 %d%s", (zxC2RomBank >> 1),
+                (zxC2Lock ? " LOCK" : "")) >= (MENU_STR_LEN + 1))
+            {
+                zxc2Label[MENU_STR_LEN] = 0;
+            }
+        } else {
+            zxc2Label[0] = 0;
         }
-        ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_NO_OP,
-            ptr, label, 0);
-    }
-    if (divMmcPresent)
-    {
-        if (snprintf(label, (MENU_STR_LEN + 1), " > DivMMC: %d%s", divMmcRamBank,
-            (divMmcMapRam ? " MAPRAM" : "")) >= (MENU_STR_LEN + 1))
+        if (divMmcPresent)
+        {
+            if (snprintf(divMmcLabel, (MENU_STR_LEN + 1), " DivMMC: %d%s", divMmcRamBank,
+                (divMmcMapRam ? " MAPRAM" : "")) >= (MENU_STR_LEN + 1))
+            {
+                divMmcLabel[MENU_STR_LEN] = 0;
+            }
+        } else {
+            divMmcLabel[0] = 0;
+        }
+        if (snprintf(label, (MENU_STR_LEN + 1), " >%s%s", zxc2Label, divMmcLabel) 
+            >= (MENU_STR_LEN + 1))
         {
             label[MENU_STR_LEN] = 0;
         }
@@ -679,24 +679,63 @@ char* menuGenerateInGame(char* ptr)
     ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_OPEN_LOAD_STATE_SLOT,
         ptr, MENU_STRINGS[STRING_OPEN_LOAD_STATE_SLOT], 0);
     ptr = menuInsertSpacer(ptr);
-    bool needSpacer = false;
+    if (tzxPresent)
+    {
+        if (tzxEnabled)
+        {
+            size_t position;
+            size_t length = tzxPlayer.getPosition(&position);
+            double temp = position;
+            temp = (temp * 100) / length;
+            int a = temp;
+            temp *= 100;
+            int b = (int)(temp) % 100;
+            if (snprintf(label, (MENU_STR_LEN + 1), " \x16 Tape %d.%02d%%", a, b) >=
+                (MENU_STR_LEN + 1))
+            {
+                label[MENU_STR_LEN] = 0;
+            }
+            ptr = menuInsertSetting(MENU_ACTION_IN_GAME_EJECT_TAPE, 0,
+                ptr, label, 0);
+        } else {
+            if (snprintf(label, (MENU_STR_LEN + 1), "\x1E\x1F Tape %s", 
+                MENU_STRINGS[STRING_EMPTY_FDD]) >= (MENU_STR_LEN + 1))
+            {
+                label[MENU_STR_LEN] = 0;
+            }
+            ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_NO_OP,
+                ptr, label, 0);
+        }
+    }
+    if (dskPresent)
+    {
+        ptr = menuInsertEject(MENU_ACTION_IN_GAME_UNMOUNT_FDA, 0, ptr,
+            "A:", menuGetFdcFdaPath());
+        if (dskEnableDriveB)
+        {
+            ptr = menuInsertEject(MENU_ACTION_IN_GAME_UNMOUNT_FDB, 0, ptr,
+                "B:", menuGetFdcFdbPath());
+        }
+    }
+    ptr = menuInsertSetting(MENU_ACTION_IN_GAME_EXIT_BASIC, 0, ptr,
+        MENU_STRINGS[STRING_IN_GAME_EXIT_BASIC], 0);
+    ptr = menuInsertSetting(MENU_ACTION_IN_GAME_NMI, 0, ptr,
+        MENU_STRINGS[STRING_IN_GAME_NMI], 0);
     if (mf128Present && ((romArrayPresent & BANK_MF128) != 0))
     {
         ptr = menuInsertSetting(MENU_ACTION_IN_GAME_MF128, 0, ptr,
             MENU_STRINGS[STRING_IN_GAME_MF128], 0);
-        needSpacer = true;
     }
     if (divMmcRomEnabled && ((romArrayPresent & BANK_DIVMMC) != 0))
     {
         ptr = menuInsertSetting(MENU_ACTION_IN_GAME_DIVMMC, 0, ptr,
             MENU_STRINGS[STRING_IN_GAME_DIVMMC], 0);
-        needSpacer = true;
     }
+    ptr = menuInsertSpacer(ptr);
     if (interface1Present && divMmcPresent)
     {
         ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_IN_GAME_TOGGLE_IF1,
             ptr, MENU_STRINGS[STRING_ENABLE_IF1], interface1Enabled);
-        needSpacer = true;
     }
     if (usbPresent)
     {
@@ -707,29 +746,7 @@ char* menuGenerateInGame(char* ptr)
             ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_FIRE_BUTTONS,
                 ptr, MENU_STRINGS[STRING_ENABLE_FIRE_BUTTONS], gamepadButtons);
         }
-        needSpacer = true;
     }
-    if (dskPresent)
-    {
-        if (menuGetFdcFdaPath() != 0)
-        {
-            ptr = menuInsertSetting(MENU_ACTION_IN_GAME_UNMOUNT_FDA, 0, ptr,
-                MENU_STRINGS[STRING_IN_GAME_UNMOUNT_FDA], 0);
-            needSpacer = true;
-        }
-        if (dskEnableDriveB && (menuGetFdcFdbPath() != 0))
-        {
-            ptr = menuInsertSetting(MENU_ACTION_IN_GAME_UNMOUNT_FDB, 0, ptr,
-                MENU_STRINGS[STRING_IN_GAME_UNMOUNT_FDB], 0);
-            needSpacer = true;
-        }
-    }
-    if (needSpacer)
-    {
-        ptr = menuInsertSpacer(ptr);
-    }
-    ptr = menuInsertSetting(MENU_ACTION_IN_GAME_EXIT_BASIC, 0, ptr,
-        MENU_STRINGS[STRING_IN_GAME_EXIT_BASIC], 0);
     ptr = menuInsertSetting(MENU_ACTION_IN_GAME_RESET, 0, ptr,
         MENU_STRINGS[STRING_IN_GAME_RESET], 0);
     ptr = menuInsertSetting(MENU_ACTION_IN_GAME_HARD_RESET, 0, ptr,
@@ -1106,7 +1123,6 @@ char* menuGenerateSettings(char* ptr)
                 ptr, MENU_STRINGS[STRING_ENABLE_DIVMMC_ROM], divMmcRomPresent);
         }
         bool isSdSda = false;
-        char label[(MENU_STR_LEN + 1)];
         char* tmpPath = menuGetDivMmcSdaPath();
         if (tmpPath != 0)
         {
@@ -1115,25 +1131,19 @@ char* menuGenerateSettings(char* ptr)
                 File tmpFile = SD.open(tmpPath, FILE_READ);
                 if (tmpFile)
                 {
-                    if (snprintf(label, (MENU_STR_LEN + 1), "%ssda %s",
-                        MENU_STRINGS[STRING_UNMOUNT_SD], tmpFile.name()) >=
-                            (MENU_STR_LEN + 1))
-                    {
-                        label[MENU_STR_LEN] = 0;
-                    }
-                    ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_UNMOUNT_SDA,
-                        ptr, label, 0);
+                    ptr = menuInsertEject(MENU_ACTION_SETTING, SETTING_ACTION_UNMOUNT_SDA,
+                        ptr, "sda", tmpPath);
                     tmpFile.close();
                 } else {
                     cfgData.divMmcSdaPath[0] = 0;
                 }
             } else {
-                ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_UNMOUNT_SDA,
-                    ptr, MENU_STRINGS[STRING_UNMOUNT_SD_SDA], 0);
+                ptr = menuInsertEject(MENU_ACTION_SETTING, SETTING_ACTION_UNMOUNT_SDA,
+                    ptr, "sda", MENU_STRINGS[STRING_SD_CARD]);
                 isSdSda = true;
             }
         }
-        if (menuGetDivMmcSdaPath() == 0)
+        if (menuGetDivMmcSdaPath() != 0)
         {
             ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_MOUNT_SD_SDA,
                 ptr, MENU_STRINGS[STRING_MOUNT_SD_SDA], 0);
@@ -1146,14 +1156,8 @@ char* menuGenerateSettings(char* ptr)
                 File tmpFile = SD.open(tmpPath, FILE_READ);
                 if (tmpFile)
                 {
-                    if (snprintf(label, (MENU_STR_LEN + 1), "%ssdb %s",
-                        MENU_STRINGS[STRING_UNMOUNT_SD], tmpFile.name()) >=
-                            (MENU_STR_LEN + 1))
-                    {
-                        label[MENU_STR_LEN] = 0;
-                    }
-                    ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_UNMOUNT_SDB,
-                        ptr, label, 0);
+                    ptr = menuInsertEject(MENU_ACTION_SETTING, SETTING_ACTION_UNMOUNT_SDB,
+                        ptr, "sdb", tmpPath);
                     tmpFile.close();
                 } else {
                     cfgData.divMmcSdbPath[0] = 0;
@@ -1162,8 +1166,8 @@ char* menuGenerateSettings(char* ptr)
             {
                 cfgData.divMmcSdbPath[0] = 0;
             } else {
-                ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_UNMOUNT_SDB,
-                    ptr, MENU_STRINGS[STRING_UNMOUNT_SD_SDB], 0);
+                ptr = menuInsertEject(MENU_ACTION_SETTING, SETTING_ACTION_UNMOUNT_SDB,
+                    ptr, "sdb", MENU_STRINGS[STRING_SD_CARD]);
             }
         }
         if (!isSdSda && (menuGetDivMmcSdbPath() == 0))
@@ -1178,44 +1182,12 @@ char* menuGenerateSettings(char* ptr)
     {
         ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_FDC_FDB,
             ptr, MENU_STRINGS[STRING_ENABLE_FDC_FDB], dskEnableDriveB);
-        char label[(MENU_STR_LEN + 1)];
-        char* tmpPath = menuGetFdcFdaPath();
-        if (tmpPath != 0)
+        ptr = menuInsertEject(MENU_ACTION_SETTING, SETTING_ACTION_UNMOUNT_FDA, ptr,
+            "A:", menuGetFdcFdaPath());
+        if (dskEnableDriveB)
         {
-            File tmpFile = SD.open(tmpPath, FILE_READ);
-            if (tmpFile)
-            {
-                if (snprintf(label, (MENU_STR_LEN + 1), "%sA: %s",
-                    MENU_STRINGS[STRING_UNMOUNT_FDD], tmpFile.name()) >=
-                        (MENU_STR_LEN + 1))
-                {
-                    label[MENU_STR_LEN] = 0;
-                }
-                ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_UNMOUNT_FDA,
-                    ptr, label, 0);
-                tmpFile.close();
-            } else {
-                cfgData.dskFdaPath[0] = 0;
-            }
-        }
-        tmpPath = menuGetFdcFdbPath();
-        if (dskEnableDriveB && (tmpPath != 0))
-        {
-            File tmpFile = SD.open(tmpPath, FILE_READ);
-            if (tmpFile)
-            {
-                if (snprintf(label, (MENU_STR_LEN + 1), "%sB: %s",
-                    MENU_STRINGS[STRING_UNMOUNT_FDD], tmpFile.name()) >=
-                        (MENU_STR_LEN + 1))
-                {
-                    label[MENU_STR_LEN] = 0;
-                }
-                ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_UNMOUNT_FDB,
-                    ptr, label, 0);
-                tmpFile.close();
-            } else {
-                cfgData.dskFdbPath[0] = 0;
-            }
+            ptr = menuInsertEject(MENU_ACTION_SETTING, SETTING_ACTION_UNMOUNT_FDB, 
+                ptr, "B:", menuGetFdcFdbPath());
         }
     }
     if ((romArrayPresent & BANK_IF1) != 0)
@@ -1266,7 +1238,8 @@ char* menuGenerateSettings(char* ptr)
         if (modemPresent)
         {
             char label[(MENU_STR_LEN + 1)];
-            if (snprintf(label, (MENU_STR_LEN + 1), " > %s", cfgData.modemUrl) >= (MENU_STR_LEN + 1))
+            if (snprintf(label, (MENU_STR_LEN + 1), " > %s", cfgData.modemUrl) >=
+                (MENU_STR_LEN + 1))
             {
                 label[MENU_STR_LEN] = 0;
             }
@@ -1387,14 +1360,14 @@ char* menuGenerateMain(char* ptr)
 {
     ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_RESTART,
         ptr, MENU_STRINGS[STRING_RESTART], 0);
-    ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_DISABLE,
-        ptr, MENU_STRINGS[STRING_DISABLE], 0);
     ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_OPEN_BROWSER,
         ptr, MENU_STRINGS[STRING_OPEN_BROWSER], 0);
     ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_OPEN_ROMS,
         ptr, MENU_STRINGS[STRING_OPEN_ROMS], 0);
     ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_OPEN_LOAD_STATE_SLOT,
         ptr, MENU_STRINGS[STRING_OPEN_LOAD_STATE_SLOT], 0);
+    ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_OPEN_SERVER,
+        ptr, MENU_STRINGS[STRING_OPEN_HTTP_SERVER], 0);
     ptr = menuInsertSpacer(ptr);
 
     // Add settings and HTTP server
@@ -1402,8 +1375,8 @@ char* menuGenerateMain(char* ptr)
         ptr, MENU_STRINGS[STRING_OPEN_CONFIGS], 0);
     ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_OPEN_SETTINGS,
         ptr, MENU_STRINGS[STRING_OPEN_SETTINGS], 0);
-    ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_OPEN_SERVER,
-        ptr, MENU_STRINGS[STRING_OPEN_HTTP_SERVER], 0);
+    ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_DISABLE,
+        ptr, MENU_STRINGS[STRING_DISABLE], 0);
 
     // Add firmware update option, if available
     File tmpFile = SD.open(FWUPDATE_HEX_PATH, FILE_READ);
@@ -1970,6 +1943,9 @@ bool menuPerformSelection(uint8_t index)
             cfgData.dskFdbPath[0] = 0;
             menuCurrent = menuTopMenu;
             return false;
+        case MENU_ACTION_IN_GAME_EJECT_TAPE :
+            menuCurrent = menuTopMenu;
+            return false;
         case MENU_ACTION_START_SERVER :
             httpStartServer();
             break;
@@ -2013,6 +1989,7 @@ bool menuPerformSelection(uint8_t index)
         case MENU_ACTION_IN_GAME_EXIT :
         case MENU_ACTION_IN_GAME_EXIT_TAPE :
         case MENU_ACTION_IN_GAME_EXIT_BASIC :
+        case MENU_ACTION_IN_GAME_NMI :
         case MENU_ACTION_IN_GAME_MF128 :
         case MENU_ACTION_IN_GAME_DIVMMC :
             // These actions require additional NMI or reset handling

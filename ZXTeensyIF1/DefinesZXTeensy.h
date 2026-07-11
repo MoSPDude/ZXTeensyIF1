@@ -2,7 +2,7 @@
 #ifndef DEFINES_ZX_TEENSY_H
 #define DEFINES_ZX_TEENSY_H
 
-#define ZXTEENSY_VERSION "20260710"
+#define ZXTEENSY_VERSION "20260711"
 #define ENABLE_BUILTIN_ROM_IF1
 //define DEBUG_OUTPUT
 //define ENABLE_JOYSTICK_DEBUG
@@ -31,8 +31,8 @@
 #define FWUPDATE_HEX_PATH "ZXTEENSY.HEX"
 #define MODEM_URL_PATH ((const char*)F("\"glasstty.com\",6502"))
 
-// Run the Teensy 4.1 with slight overclock at 752MHz
-#define TEENSY_CLK_FREQ 752000000ULL
+// Run the Teensy 4.1 with slight overclock at 720MHz
+#define TEENSY_CLK_FREQ 720000000ULL
 
 // Tick the SD and Serial at 7MHz
 #define TICK_FREQ 7000000ULL

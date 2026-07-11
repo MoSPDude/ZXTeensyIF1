@@ -1255,5 +1255,7 @@ void TzxPlayerZXTeensy::end()
     enabled = false;
     tapeMarkCount = 0;
     tapeStackCount = 0;
+    tapePosition = 0;
+    tapeLength = 0;
     close();
 }
