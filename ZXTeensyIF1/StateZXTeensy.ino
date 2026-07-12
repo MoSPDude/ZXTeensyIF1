@@ -35,6 +35,7 @@ typedef struct __attribute__((packed)) {
     uint8_t divMmcPresent;
     uint8_t divMmcExtRamPresent;
     uint8_t divMmcRomPresent;
+    uint8_t divMmcSdReadOnly;
     uint8_t interface1Present;
     uint8_t mf128Present;
     uint8_t uartPresent;
@@ -424,6 +425,7 @@ void stateCaptureDeviceData(void* data)
     state->divMmcPresent = divMmcPresent;
     state->divMmcExtRamPresent = divMmcExtRamPresent;
     state->divMmcRomPresent = divMmcRomPresent;
+    state->divMmcSdReadOnly = divMmcSdReadOnly;
     state->interface1Present = interface1Present;
     state->mf128Present = mf128Present;
     state->uartPresent = uartPresent;
@@ -637,6 +639,7 @@ void stateApplyConfiguration()
     divMmcPresent = stateRestoreDevice.divMmcPresent;
     divMmcExtRamPresent = stateRestoreDevice.divMmcExtRamPresent;
     divMmcRomPresent = stateRestoreDevice.divMmcRomPresent;
+    divMmcSdReadOnly = stateRestoreDevice.divMmcSdReadOnly;
     interface1Present = stateRestoreDevice.interface1Present;
     mf128Present = stateRestoreDevice.mf128Present;
     uartPresent = stateRestoreDevice.uartPresent;

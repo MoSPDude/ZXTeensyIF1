@@ -730,11 +730,6 @@ char* menuGeneratePokBrowser(char* ptr)
     return ptr;
 }
 
-char* menuGenerateFDD(char* ptr)
-{
-    return ptr;
-}
-
 char* menuGenerateInGame(char* ptr)
 {
     ptr = menuInsertSetting(MENU_ACTION_IN_GAME_EXIT, 0, ptr, MENU_STRINGS[STRING_CANCEL], 0);
@@ -759,6 +754,8 @@ char* menuGenerateInGame(char* ptr)
     ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_OPEN_LOAD_STATE_SLOT,
         ptr, MENU_STRINGS[STRING_OPEN_LOAD_STATE_SLOT], 0);
     ptr = menuInsertSpacer(ptr);
+
+    // Add tape and disk options
     if (tzxPresent)
     {
         if (tzxEnabled)
@@ -799,7 +796,12 @@ char* menuGenerateInGame(char* ptr)
                 "B:", menuGetFdcFdbPath());
         }
     }
-    ptr = menuInsertSpacer(ptr);
+    if (tzxPresent || dskPresent)
+    {
+        ptr = menuInsertSpacer(ptr);
+    }
+
+    // Add NMI, peripherals and reset options
     ptr = menuInsertSetting(MENU_ACTION_IN_GAME_EXIT_BASIC, 0, ptr,
         MENU_STRINGS[STRING_IN_GAME_EXIT_BASIC], 0);
     ptr = menuInsertSetting(MENU_ACTION_IN_GAME_NMI, 0, ptr,
@@ -1434,7 +1436,6 @@ char* menuGenerateSettings(char* ptr)
                 ptr = menuInsertEject(MENU_ACTION_SETTING, SETTING_ACTION_UNMOUNT_SDA,
                     ptr, "sda", MENU_STRINGS[STRING_SD_CARD]);
                 isSdSda = true;
-
             }
         }
         if (menuGetDivMmcSdaPath() == 0)
@@ -2326,14 +2327,9 @@ bool menuPerformSelection(uint8_t index)
         case MENU_ACTION_IN_GAME_NMI :
         case MENU_ACTION_IN_GAME_MF128 :
         case MENU_ACTION_IN_GAME_DIVMMC :
-            // These actions require additional NMI or reset handling
-            return true;
         case MENU_ACTION_IN_GAME_RESET :
         case MENU_ACTION_IN_GAME_HARD_RESET :
             // These actions require additional NMI or reset handling
-            stateActiveSlot = -1;
-            menuConfigChanged = true;
-            menuSaveConfiguration();
             return true;
         case MENU_ACTION_IN_GAME_SAVE_STATE :
             stateSaveSlot = entryIndex;

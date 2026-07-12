@@ -1462,7 +1462,13 @@ void handleStateResetEntry()
                 // Load initial configuration
                 if (!afterFirstReset)
                 {
+                    // NOTE: Restore the active save slot, if loading
+                    int8_t prevStateActiveSlot = stateActiveSlot;
                     menuLoadConfiguration(0);
+                    if (prevStateActiveSlot >= 0)
+                    {
+                        stateActiveSlot = prevStateActiveSlot;
+                    }
                 }
 
                 // Load Interface 1 ROM
@@ -1974,6 +1980,7 @@ FASTRUN void loop()
                         break;
                     case MENU_ACTION_IN_GAME_APPLY_POK :
                         exitMenu = false;
+                        stateActiveSlot = -1;
                         if (!stateBeginSave(STATE_POKE_SLOT))
                         {
                             pokeFinishApply();
@@ -1996,14 +2003,21 @@ FASTRUN void loop()
                     case MENU_ACTION_IN_GAME_RESET :
                         // Reset into the main menu
                         menuEnterOnReset = true;
+                        stateActiveSlot = -1;
                         setState(STATE_RESET);
                         break;
                     case MENU_ACTION_IN_GAME_HARD_RESET :
+                        stateActiveSlot = -1;
                         performHardReset();
+                        break;
+                    case MENU_ACTION_LOAD_STATE_SLOT :
+                        // Reset to load the active state slot
+                        setState(STATE_RESET_MENU);
                         break;
                     default :
                         // The menu needs the Spectrum in reset to access the SD card,
                         // reload ROMs, update FW etc.
+                        stateActiveSlot = -1;
                         setState(STATE_RESET_MENU);
                         break;
                 }
