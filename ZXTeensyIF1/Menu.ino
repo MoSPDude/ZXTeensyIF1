@@ -1437,7 +1437,7 @@ char* menuGenerateSettings(char* ptr)
 
             }
         }
-        if (menuGetDivMmcSdaPath() != 0)
+        if (menuGetDivMmcSdaPath() == 0)
         {
             ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_MOUNT_SD_SDA,
                 ptr, MENU_STRINGS[STRING_MOUNT_SD_SDA], 0);
