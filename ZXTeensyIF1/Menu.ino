@@ -154,6 +154,7 @@ static const uint8_t BROWSER_ENTRY_LIMIT = 254;
 static const uint8_t BROWSER_PAGE_ENTRY_LIMIT =
     ((RAM_PAGE_SIZE / MENU_STR_LEN) - 4);
 static const uint32_t BROWSER_PARENT_INDEX = 0xFFFFFFFFUL;
+uint32_t menuBrowserExpandedIndex = BROWSER_PARENT_INDEX;
 
 // Menu TZX and POK listings
 char menuDynamicList[255][MENU_STR_LEN];
@@ -208,6 +209,55 @@ void menuInsertEntry(menu_action_t action, uint32_t index)
     ++menuEntries;
 }
 
+char* menuInsertLineEnd(char* ptr)
+{
+    if (menuPageLine < 20)
+    {
+        *ptr = 10;
+        ++menuPageLine;
+    } else {
+        *ptr = 0;
+        menuPageLine = 0;
+        ++menuPage;
+    }
+    return (ptr + 1);
+}
+
+char* menuInsertFileIcon(icon_type_t icon, char* ptr)
+{
+    switch (icon)
+    {
+        case ICON_TYPE_DSK :
+            *ptr++ = 9;
+            *ptr++ = ' ';
+            *ptr++ = CHAR_DSK;
+            break;
+        case ICON_TYPE_ZXC2 :
+            *ptr++ = 9;
+            *ptr++ = CHAR_ZXC_L;
+            *ptr++ = CHAR_ZXC_R;
+            break;
+        case ICON_TYPE_CART :
+            *ptr++ = 9;
+            *ptr++ = CHAR_IF2_L;
+            *ptr++ = CHAR_IF2_R;
+            break;
+        case ICON_TYPE_Z80 :
+            *ptr++ = 9;
+            *ptr++ = CHAR_Z80_L;
+            *ptr++ = CHAR_Z80_R;
+            break;
+        case ICON_TYPE_TZX :
+            *ptr++ = 9;
+            *ptr++ = CHAR_TZX_L;
+            *ptr++ = CHAR_TZX_R;
+            break;
+        default :
+            break;
+    }
+    return ptr;
+}
+
 char* menuInsertSetting(menu_action_t action, uint32_t index, char* ptr, const char* label,
     bool checked)
 {
@@ -229,16 +279,7 @@ char* menuInsertSetting(menu_action_t action, uint32_t index, char* ptr, const c
     }
 
     // Add new line, and update menu dimensions
-    if (menuPageLine < 20)
-    {
-        *ptr = 10;
-        ++menuPageLine;
-    } else {
-        *ptr = 0;
-        menuPageLine = 0;
-        ++menuPage;
-    }
-    return (ptr + 1);
+    return menuInsertLineEnd(ptr);
 }
 
 inline __attribute__((always_inline)) char* menuInsertSpacer(char* ptr)
@@ -439,48 +480,69 @@ char* menuInsertFile(menu_action_t action, icon_type_t icon, uint32_t index, cha
     menuInsertEntry(action, index);
 
     // Add icon
-    switch (icon)
-    {
-        case ICON_TYPE_DSK :
-            *ptr++ = 9;
-            *ptr++ = ' ';
-            *ptr++ = CHAR_DSK;
-            break;
-        case ICON_TYPE_ZXC2 :
-            *ptr++ = 9;
-            *ptr++ = CHAR_ZXC_L;
-            *ptr++ = CHAR_ZXC_R;
-            break;
-        case ICON_TYPE_CART :
-            *ptr++ = 9;
-            *ptr++ = CHAR_IF2_L;
-            *ptr++ = CHAR_IF2_R;
-            break;
-        case ICON_TYPE_Z80 :
-            *ptr++ = 9;
-            *ptr++ = CHAR_Z80_L;
-            *ptr++ = CHAR_Z80_R;
-            break;
-        case ICON_TYPE_TZX :
-            *ptr++ = 9;
-            *ptr++ = CHAR_TZX_L;
-            *ptr++ = CHAR_TZX_R;
-            break;
-        default :
-            break;
-    }
+    ptr = menuInsertFileIcon(icon, ptr);
 
     // Add new line, and update menu dimensions
-    if (menuPageLine < 20)
+    return menuInsertLineEnd(ptr);
+}
+
+char* menuInsertExpandedFile(menu_action_t action, icon_type_t icon, uint32_t index,
+    char* ptr, const char* filename, bool isDirectory)
+{
+    size_t offset = 0;
+    bool firstLine = true;
+    do
     {
-        *ptr = 10;
-        ++menuPageLine;
-    } else {
-        *ptr = 0;
-        menuPageLine = 0;
-        ++menuPage;
+        if (menuEntries < 255)
+        {
+            size_t length = 0;
+            if (firstLine)
+            {
+                *ptr++ = (isDirectory ? CHAR_DIR : CHAR_BORDER);
+            } else {
+                *ptr++ = CHAR_BORDER;
+                *ptr++ = ' ';
+                *ptr++ = '>';
+                *ptr++ = ' ';
+                length += 3;
+            }
+            while ((length < ROM_NAME_LEN) && (filename[offset] != 0))
+            {
+                *ptr++ = ((filename[offset] >= 128) ? '?' : filename[offset]);
+                ++length;
+                ++offset;
+            }
+
+            menuInsertEntry((firstLine ? action : MENU_ACTION_BROWSER_EXPAND),
+                index);
+            if (firstLine)
+            {
+                ptr = menuInsertFileIcon(icon, ptr);
+            }
+            ptr = menuInsertLineEnd(ptr);
+            firstLine = false;
+        } else {
+            break;
+        }
+    } while ((filename[offset] != 0) && (ptr <= menuEndPtr));
+    return ptr;
+}
+
+char* menuInsertBrowserFile(menu_action_t action, icon_type_t icon, uint32_t index,
+    char* ptr, const char* filename, bool isDirectory)
+{
+    if (strlen(filename) > ROM_NAME_LEN)
+    {
+        if (menuBrowserExpandedIndex == index)
+        {
+            return menuInsertExpandedFile(action, icon, index, ptr, filename,
+                isDirectory);
+        }
+        action = MENU_ACTION_BROWSER_EXPAND;
     }
-    return (ptr + 1);
+
+    *ptr++ = (isDirectory ? CHAR_DIR : CHAR_BORDER);
+    return menuInsertFile(action, icon, index, ptr, filename);
 }
 
 char* menuAddLoadRomFile(uint32_t index, char* ptr, const char* filename)
@@ -536,11 +598,9 @@ char* menuAddBrowserFile(uint32_t index, char* ptr, const char* filename,
     menu_action_t action;
     if (isDirectory)
     {
-        *ptr++ = CHAR_DIR;
         icon = ICON_TYPE_NONE;
         action = MENU_ACTION_BROWSER_CD;
     } else {
-        *ptr++ = CHAR_BORDER;
         char *fileext = strrchr(filename, '.');
         if (fileext != 0)
         {
@@ -595,7 +655,7 @@ char* menuAddBrowserFile(uint32_t index, char* ptr, const char* filename,
     }
 
     // Insert the menu entry
-    return menuInsertFile(action, icon, index, ptr, filename);
+    return menuInsertBrowserFile(action, icon, index, ptr, filename, isDirectory);
 }
 
 char* menuGenerateTapeBrowser(char* ptr)
@@ -1145,6 +1205,7 @@ void menuResetBrowserPage()
     menuBrowserHasLowerBound = false;
     menuBrowserHasNextLowerBound = false;
     menuBrowserPreviousPage = false;
+    menuBrowserExpandedIndex = BROWSER_PARENT_INDEX;
 }
 
 char* menuGenerateBrowser(char* ptr)
@@ -1373,7 +1434,7 @@ char* menuGenerateSettings(char* ptr)
                 ptr = menuInsertEject(MENU_ACTION_SETTING, SETTING_ACTION_UNMOUNT_SDA,
                     ptr, "sda", MENU_STRINGS[STRING_SD_CARD]);
                 isSdSda = true;
-                
+
             }
         }
         if (menuGetDivMmcSdaPath() != 0)
@@ -1781,9 +1842,10 @@ bool menuPerformSelection(uint8_t index)
         menuAction = MENU_ACTION_LOAD_ROM;
         return true;
     }
-
     menuAction = menu[index].action;
     uint32_t entryIndex = menu[index].index;
+
+    // Perform menu action
     switch (menuAction)
     {
         case MENU_ACTION_TOP_MENU :
@@ -2053,6 +2115,15 @@ bool menuPerformSelection(uint8_t index)
                 } else {
                     menuResetBrowserPage();
                 }
+            }
+            menuCurrent = MENU_TYPE_BROWSER;
+            break;
+        case MENU_ACTION_BROWSER_EXPAND :
+            if (menuBrowserExpandedIndex != entryIndex)
+            {
+                menuBrowserExpandedIndex = entryIndex;
+            } else {
+                menuBrowserExpandedIndex = BROWSER_PARENT_INDEX;
             }
             menuCurrent = MENU_TYPE_BROWSER;
             break;
