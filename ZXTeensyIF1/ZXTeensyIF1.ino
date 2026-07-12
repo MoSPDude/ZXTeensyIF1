@@ -295,6 +295,7 @@ volatile bool divMmcRomPresent = false;
 volatile bool divMmcEnabled = false;
 volatile bool divMmcExtRamPresent = false;
 volatile bool divMmcRomEnabled = false;
+volatile bool divMmcSdReadOnly = false;
 volatile bool divMmcToggle = false;
 volatile bool divMmcAutoMap = false;
 volatile bool divMmcConMem = false;
@@ -930,7 +931,7 @@ bool beginDivMmcSd()
         while (SD.sdfs.card()->isBusy()) { yield(); };
 
         // Enable DivMMC over SDIO
-        divMmcSpi.begin(SD.sdfs.card());
+        divMmcSpi.begin(SD.sdfs.card(), divMmcSdReadOnly);
         sdioEnabled = true;
     }
     return sdioEnabled;

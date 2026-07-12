@@ -42,6 +42,7 @@ template <size_t READ_BUFFER_SIZE> class SdSdioZXTeensy
         RingBuffer<READ_BUFFER_SIZE> sdSpiReadBuffer;
 
         SdioCard* sdioCard;
+        bool readOnlySdCard;
         bool isSdIdle;
         uint8_t currentState;
         uint8_t currentCommand;
@@ -80,14 +81,20 @@ template <size_t READ_BUFFER_SIZE> class SdSdioZXTeensy
                     ++dataIndex;
                     if (dataIndex >= 0x202)
                     {
-                        // Consume the CRC bytes, then send data response
-                        writeReadData(0x05);
-                        writeReadData(0x00);
-                        writeReadData(0x00);
+                        if (readOnlySdCard)
+                        {
+                            // Card is locked
+                            writeReadData(0x0D);
+                        } else {
+                            // Consume the CRC bytes, then send data response
+                            writeReadData(0x05);
+                            writeReadData(0x00);
+                            writeReadData(0x00);
 
-                        // Write the data
-                        sdioCard->writeSector(currentSector, (uint8_t*)dataBuffer);
-                        ++currentSector;
+                            // Write the data
+                            sdioCard->writeSector(currentSector, (uint8_t*)dataBuffer);
+                            ++currentSector;
+                        }
                         currentState = STATE_IDLE;
                         dataActive = false;
                     }
@@ -219,10 +226,10 @@ template <size_t READ_BUFFER_SIZE> class SdSdioZXTeensy
         }
 
     public :
-        constexpr SdSdioZXTeensy() : sdioCard(0), isSdIdle(true), currentState(STATE_IDLE),
-            currentCommand(CMD_IDLE), commandAppCmd(false), commandArgument(0),
-            dataActive(false), dataRegister(0), dataIndex(0), dataBuffer(),
-            currentSector(0), numSectors(0)
+        constexpr SdSdioZXTeensy() : sdioCard(0), readOnlySdCard(false), isSdIdle(true), 
+            currentState(STATE_IDLE), currentCommand(CMD_IDLE), commandAppCmd(false), 
+            commandArgument(0), dataActive(false), dataRegister(0), dataIndex(0), 
+            dataBuffer(), currentSector(0), numSectors(0)
         {
         }
 
@@ -264,7 +271,7 @@ template <size_t READ_BUFFER_SIZE> class SdSdioZXTeensy
             }
         }
 
-        void begin(SdCard* card)
+        void begin(SdCard* card, bool isReadOnly)
         {
 #ifdef DEBUG_HDF_OUTPUT
             Serial.begin(115200);
@@ -274,6 +281,7 @@ template <size_t READ_BUFFER_SIZE> class SdSdioZXTeensy
             if (sdioCard != 0)
             {
                 numSectors = sdioCard->sectorCount();
+                readOnlySdCard = isReadOnly;
                 while (sdioCard->isBusy()) { yield(); };
             } else {
                 numSectors = 0;

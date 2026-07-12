@@ -96,6 +96,7 @@ typedef enum {
     SETTING_ACTION_TOGGLE_DIVMMC,
     SETTING_ACTION_TOGGLE_DIVMMC_RAM,
     SETTING_ACTION_TOGGLE_DIVMMC_ROM,
+    SETTING_ACTION_TOGGLE_DIVMMC_LOCK_SD,
     SETTING_ACTION_TOGGLE_IF1,
     SETTING_ACTION_TOGGLE_MF128,
     SETTING_ACTION_TOGGLE_GENIE128,
@@ -166,6 +167,7 @@ typedef struct {
     bool isDirectory;
 } browser_sort_entry_t;
 
+// File browser large directory handling
 browser_sort_entry_t menuBrowserLowerBound;
 browser_sort_entry_t menuBrowserNextLowerBound;
 bool menuBrowserHasLowerBound = false;
@@ -181,8 +183,8 @@ void menuInsertSortedBrowserEntry(browser_sort_entry_t* entries, uint8_t* count,
     uint8_t limit, const browser_sort_entry_t* candidate);
 void menuInsertPreviousBrowserEntry(browser_sort_entry_t* entries,
     uint8_t* count, uint8_t limit, const browser_sort_entry_t* candidate);
-uint8_t menuCollectBrowserEntries(FsFile& directory, 
-    const browser_sort_entry_t* afterEntry, browser_sort_entry_t* entries, 
+uint8_t menuCollectBrowserEntries(FsFile& directory,
+    const browser_sort_entry_t* afterEntry, browser_sort_entry_t* entries,
     uint8_t limit, char* displayName);
 uint8_t menuCollectPreviousBrowserEntries(FsFile& directory,
     const browser_sort_entry_t* beforeEntry, browser_sort_entry_t* entries,
@@ -239,6 +241,12 @@ char* menuInsertSetting(menu_action_t action, uint32_t index, char* ptr, const c
     return (ptr + 1);
 }
 
+inline __attribute__((always_inline)) char* menuInsertSpacer(char* ptr)
+{
+    return menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_NO_OP,
+        ptr, "", 0);
+}
+
 char* menuInsertEject(menu_action_t action, uint32_t index, char* ptr, const char* drive,
     const char* path)
 {
@@ -248,7 +256,7 @@ char* menuInsertEject(menu_action_t action, uint32_t index, char* ptr, const cha
         // Parse filename from the full path
         const char* name = strrchr(path, '/');
         name = ((name != 0) ? (name + 1) : path);
-        if (snprintf(label, (MENU_STR_LEN + 1), " \x16 %s %s",
+        if (snprintf(label, (MENU_STR_LEN + 1), "  \x16  %s %s",
             drive, name) >= (MENU_STR_LEN + 1))
         {
             label[MENU_STR_LEN] = 0;
@@ -257,19 +265,13 @@ char* menuInsertEject(menu_action_t action, uint32_t index, char* ptr, const cha
         // Drive is empty
         action = MENU_ACTION_SETTING;
         index = SETTING_ACTION_NO_OP;
-        if (snprintf(label, (MENU_STR_LEN + 1), " \x17 %s %s",
+        if (snprintf(label, (MENU_STR_LEN + 1), "  \x17  %s %s",
             drive, MENU_STRINGS[STRING_EMPTY_FDD]) >= (MENU_STR_LEN + 1))
         {
             label[MENU_STR_LEN] = 0;
         }
     }
     return menuInsertSetting(action, index, ptr, label, false);
-}
-
-inline __attribute__((always_inline)) char* menuInsertSpacer(char* ptr)
-{
-    return menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_NO_OP,
-        ptr, "", 0);
 }
 
 char* menuInsertInGameStatus(char* ptr)
@@ -369,7 +371,7 @@ char* menuInsertInGameStatus(char* ptr)
         } else {
             divMmcLabel[0] = 0;
         }
-        if (snprintf(label, (MENU_STR_LEN + 1), " >%s%s", zxc2Label, divMmcLabel) 
+        if (snprintf(label, (MENU_STR_LEN + 1), " >%s%s", zxc2Label, divMmcLabel)
             >= (MENU_STR_LEN + 1))
         {
             label[MENU_STR_LEN] = 0;
@@ -506,7 +508,7 @@ char* menuAddLoadRomFile(uint32_t index, char* ptr, const char* filename)
     return menuInsertFile(action, icon, index, ptr, filename);
 }
 
-char* menuAddMainFile(uint32_t index, char* ptr, const char* filename)
+char* menuAddConfigurationFile(uint32_t index, char* ptr, const char* filename)
 {
     char name[MAX_PATH];
     strncpy(name, filename, MAX_PATH);
@@ -680,8 +682,6 @@ char* menuGenerateInGame(char* ptr)
     {
         ptr = menuInsertSetting(MENU_ACTION_IN_GAME_EXIT_TAPE, 0, ptr,
             MENU_STRINGS[STRING_IN_GAME_EXIT_TAPE], 0);
-        ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_OPEN_TAPE_BROWSER,
-            ptr, MENU_STRINGS[STRING_OPEN_TAPE_BROWSER], 0);
     }
     ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_OPEN_BROWSER,
         ptr, MENU_STRINGS[STRING_OPEN_BROWSER], 0);
@@ -710,15 +710,17 @@ char* menuGenerateInGame(char* ptr)
             int a = temp;
             temp *= 100;
             int b = (int)(temp) % 100;
-            if (snprintf(label, (MENU_STR_LEN + 1), " \x16 Tape %d.%02d%%", a, b) >=
+            if (snprintf(label, (MENU_STR_LEN + 1), "  \x16  Tape %d.%02d%%", a, b) >=
                 (MENU_STR_LEN + 1))
             {
                 label[MENU_STR_LEN] = 0;
             }
             ptr = menuInsertSetting(MENU_ACTION_IN_GAME_EJECT_TAPE, 0,
                 ptr, label, 0);
+            ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_OPEN_TAPE_BROWSER,
+                ptr, MENU_STRINGS[STRING_OPEN_TAPE_BROWSER], 0);
         } else {
-            if (snprintf(label, (MENU_STR_LEN + 1), "\x1E\x1F Tape %s", 
+            if (snprintf(label, (MENU_STR_LEN + 1), " \x1E\x1F Tape %s",
                 MENU_STRINGS[STRING_EMPTY_FDD]) >= (MENU_STR_LEN + 1))
             {
                 label[MENU_STR_LEN] = 0;
@@ -737,6 +739,7 @@ char* menuGenerateInGame(char* ptr)
                 "B:", menuGetFdcFdbPath());
         }
     }
+    ptr = menuInsertSpacer(ptr);
     ptr = menuInsertSetting(MENU_ACTION_IN_GAME_EXIT_BASIC, 0, ptr,
         MENU_STRINGS[STRING_IN_GAME_EXIT_BASIC], 0);
     ptr = menuInsertSetting(MENU_ACTION_IN_GAME_NMI, 0, ptr,
@@ -751,7 +754,6 @@ char* menuGenerateInGame(char* ptr)
         ptr = menuInsertSetting(MENU_ACTION_IN_GAME_DIVMMC, 0, ptr,
             MENU_STRINGS[STRING_IN_GAME_DIVMMC], 0);
     }
-    ptr = menuInsertSpacer(ptr);
     if (interface1Present && divMmcPresent)
     {
         ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_IN_GAME_TOGGLE_IF1,
@@ -840,7 +842,8 @@ char* menuGenerateHttpServer(char* ptr)
     ptr = menuInsertSetting(MENU_ACTION_START_SERVER, 0, ptr, MENU_STRINGS[STRING_START_HTTP], 0);
     if (httpServerStatus != "")
     {
-        ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_NO_OP, ptr, httpServerStatus.c_str(), 0);
+        ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_NO_OP, ptr,
+            httpServerStatus.c_str(), 0);
     }
     ptr = menuInsertSetting(MENU_ACTION_STOP_SERVER, 0, ptr, MENU_STRINGS[STRING_STOP_HTTP], 0);
     return ptr;
@@ -1069,8 +1072,8 @@ void menuInsertPreviousBrowserEntry(browser_sort_entry_t* entries,
     entries[position] = *candidate;
 }
 
-uint8_t menuCollectBrowserEntries(FsFile& directory, 
-    const browser_sort_entry_t* afterEntry, browser_sort_entry_t* entries, 
+uint8_t menuCollectBrowserEntries(FsFile& directory,
+    const browser_sort_entry_t* afterEntry, browser_sort_entry_t* entries,
     uint8_t limit, char* displayName)
 {
     uint8_t count = 0;
@@ -1218,7 +1221,7 @@ char* menuGenerateBrowser(char* ptr)
                         MENU_STRINGS[STRING_NEXT_PAGE], 0);
                 }
             } else {
-                ptr = menuInsertSetting(MENU_ACTION_TOP_MENU, 0, ptr, 
+                ptr = menuInsertSetting(MENU_ACTION_TOP_MENU, 0, ptr,
                     MENU_STRINGS[STRING_CANCEL], 0);
             }
 
@@ -1250,7 +1253,7 @@ char* menuGenerateBrowser(char* ptr)
                             break;
                         }
                     }
-                    if (menuBrowserHasNextLowerBound && (menuEntries < 255) && 
+                    if (menuBrowserHasNextLowerBound && (menuEntries < 255) &&
                         (ptr <= menuEndPtr))
                     {
                         ptr = menuInsertSetting(MENU_ACTION_BROWSER_PAGE, 1, ptr,
@@ -1260,11 +1263,11 @@ char* menuGenerateBrowser(char* ptr)
                 }
             }
         } else {
-            ptr = menuInsertSetting(MENU_ACTION_TOP_MENU, 0, ptr, 
+            ptr = menuInsertSetting(MENU_ACTION_TOP_MENU, 0, ptr,
                 MENU_STRINGS[STRING_CANCEL], 0);
         }
     } else {
-        ptr = menuInsertSetting(MENU_ACTION_TOP_MENU, 0, ptr, 
+        ptr = menuInsertSetting(MENU_ACTION_TOP_MENU, 0, ptr,
             MENU_STRINGS[STRING_CANCEL], 0);
     }
     return ptr;
@@ -1365,9 +1368,12 @@ char* menuGenerateSettings(char* ptr)
                     cfgData.divMmcSdaPath[0] = 0;
                 }
             } else {
+                ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_DIVMMC_LOCK_SD,
+                    ptr, MENU_STRINGS[STRING_DIVMMC_LOCK_SD], divMmcSdReadOnly);
                 ptr = menuInsertEject(MENU_ACTION_SETTING, SETTING_ACTION_UNMOUNT_SDA,
                     ptr, "sda", MENU_STRINGS[STRING_SD_CARD]);
                 isSdSda = true;
+                
             }
         }
         if (menuGetDivMmcSdaPath() != 0)
@@ -1393,6 +1399,8 @@ char* menuGenerateSettings(char* ptr)
             {
                 cfgData.divMmcSdbPath[0] = 0;
             } else {
+                ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_DIVMMC_LOCK_SD,
+                    ptr, MENU_STRINGS[STRING_DIVMMC_LOCK_SD], divMmcSdReadOnly);
                 ptr = menuInsertEject(MENU_ACTION_SETTING, SETTING_ACTION_UNMOUNT_SDB,
                     ptr, "sdb", MENU_STRINGS[STRING_SD_CARD]);
             }
@@ -1413,7 +1421,7 @@ char* menuGenerateSettings(char* ptr)
             "A:", menuGetFdcFdaPath());
         if (dskEnableDriveB)
         {
-            ptr = menuInsertEject(MENU_ACTION_SETTING, SETTING_ACTION_UNMOUNT_FDB, 
+            ptr = menuInsertEject(MENU_ACTION_SETTING, SETTING_ACTION_UNMOUNT_FDB,
                 ptr, "B:", menuGetFdcFdbPath());
         }
     }
@@ -1566,7 +1574,7 @@ char* menuGenerateConfigurations(char* ptr)
                 {
                     if (entry.getName(cfgDisplayName, MAX_PATH))
                     {
-                        ptr = menuAddMainFile(cfgEntry->dirIndex, ptr,
+                        ptr = menuAddConfigurationFile(cfgEntry->dirIndex, ptr,
                             cfgDisplayName);
                     }
                     entry.close();
@@ -1819,6 +1827,10 @@ bool menuPerformSelection(uint8_t index)
                         divMmcRomPresent = !divMmcRomPresent;
                         menuConfigChanged = true;
                     }
+                    break;
+                case SETTING_ACTION_TOGGLE_DIVMMC_LOCK_SD :
+                    divMmcSdReadOnly = !divMmcSdReadOnly;
+                    menuConfigChanged = true;
                     break;
                 case SETTING_ACTION_TOGGLE_IF1 :
                     if ((romArrayPresent & BANK_IF1) != 0)
@@ -2623,6 +2635,7 @@ void menuClearConfiguration()
     stateActiveSlot = -1;
     divMmcPresent = false;
     divMmcExtRamPresent = true;
+    divMmcSdReadOnly = true;
     divMmcRomPresent = false;
     interface1Present = false;
     mf128Present = false;
@@ -2685,6 +2698,10 @@ void menuLoadConfiguration(const char* cfgCfgName)
                     } else if (strncmp("divMmcRomPresent = ", cfgPtr, 19) == 0)
                     {
                         divMmcRomPresent = ((cfgPtr[19] == '1') ? true : false);
+                        ++count;
+                    } else if (strncmp("divMmcSdReadOnly = ", cfgPtr, 19) == 0)
+                    {
+                        divMmcSdReadOnly = ((cfgPtr[19] == '1') ? true : false);
                         ++count;
                     } else if (strncmp("divMmcSdaPath = ", cfgPtr, 16) == 0)
                     {
@@ -2850,6 +2867,7 @@ void menuSaveConfiguration()
             cfgFile.printf("stateSaveSlot = %0d\n", stateSaveSlot);
             cfgFile.printf("divMmcPresent = %0d\n", divMmcPresent);
             cfgFile.printf("divMmcExtRamPresent = %0d\n", divMmcExtRamPresent);
+            cfgFile.printf("divMmcSdReadOnly = %0d\n", divMmcSdReadOnly);
             cfgFile.printf("divMmcRomPresent = %0d\n", divMmcRomPresent);
             cfgFile.printf("interface1Present = %0d\n", interface1Present);
             cfgFile.printf("mf128Present = %0d\n", mf128Present);
