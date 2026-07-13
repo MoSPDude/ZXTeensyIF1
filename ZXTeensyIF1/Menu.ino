@@ -506,12 +506,11 @@ char* menuInsertStatus(char* ptr)
 }
 
 char* menuInsertFile(menu_action_t action, icon_type_t icon, uint32_t index, char* ptr,
-    const char* filename, bool isDirectory, bool canExpand)
+    const char* filename, bool canExpand)
 {
     // Truncate the file name
     size_t i = 0;
     size_t width = 8;
-    *ptr++ = (isDirectory ? CHAR_DIR : CHAR_BORDER);
     while (filename[i] != 0)
     {
         char c = ((filename[i] >= 128) ? '?' : filename[i]);
@@ -541,7 +540,7 @@ char* menuInsertFile(menu_action_t action, icon_type_t icon, uint32_t index, cha
 }
 
 char* menuInsertExpandedFile(menu_action_t action, icon_type_t icon, uint32_t index,
-    char* ptr, const char* filename, bool isDirectory)
+    char* ptr, const char* filename)
 {
     size_t i = 0;
     bool firstLine = true;
@@ -551,10 +550,8 @@ char* menuInsertExpandedFile(menu_action_t action, icon_type_t icon, uint32_t in
         {
             // Truncate the lines
             size_t width = 8;
-            if (firstLine)
+            if (!firstLine)
             {
-                *ptr++ = (isDirectory ? CHAR_DIR : CHAR_BORDER);
-            } else {
                 *ptr++ = CHAR_BORDER;
                 *ptr++ = ' ';
                 *ptr++ = '>';
@@ -593,15 +590,24 @@ char* menuInsertExpandedFile(menu_action_t action, icon_type_t icon, uint32_t in
     return ptr;
 }
 
-char* menuInsertBrowserFile(menu_action_t action, icon_type_t icon, uint32_t index,
-    char* ptr, const char* filename, bool isDirectory)
+char* menuAddBrowserFile(uint32_t index, char* ptr, const char* filename, bool isDirectory)
 {
-    if (menuBrowserExpandedIndex == index)
+    if ((menuBrowserExpandedIndex == index) || !menuSkipNextEntry())
     {
-        ptr = menuInsertExpandedFile(action, icon, index, ptr, filename, isDirectory);
-    } else if (!menuSkipNextEntry())
-    {
-        ptr = menuInsertFile(action, icon, index, ptr, filename, isDirectory, true);
+        // Add directory icon for directories
+        *ptr++ = (isDirectory ? CHAR_DIR : CHAR_BORDER);
+
+        // Find the file extension and action
+        icon_type_t icon;
+        menu_action_t action = menuGetBrowserFileAction(filename, isDirectory, &icon);
+
+        // Insert the menu entry
+        if (menuBrowserExpandedIndex == index)
+        {
+            ptr = menuInsertExpandedFile(action, icon, index, ptr, filename);
+        } else {
+            ptr = menuInsertFile(action, icon, index, ptr, filename, true);
+        }
     }
     return ptr;
 }
@@ -611,7 +617,7 @@ char* menuAddLoadRomFile(uint32_t index, char* ptr, const char* filename)
     // Add check mark against active ROM
     *ptr++ = ((stricmp(filename, cfgData.romName) == 0) ? CHAR_TICK : CHAR_BORDER);
 
-    // Find the file extension
+    // Find the file extension and action
     icon_type_t icon = ICON_TYPE_CART;
     const char *fileext = strrchr(filename, '.');
     menu_action_t action = MENU_ACTION_LOAD_CART;
@@ -628,7 +634,7 @@ char* menuAddLoadRomFile(uint32_t index, char* ptr, const char* filename)
     }
 
     // Insert the menu entry
-    return menuInsertFile(action, icon, index, ptr, filename, false, false);
+    return menuInsertFile(action, icon, index, ptr, filename, false);
 }
 
 char* menuAddConfigurationFile(uint32_t index, char* ptr, const char* filename)
@@ -647,7 +653,7 @@ char* menuAddConfigurationFile(uint32_t index, char* ptr, const char* filename)
 
         // Insert the menu entry
         ptr = menuInsertFile(MENU_ACTION_LOAD_CFG, ICON_TYPE_NONE, index, ptr, 
-            name, false, false);
+            name, false);
     }
     return ptr;
 }
@@ -716,16 +722,6 @@ menu_action_t menuGetBrowserFileAction(const char* filename, bool isDirectory,
     }
 
     return action;
-}
-
-char* menuAddBrowserFile(uint32_t index, char* ptr, const char* filename,
-    bool isDirectory)
-{
-    icon_type_t icon;
-    menu_action_t action = menuGetBrowserFileAction(filename, isDirectory, &icon);
-
-    // Insert the menu entry
-    return menuInsertBrowserFile(action, icon, index, ptr, filename, isDirectory);
 }
 
 char* menuGenerateTapeBrowser(char* ptr)
