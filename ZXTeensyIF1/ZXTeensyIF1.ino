@@ -184,7 +184,8 @@ typedef enum {
     MENU_ROM_CMD_STATE_BLOCK_DONE = 5,
     MENU_ROM_CMD_STATE_COMPLETE = 6,
     MENU_ROM_CMD_STATE_FAILED = 7,
-    MENU_ROM_CMD_STATE_PREVIEW = 8
+    MENU_ROM_CMD_STATE_PREVIEW = 8,
+    MENU_ROM_CMD_BROWSER_EXPAND = 9
 } menu_rom_action_t;
 
 // I/O pin assignments
@@ -2039,6 +2040,12 @@ FASTRUN void loop()
                         // The menu ROM is waiting for the preview command
                         menuGenerate();
                         menuBuffer.write(MENU_ROM_CMD_STATE_PREVIEW);
+                        menuRedraw = false;
+                        break;
+                    case MENU_ACTION_BROWSER_EXPAND :
+                        // The menu ROM is waiting for the expanded-name command
+                        menuGenerate();
+                        menuBuffer.write(MENU_ROM_CMD_BROWSER_EXPAND);
                         menuRedraw = false;
                         break;
                     case MENU_ACTION_BROWSER_LOAD_TZX :

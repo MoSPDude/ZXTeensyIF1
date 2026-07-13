@@ -29,6 +29,7 @@ static const uint16_t MEM_UNUSED = 0x4F9;
 static const uint16_t MEM_BORDER = 0x4F8;
 static const uint16_t MEM_SP2 = 0x4F6;
 static const uint16_t MEM_MODE = 0x1FF8;
+static const uint16_t MEM_POS = 0x1FFD;
 static const uint8_t Z80_MODE_48 = 0;
 static const uint8_t Z80_MODE_128 = 1;
 static const uint8_t Z80_MODE_UNKNOWN = 2;
@@ -57,6 +58,7 @@ typedef enum {
     MENU_TYPE_LOAD_ROM,
     MENU_TYPE_NTP_TZ,
     MENU_TYPE_BROWSER,
+    MENU_TYPE_BROWSER_EXPAND,
     MENU_TYPE_BROWSER_OPEN,
     MENU_TYPE_BROWSER_OPEN_ROM,
     MENU_TYPE_BROWSER_MOUNT_HDF,
@@ -148,13 +150,17 @@ menu_entry_t menu[255];
 volatile menu_action_t menuAction;
 
 // Menu file browser
-char menuBrowserPath[MAX_PATH];
-uint32_t menuBrowserStartIndex = 0;
 static const uint8_t BROWSER_ENTRY_LIMIT = 254;
 static const uint8_t BROWSER_PAGE_ENTRY_LIMIT =
     ((RAM_PAGE_SIZE / MENU_STR_LEN) - 4);
 static const uint32_t BROWSER_PARENT_INDEX = 0xFFFFFFFFUL;
+char menuBrowserPath[MAX_PATH];
+uint32_t menuBrowserStartIndex = 0;
 uint32_t menuBrowserExpandedIndex = BROWSER_PARENT_INDEX;
+menu_action_t menuBrowserExpandedAction = MENU_ACTION_TOP_MENU;
+uint8_t menuBrowserExpandedMenuIndex = 0;
+uint8_t menuBrowserExpandedLineCount = 1;
+uint8_t menuBrowserExpandedMenuLine = 0;
 
 // Menu TZX and POK listings
 char menuDynamicList[255][MENU_STR_LEN];
@@ -191,16 +197,32 @@ uint8_t menuCollectPreviousBrowserEntries(FsFile& directory,
     const browser_sort_entry_t* beforeEntry, browser_sort_entry_t* entries,
     uint8_t limit, char* displayName);
 void menuResetBrowserPage();
+menu_action_t menuGetBrowserFileAction(const char* filename,
+    bool isDirectory, icon_type_t* icon);
+bool menuSetBrowserExpandedAction(uint32_t fileIndex);
+uint8_t menuGetExpandedFileLineCount(const char* filename);
 
 // Menu page creation
+static const uint8_t MENU_PAGE_ENTRY_COUNT = 21;
 uint8_t menuPage;
 uint8_t menuPageLine;
+uint8_t menuRenderSourceEntry;
+bool menuRenderSkipEnabled;
+uint8_t menuRenderSkipStart;
+uint8_t menuRenderSkipEnd;
 
 // Debug menu text
 static const size_t MENU_DEBUG_SIZE = (21 * MENU_TXT_LEN * 2);
 char menuDebugBuffer[MENU_DEBUG_SIZE];
 volatile size_t menuDebugIndex = 0;
 volatile bool menuHasDebug = false;
+
+bool menuSkipNextEntry()
+{
+    uint8_t entryIndex = menuRenderSourceEntry++;
+    return (menuRenderSkipEnabled && (entryIndex >= menuRenderSkipStart) &&
+        (entryIndex < menuRenderSkipEnd));
+}
 
 void menuInsertEntry(menu_action_t action, uint32_t index)
 {
@@ -261,25 +283,29 @@ char* menuInsertFileIcon(icon_type_t icon, char* ptr)
 char* menuInsertSetting(menu_action_t action, uint32_t index, char* ptr, const char* label,
     bool checked)
 {
-    menuInsertEntry(action, index);
-    *ptr++ = (checked ? CHAR_TICK : CHAR_BORDER);
-    unsigned int len = strlen(label);
-    if (len > MENU_TXT_LEN)
+    if (!menuSkipNextEntry())
     {
-        for (size_t i = 0; i < (MENU_TXT_LEN - 1); ++i)
+        menuInsertEntry(action, index);
+        *ptr++ = (checked ? CHAR_TICK : CHAR_BORDER);
+        unsigned int len = strlen(label);
+        if (len > MENU_TXT_LEN)
         {
-            *ptr++ = ((label[i] >= 128) ? '?' : label[i]);
+            for (size_t i = 0; i < (MENU_TXT_LEN - 1); ++i)
+            {
+                *ptr++ = ((label[i] >= 128) ? '?' : label[i]);
+            }
+            *ptr++ = '>';
+        } else {
+            for (size_t i = 0; i < len; ++i)
+            {
+                *ptr++ = ((label[i] >= 128) ? '?' : label[i]);
+            }
         }
-        *ptr++ = '>';
-    } else {
-        for (size_t i = 0; i < len; ++i)
-        {
-            *ptr++ = ((label[i] >= 128) ? '?' : label[i]);
-        }
-    }
 
-    // Add new line, and update menu dimensions
-    return menuInsertLineEnd(ptr);
+        // Add new line, and update menu dimensions
+        ptr = menuInsertLineEnd(ptr);
+    }
+    return ptr;
 }
 
 inline __attribute__((always_inline)) char* menuInsertSpacer(char* ptr)
@@ -452,7 +478,7 @@ char* menuInsertStatus(char* ptr)
         ptr, label, 0);
 }
 
-char* menuInsertFile(menu_action_t action, icon_type_t icon, uint32_t index, char* ptr,
+char* menuInsertFileEntry(menu_action_t action, icon_type_t icon, uint32_t index, char* ptr,
     const char* filename)
 {
     // Truncate the file name
@@ -486,6 +512,12 @@ char* menuInsertFile(menu_action_t action, icon_type_t icon, uint32_t index, cha
     return menuInsertLineEnd(ptr);
 }
 
+char* menuInsertFile(menu_action_t action, icon_type_t icon, uint32_t index, char* ptr,
+    const char* filename)
+{
+    return menuInsertFileEntry(action, icon, index, ptr, filename);
+}
+
 char* menuInsertExpandedFile(menu_action_t action, icon_type_t icon, uint32_t index,
     char* ptr, const char* filename, bool isDirectory)
 {
@@ -512,15 +544,13 @@ char* menuInsertExpandedFile(menu_action_t action, icon_type_t icon, uint32_t in
                 ++length;
                 ++offset;
             }
-
-            menuInsertEntry((firstLine ? action : MENU_ACTION_BROWSER_EXPAND),
-                index);
+            menuInsertEntry(action, index);
             if (firstLine)
             {
                 ptr = menuInsertFileIcon(icon, ptr);
+                firstLine = false;
             }
             ptr = menuInsertLineEnd(ptr);
-            firstLine = false;
         } else {
             break;
         }
@@ -540,9 +570,12 @@ char* menuInsertBrowserFile(menu_action_t action, icon_type_t icon, uint32_t ind
         }
         action = MENU_ACTION_BROWSER_EXPAND;
     }
-
-    *ptr++ = (isDirectory ? CHAR_DIR : CHAR_BORDER);
-    return menuInsertFile(action, icon, index, ptr, filename);
+    if (!menuSkipNextEntry())
+    {
+        *ptr++ = (isDirectory ? CHAR_DIR : CHAR_BORDER);
+        ptr = menuInsertFileEntry(action, icon, index, ptr, filename);
+    }
+    return ptr;
 }
 
 char* menuAddLoadRomFile(uint32_t index, char* ptr, const char* filename)
@@ -552,7 +585,7 @@ char* menuAddLoadRomFile(uint32_t index, char* ptr, const char* filename)
 
     // Find the file extension
     icon_type_t icon = ICON_TYPE_CART;
-    char *fileext = strrchr(filename, '.');
+    const char *fileext = strrchr(filename, '.');
     menu_action_t action = MENU_ACTION_LOAD_CART;
     if (fileext != 0)
     {
@@ -590,69 +623,77 @@ char* menuAddConfigurationFile(uint32_t index, char* ptr, const char* filename)
     return ptr;
 }
 
+menu_action_t menuGetBrowserFileAction(const char* filename, bool isDirectory,
+    icon_type_t* icon)
+{
+    // Add directory icons, and find the file extension
+    if (isDirectory)
+    {
+        *icon = ICON_TYPE_NONE;
+        return MENU_ACTION_BROWSER_CD;
+    }
+
+    menu_action_t action;
+    const char *fileext = strrchr(filename, '.');
+    if (fileext != 0)
+    {
+        if (stricmp(fileext + 1, "rom") == 0)
+        {
+            // Open ROM type selector, as ".rom" could be various types
+            *icon = ICON_TYPE_CART;
+            action = MENU_ACTION_BROWSER_OPEN_ROM;
+        } else if (stricmp(fileext + 1, "bin") == 0)
+        {
+            // Open ROM type selector, as ".bin" could be various types
+            *icon = ICON_TYPE_ZXC2;
+            action = MENU_ACTION_BROWSER_OPEN_ROM;
+        } else if ((stricmp(fileext + 1, "z80") == 0) ||
+            (stricmp(fileext + 1, "sna") == 0))
+        {
+            *icon = ICON_TYPE_Z80;
+            action = MENU_ACTION_BROWSER_LOAD_Z80;
+        } else if (((romArrayPresent & BANK_DIVMMC) != 0) &&
+            ((stricmp(fileext + 1, "img") == 0) ||
+                (stricmp(fileext + 1, "hdf") == 0)))
+        {
+            *icon = ICON_TYPE_DSK;
+            action = MENU_ACTION_BROWSER_OPEN_HDF;
+        } else if (stricmp(fileext + 1, "dsk") == 0)
+        {
+            *icon = ICON_TYPE_DSK;
+            action = MENU_ACTION_BROWSER_OPEN_DSK;
+        } else if (menuHasMdrEmu &&
+            (stricmp(fileext + 1, "mdr") == 0))
+        {
+            *icon = ICON_TYPE_DSK;
+            action = MENU_ACTION_BROWSER_LOAD_MDR;
+        } else if ((stricmp(fileext + 1, "tap") == 0) ||
+            (stricmp(fileext + 1, "tzx") == 0))
+        {
+            *icon = ICON_TYPE_TZX;
+            action = MENU_ACTION_BROWSER_LOAD_TZX;
+        } else if ((menuTopMenu == MENU_TYPE_IN_GAME) &&
+            (stricmp(fileext + 1, "pok") == 0))
+        {
+            *icon = ICON_TYPE_NONE;
+            action = MENU_ACTION_BROWSER_OPEN_POK;
+        } else {
+            *icon = ICON_TYPE_NONE;
+            action = MENU_ACTION_BROWSER_OPEN;
+        }
+    } else {
+        *icon = ICON_TYPE_NONE;
+        action = MENU_ACTION_BROWSER_OPEN;
+    }
+
+    return action;
+}
+
 char* menuAddBrowserFile(uint32_t index, char* ptr, const char* filename,
     bool isDirectory)
 {
-    // Add directory icons, and find the file extension
     icon_type_t icon;
-    menu_action_t action;
-    if (isDirectory)
-    {
-        icon = ICON_TYPE_NONE;
-        action = MENU_ACTION_BROWSER_CD;
-    } else {
-        char *fileext = strrchr(filename, '.');
-        if (fileext != 0)
-        {
-            if (stricmp(fileext + 1, "rom") == 0)
-            {
-                // Open ROM type selector, as ".rom" could be various types
-                icon = ICON_TYPE_CART;
-                action = MENU_ACTION_BROWSER_OPEN_ROM;
-            } else if (stricmp(fileext + 1, "bin") == 0)
-            {
-                // Open ROM type selector, as ".bin" could be various types
-                icon = ICON_TYPE_ZXC2;
-                action = MENU_ACTION_BROWSER_OPEN_ROM;
-            } else if ((stricmp(fileext + 1, "z80") == 0) ||
-                (stricmp(fileext + 1, "sna") == 0))
-            {
-                icon = ICON_TYPE_Z80;
-                action = MENU_ACTION_BROWSER_LOAD_Z80;
-            } else if (((romArrayPresent & BANK_DIVMMC) != 0) &&
-                ((stricmp(fileext + 1, "img") == 0) ||
-                    (stricmp(fileext + 1, "hdf") == 0)))
-            {
-                icon = ICON_TYPE_DSK;
-                action = MENU_ACTION_BROWSER_OPEN_HDF;
-            } else if (stricmp(fileext + 1, "dsk") == 0)
-            {
-                icon = ICON_TYPE_DSK;
-                action = MENU_ACTION_BROWSER_OPEN_DSK;
-            } else if (menuHasMdrEmu &&
-                (stricmp(fileext + 1, "mdr") == 0))
-            {
-                icon = ICON_TYPE_DSK;
-                action = MENU_ACTION_BROWSER_LOAD_MDR;
-            } else if ((stricmp(fileext + 1, "tap") == 0) ||
-                (stricmp(fileext + 1, "tzx") == 0))
-            {
-                icon = ICON_TYPE_TZX;
-                action = MENU_ACTION_BROWSER_LOAD_TZX;
-            } else if ((menuTopMenu == MENU_TYPE_IN_GAME) &&
-                (stricmp(fileext + 1, "pok") == 0))
-            {
-                icon = ICON_TYPE_NONE;
-                action = MENU_ACTION_BROWSER_OPEN_POK;
-            } else {
-                icon = ICON_TYPE_NONE;
-                action = MENU_ACTION_BROWSER_OPEN;
-            }
-        } else {
-            icon = ICON_TYPE_NONE;
-            action = MENU_ACTION_BROWSER_OPEN;
-        }
-    }
+    menu_action_t action = menuGetBrowserFileAction(filename, isDirectory, &icon);
 
     // Insert the menu entry
     return menuInsertBrowserFile(action, icon, index, ptr, filename, isDirectory);
@@ -1208,6 +1249,60 @@ void menuResetBrowserPage()
     menuBrowserHasNextLowerBound = false;
     menuBrowserPreviousPage = false;
     menuBrowserExpandedIndex = BROWSER_PARENT_INDEX;
+    menuBrowserExpandedAction = MENU_ACTION_TOP_MENU;
+    menuBrowserExpandedMenuIndex = 0;
+    menuBrowserExpandedLineCount = 1;
+    menuBrowserExpandedMenuLine = 0;
+}
+
+uint8_t menuGetExpandedFileLineCount(const char* filename)
+{
+    size_t length = strlen(filename);
+    uint8_t lines = 1;
+    if (length > ROM_NAME_LEN)
+    {
+        length -= ROM_NAME_LEN;
+        const uint8_t continuationLength = (ROM_NAME_LEN - 3);
+        while (length > 0)
+        {
+            ++lines;
+            if (length <= continuationLength)
+            {
+                break;
+            }
+            length -= continuationLength;
+        }
+    }
+    return lines;
+}
+
+bool menuSetBrowserExpandedAction(uint32_t fileIndex)
+{
+    bool result = false;
+    FsFile directory = SD.sdfs.open(menuBrowserPath, O_RDONLY);
+    if (directory)
+    {
+        if (directory.isDirectory())
+        {
+            FsFile entry;
+            if (entry.open(&directory, fileIndex, O_RDONLY))
+            {
+                char name[MAX_PATH];
+                if (entry.getName(name, MAX_PATH))
+                {
+                    icon_type_t icon;
+                    menuBrowserExpandedAction =
+                        menuGetBrowserFileAction(name, entry.isDirectory(), &icon);
+                    menuBrowserExpandedLineCount =
+                        menuGetExpandedFileLineCount(name);
+                    result = true;
+                }
+                entry.close();
+            }
+        }
+        directory.close();
+    }
+    return result;
 }
 
 char* menuGenerateBrowser(char* ptr)
@@ -1333,6 +1428,36 @@ char* menuGenerateBrowser(char* ptr)
         ptr = menuInsertSetting(MENU_ACTION_TOP_MENU, 0, ptr,
             MENU_STRINGS[STRING_CANCEL], 0);
     }
+    return ptr;
+}
+
+char* menuGenerateBrowserExpand(char* ptr)
+{
+    uint8_t shiftRows = 0;
+    if ((menuBrowserExpandedMenuLine + menuBrowserExpandedLineCount) >
+        MENU_PAGE_ENTRY_COUNT)
+    {
+        shiftRows = (menuBrowserExpandedMenuLine +
+            menuBrowserExpandedLineCount) - MENU_PAGE_ENTRY_COUNT;
+        if (shiftRows > menuBrowserExpandedMenuLine)
+        {
+            shiftRows = menuBrowserExpandedMenuLine;
+        }
+    }
+
+    menuRenderSkipEnabled = (shiftRows > 0);
+    menuRenderSkipStart = menuBrowserExpandedMenuIndex - shiftRows;
+    menuRenderSkipEnd = menuBrowserExpandedMenuIndex;
+    menuTxtPtr[MEM_POS] = menuBrowserExpandedMenuLine - shiftRows;
+
+    ptr = menuGenerateBrowser(ptr);
+    menuRenderSkipEnabled = false;
+
+    // The listing above is displayed, but the ROM modal sends only entry 0
+    // to collapse or entry 1 to perform the original browser action.
+    menuEntries = 0;
+    menuInsertEntry(MENU_ACTION_BROWSER_EXPAND, menuBrowserExpandedIndex);
+    menuInsertEntry(menuBrowserExpandedAction, menuBrowserExpandedIndex);
     return ptr;
 }
 
@@ -1709,6 +1834,8 @@ void menuGenerate()
     menuEntries = 0;
     menuPage = 0;
     menuPageLine = 0;
+    menuRenderSourceEntry = 0;
+    menuRenderSkipEnabled = false;
 
     // Build the menu
     char* textPtr = menuTxtPtr;
@@ -1731,6 +1858,9 @@ void menuGenerate()
             break;
         case MENU_TYPE_BROWSER :
             textPtr = menuGenerateBrowser(textPtr);
+            break;
+        case MENU_TYPE_BROWSER_EXPAND :
+            textPtr = menuGenerateBrowserExpand(textPtr);
             break;
         case MENU_TYPE_BROWSER_OPEN :
             textPtr = menuGenerateBrowserOpen(textPtr);
@@ -1845,6 +1975,19 @@ bool menuPerformSelection(uint8_t index)
     }
     menuAction = menu[index].action;
     uint32_t entryIndex = menu[index].index;
+
+    // Perform large directory filename expansion handling
+    if (menuCurrent == MENU_TYPE_BROWSER_EXPAND)
+    {
+        menuTxtPtr[MEM_POS] = menuBrowserExpandedMenuLine;
+        if (index == 1)
+        {
+            // Handle action when expanded filename is selected
+            menuBrowserExpandedIndex = BROWSER_PARENT_INDEX;
+            menuBrowserExpandedAction = MENU_ACTION_TOP_MENU;
+            menuCurrent = MENU_TYPE_BROWSER;
+        }
+    }
 
     // Perform menu action
     switch (menuAction)
@@ -2122,9 +2265,17 @@ bool menuPerformSelection(uint8_t index)
         case MENU_ACTION_BROWSER_EXPAND :
             if (menuBrowserExpandedIndex != entryIndex)
             {
-                menuBrowserExpandedIndex = entryIndex;
+                if (menuSetBrowserExpandedAction(entryIndex))
+                {
+                    menuBrowserExpandedIndex = entryIndex;
+                    menuBrowserExpandedMenuIndex = index;
+                    menuBrowserExpandedMenuLine = index % MENU_PAGE_ENTRY_COUNT;
+                    menuCurrent = MENU_TYPE_BROWSER_EXPAND;
+                    return false;
+                }
             } else {
                 menuBrowserExpandedIndex = BROWSER_PARENT_INDEX;
+                menuBrowserExpandedAction = MENU_ACTION_TOP_MENU;
             }
             menuCurrent = MENU_TYPE_BROWSER;
             break;

@@ -87,6 +87,9 @@ _menu:
     ld hl,_compressedBlank  ; blank explorer screen
     call _decompressScr     ; decompress screen
 _menu2:
+    call _drawMenu          ; render current menu text
+    jp _menu100
+_drawMenu:
     call _txtMem            ; set start txt mem for page
     ld de,MEM_SCR+1         ; start of ZX Spectrum ROM Explorer vx.x text on screen
     exx                     ; alt
@@ -170,6 +173,7 @@ _menuTxt:
     ld de,(MEM_TXT)     ; get text start
     call _pltText       ; plot the text
     exx                 ; norm
+    ret
 ; ------------------------------------------+----------------------------------
 ; Colour in selection bar to mimic 128k menu
 ; ------------------------------------------+----------------------------------
@@ -218,19 +222,7 @@ _menu400:
     jr z,_menu400
     jp _teensyMenuAction
 _menu450:
-; ------------------------------------------+----------------------------------
-; Simple beeper routine to simulate basic keyclick
-;   port 0xfe -> 0,0,0,ear,mic,border,border,border
-; ------------------------------------------+----------------------------------
-    ld e,a          ; preserve a
-    ld b,0x3f
-    ld a,%00011111  ; keep border white and mic/ear bits set
-    out (0xfe),a
-_clickLoop:
-    djnz _clickLoop ; wait 63*13t -5t = 814t
-    ld a,%00001111  ; switch ear bit to zero to create tiny click
-    out (0xfe),a
-    ld a,e          ; restore a
+    call _keyClicker
 ; ------------------------------------------+----------------------------------
 ; Check which button pressed using carry flag
 ;   bit 0 - fire, bit 1 - left, bit 2 - right, bit 3 - up, bit 4 - down
@@ -382,6 +374,9 @@ _teensyAction:
 ; preview a saved active screen
     cp 8
     jp z, _statePreview
+; confirm or collapse an expanded browser filename
+    cp 9
+    jp z, _browserExpand
 ; otherwise, menu redraw
 _menuRedraw:
     ld a,(_maxroms+1)
@@ -395,6 +390,22 @@ _menuRedraw:
     ld (MEM_PAGE),a
 _doneSelected:
     jp _menu2
+
+; ------------------------------------------+----------------------------------
+; Simple beeper routine to simulate basic keyclick
+;   port 0xfe -> 0,0,0,ear,mic,border,border,border
+; ------------------------------------------+----------------------------------
+_keyClicker:
+    ld e,a          ; preserve a
+    ld b,0x3f
+    ld a,%00011111  ; keep border white and mic/ear bits set
+    out (0xfe),a
+_clickLoop:
+    djnz _clickLoop ; wait 63*13t -5t = 814t
+    ld a,%00001111  ; switch ear bit to zero to create tiny click
+    out (0xfe),a
+    ld a,e          ; restore a
+    ret
 
 ; ------------------------------------------+----------------------------------
 ; Saved-state preview. Scratch page 2 contains a 6912-byte SCR followed by
@@ -412,30 +423,46 @@ _statePreview:
     out (0xFE),a
     xor a
     out (0xBF),a
-_statePreviewRelease:
+    ld d,0
+    jr _modalConfirmRelease
+_browserExpand:
+    push bc
+    call _drawMenu
+    ld a,(MEM_POS)
+    ld c,a
+    call _colbar
+    ld d,1
+_modalConfirmRelease:
     call _getkey
     and %00111111
-    jr nz,_statePreviewRelease
-_statePreviewWait:
+    jr nz,_modalConfirmRelease
+_modalConfirmWait:
     halt
     call _getkey
     and %00111111
-    jr z,_statePreviewWait
+    jr z,_modalConfirmWait
+    call _keyClicker
     rra
-    jr c,_statePreviewConfirm
-    ; Any direction selects preview-menu entry 0 to return to the slot menu.
+    jr c,_modalConfirm
+    ; Any direction selects modal-menu entry 0 to return to the menu.
     ld a,%00000111
     out (0xFE),a
     ld hl,_compressedBlank  ; blank explorer screen
     call _decompressScr     ; decompress screen
     xor a
     out (0xeb),a
-    jr _statePreviewDone
-_statePreviewConfirm:
-    ; Fire selects preview-menu entry 1 to load the state.
+    jr _modalConfirmDone
+_modalConfirm:
+    ; Fire selects modal-menu entry 1 to confirm the action.
+    ld a,d
+    or a
+    jr z,_modalConfirmSend
+    ld hl,_compressedBlank  ; blank explorer screen
+    call _decompressScr     ; decompress screen
+_modalConfirmSend:
     ld a,1
     out (0xeb),a
-_statePreviewDone:
+_modalConfirmDone:
     pop bc
     jp _waitForTeensy
 
