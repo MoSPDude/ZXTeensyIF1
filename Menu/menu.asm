@@ -17,7 +17,7 @@ MEM_INT     EQU MEM_ORG + 0x0038
 MEM_NMI     EQU MEM_ORG + 0x0066
 MEM_LTBL    EQU MEM_ORG + 0x1000 ; lookup table MEM_LTBLP-512
 MEM_LTBLP   EQU MEM_LTBL + 0x200 ; lookup table start
-MEM_OFFSET  EQU MEM_LTBLP - 9;
+MEM_OFFSET  EQU MEM_LTBLP - 12;
 
 MEM_SP      EQU MEM_ORG + 0x3FF6  ; stack pointer start
 MEM_MODE    EQU MEM_ORG + 0x3FF8  ; detected state mode: 0=48K, 1=128K, 2=unknown
@@ -1179,6 +1179,7 @@ _nmiMenuExitDI :
     jp (_nmiMenuPageOut + 1)
 _codeend:
     org MEM_OFFSET
+    jp (_gapLengthData)
     jp (_verText)
     jp (_maxroms + 1)
     jp (_right + 1)

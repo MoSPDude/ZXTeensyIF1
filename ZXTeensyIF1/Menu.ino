@@ -17,6 +17,7 @@ static const uint8_t CHAR_Z80_R = 29;
 static const uint8_t CHAR_TZX_L = 30;
 static const uint8_t CHAR_TZX_R = 31;
 
+static const uint16_t MENU_TEXT_WIDTHS = 0x11F5;
 static const uint16_t MENU_VERSION_STR = 0x11F8;
 static const uint16_t MENU_NUM_ENTRIES = 0x11FB;
 static const uint16_t MENU_NUM_PAGES = 0x11FE;
@@ -143,6 +144,7 @@ bool menuHasMdrEmu = false;
 char* menuPtr;
 char* menuTxtPtr;
 char* menuEndPtr;
+uint8_t* menuTextWidths;
 uint8_t menuEntries;
 menu_type_t menuCurrent;
 menu_type_t menuTopMenu;
@@ -151,9 +153,9 @@ volatile menu_action_t menuAction;
 
 // Menu file browser
 static const uint8_t BROWSER_ENTRY_LIMIT = 254;
-static const uint8_t BROWSER_PAGE_ENTRY_LIMIT =
-    ((RAM_PAGE_SIZE / MENU_STR_LEN) - 4);
+static const uint8_t BROWSER_SORT_ENTRY_LIMIT = 255;
 static const uint32_t BROWSER_PARENT_INDEX = 0xFFFFFFFFUL;
+static const size_t BROWSER_PIXEL_WIDTH = 247 - (3 * 8);
 char menuBrowserPath[MAX_PATH];
 uint32_t menuBrowserStartIndex = 0;
 uint32_t menuBrowserExpandedIndex = BROWSER_PARENT_INDEX;
@@ -174,6 +176,13 @@ typedef struct {
     bool isDirectory;
 } browser_sort_entry_t;
 
+typedef struct {
+    uint8_t start;
+    uint8_t count;
+    bool hasPrevious;
+    bool hasNext;
+} browser_page_batch_t;
+
 // File browser large directory handling
 browser_sort_entry_t menuBrowserLowerBound;
 browser_sort_entry_t menuBrowserNextLowerBound;
@@ -190,7 +199,7 @@ void menuInsertSortedBrowserEntry(browser_sort_entry_t* entries, uint8_t* count,
     uint8_t limit, const browser_sort_entry_t* candidate);
 void menuInsertPreviousBrowserEntry(browser_sort_entry_t* entries,
     uint8_t* count, uint8_t limit, const browser_sort_entry_t* candidate);
-uint8_t menuCollectBrowserEntries(FsFile& directory,
+uint8_t menuCollectForwardBrowserEntries(FsFile& directory,
     const browser_sort_entry_t* afterEntry, browser_sort_entry_t* entries,
     uint8_t limit, char* displayName);
 uint8_t menuCollectPreviousBrowserEntries(FsFile& directory,
@@ -200,7 +209,25 @@ void menuResetBrowserPage();
 menu_action_t menuGetBrowserFileAction(const char* filename,
     bool isDirectory, icon_type_t* icon);
 bool menuSetBrowserExpandedAction(uint32_t fileIndex);
-uint8_t menuGetExpandedFileLineCount(const char* filename);
+size_t menuGetSettingTextLength(const char* label);
+size_t menuGetFileIconLength(icon_type_t icon);
+uint8_t menuGetCollapsedBrowserFileMetrics(size_t length, const char* filename, 
+    size_t* textLength);
+uint8_t menuGetExpandedBrowserFileMetrics(size_t length, const char* filename, 
+    size_t* textLength);
+bool menuGetBrowserFileMetrics(FsFile& directory,
+    const browser_sort_entry_t* browserEntry, char* displayName,
+    bool allowExpanded, size_t* textLength, uint8_t* entryCount);
+bool menuReserveBrowserBatchSpace(size_t* used, uint16_t* entries,
+    size_t textLength, uint8_t entryCount);
+bool menuReserveBrowserPageControls(size_t* used, uint16_t* entries,
+    bool hasPrevious, bool hasNext);
+browser_page_batch_t menuBatchForwardBrowserPage(FsFile& directory,
+    browser_sort_entry_t* entries, uint8_t count, char* displayName,
+    char* ptr, bool hasPrevious, bool allowExpanded);
+browser_page_batch_t menuBatchPreviousBrowserPage(FsFile& directory,
+    browser_sort_entry_t* entries, uint8_t count, char* displayName,
+    char* ptr, bool allowExpanded);
 
 // Menu page creation
 static const uint8_t MENU_PAGE_ENTRY_COUNT = 21;
@@ -478,27 +505,28 @@ char* menuInsertStatus(char* ptr)
         ptr, label, 0);
 }
 
-char* menuInsertFileEntry(menu_action_t action, icon_type_t icon, uint32_t index, char* ptr,
-    const char* filename)
+char* menuInsertFile(menu_action_t action, icon_type_t icon, uint32_t index, char* ptr,
+    const char* filename, bool isDirectory, bool canExpand)
 {
     // Truncate the file name
-    unsigned int len = strlen(filename);
-    if (len > ROM_NAME_LEN)
+    size_t i = 0;
+    size_t width = 8;
+    *ptr++ = (isDirectory ? CHAR_DIR : CHAR_BORDER);
+    while (filename[i] != 0)
     {
-        for (size_t i = 0; i < (ROM_NAME_LEN - 1); ++i)
+        char c = ((filename[i] >= 128) ? '?' : filename[i]);
+        width += *(menuTextWidths + (c - ' '));
+        if (width < BROWSER_PIXEL_WIDTH)
         {
-            *ptr++ = (filename[i] >= 128) ? '?' : filename[i];
-        }
-        *ptr++ = '>';
-    } else {
-        for (size_t i = 0; i < len; ++i)
-        {
-            if (filename[i] >= 128)
+            *ptr++ = c;
+            ++i;
+        } else {
+            *ptr++ = '>';
+            if (canExpand)
             {
-                *ptr++ = '?';
-            } else {
-                *ptr++ = filename[i];
+                action = MENU_ACTION_BROWSER_EXPAND;
             }
+            break;
         }
     }
 
@@ -512,22 +540,17 @@ char* menuInsertFileEntry(menu_action_t action, icon_type_t icon, uint32_t index
     return menuInsertLineEnd(ptr);
 }
 
-char* menuInsertFile(menu_action_t action, icon_type_t icon, uint32_t index, char* ptr,
-    const char* filename)
-{
-    return menuInsertFileEntry(action, icon, index, ptr, filename);
-}
-
 char* menuInsertExpandedFile(menu_action_t action, icon_type_t icon, uint32_t index,
     char* ptr, const char* filename, bool isDirectory)
 {
-    size_t offset = 0;
+    size_t i = 0;
     bool firstLine = true;
     do
     {
         if (menuEntries < 255)
         {
-            size_t length = 0;
+            // Truncate the lines
+            size_t width = 8;
             if (firstLine)
             {
                 *ptr++ = (isDirectory ? CHAR_DIR : CHAR_BORDER);
@@ -536,44 +559,49 @@ char* menuInsertExpandedFile(menu_action_t action, icon_type_t icon, uint32_t in
                 *ptr++ = ' ';
                 *ptr++ = '>';
                 *ptr++ = ' ';
-                length += 3;
+                width += (3 * 8);
             }
-            while ((length < ROM_NAME_LEN) && (filename[offset] != 0))
+            while (filename[i] != 0)
             {
-                *ptr++ = ((filename[offset] >= 128) ? '?' : filename[offset]);
-                ++length;
-                ++offset;
+                char c = ((filename[i] >= 128) ? '?' : filename[i]);
+                width += *(menuTextWidths + (c - ' '));
+                if (width < BROWSER_PIXEL_WIDTH)
+                {
+                    *ptr++ = c;
+                    ++i;
+                } else {
+                    break;
+                }
             }
+
+            // Add menu entry
             menuInsertEntry(action, index);
+
+            // Add icon on first line
             if (firstLine)
             {
                 ptr = menuInsertFileIcon(icon, ptr);
                 firstLine = false;
             }
+
+            // Add new line, and update menu dimensions
             ptr = menuInsertLineEnd(ptr);
         } else {
             break;
         }
-    } while ((filename[offset] != 0) && (ptr <= menuEndPtr));
+    } while ((filename[i] != 0) && (ptr <= menuEndPtr));
     return ptr;
 }
 
 char* menuInsertBrowserFile(menu_action_t action, icon_type_t icon, uint32_t index,
     char* ptr, const char* filename, bool isDirectory)
 {
-    if (strlen(filename) > ROM_NAME_LEN)
+    if (menuBrowserExpandedIndex == index)
     {
-        if (menuBrowserExpandedIndex == index)
-        {
-            return menuInsertExpandedFile(action, icon, index, ptr, filename,
-                isDirectory);
-        }
-        action = MENU_ACTION_BROWSER_EXPAND;
-    }
-    if (!menuSkipNextEntry())
+        ptr = menuInsertExpandedFile(action, icon, index, ptr, filename, isDirectory);
+    } else if (!menuSkipNextEntry())
     {
-        *ptr++ = (isDirectory ? CHAR_DIR : CHAR_BORDER);
-        ptr = menuInsertFileEntry(action, icon, index, ptr, filename);
+        ptr = menuInsertFile(action, icon, index, ptr, filename, isDirectory, true);
     }
     return ptr;
 }
@@ -600,7 +628,7 @@ char* menuAddLoadRomFile(uint32_t index, char* ptr, const char* filename)
     }
 
     // Insert the menu entry
-    return menuInsertFile(action, icon, index, ptr, filename);
+    return menuInsertFile(action, icon, index, ptr, filename, false, false);
 }
 
 char* menuAddConfigurationFile(uint32_t index, char* ptr, const char* filename)
@@ -618,7 +646,8 @@ char* menuAddConfigurationFile(uint32_t index, char* ptr, const char* filename)
         *ptr++ = ((stricmp(filename, cfgData.cfgName) == 0) ? CHAR_TICK : CHAR_BORDER);
 
         // Insert the menu entry
-        ptr = menuInsertFile(MENU_ACTION_LOAD_CFG, ICON_TYPE_NONE, index, ptr, name);
+        ptr = menuInsertFile(MENU_ACTION_LOAD_CFG, ICON_TYPE_NONE, index, ptr, 
+            name, false, false);
     }
     return ptr;
 }
@@ -1175,7 +1204,7 @@ void menuInsertPreviousBrowserEntry(browser_sort_entry_t* entries,
     entries[position] = *candidate;
 }
 
-uint8_t menuCollectBrowserEntries(FsFile& directory,
+uint8_t menuCollectForwardBrowserEntries(FsFile& directory,
     const browser_sort_entry_t* afterEntry, browser_sort_entry_t* entries,
     uint8_t limit, char* displayName)
 {
@@ -1255,27 +1284,6 @@ void menuResetBrowserPage()
     menuBrowserExpandedMenuLine = 0;
 }
 
-uint8_t menuGetExpandedFileLineCount(const char* filename)
-{
-    size_t length = strlen(filename);
-    uint8_t lines = 1;
-    if (length > ROM_NAME_LEN)
-    {
-        length -= ROM_NAME_LEN;
-        const uint8_t continuationLength = (ROM_NAME_LEN - 3);
-        while (length > 0)
-        {
-            ++lines;
-            if (length <= continuationLength)
-            {
-                break;
-            }
-            length -= continuationLength;
-        }
-    }
-    return lines;
-}
-
 bool menuSetBrowserExpandedAction(uint32_t fileIndex)
 {
     bool result = false;
@@ -1291,10 +1299,11 @@ bool menuSetBrowserExpandedAction(uint32_t fileIndex)
                 if (entry.getName(name, MAX_PATH))
                 {
                     icon_type_t icon;
+                    size_t textLength;
                     menuBrowserExpandedAction =
                         menuGetBrowserFileAction(name, entry.isDirectory(), &icon);
                     menuBrowserExpandedLineCount =
-                        menuGetExpandedFileLineCount(name);
+                        menuGetExpandedBrowserFileMetrics(0, name, &textLength);
                     result = true;
                 }
                 entry.close();
@@ -1305,9 +1314,312 @@ bool menuSetBrowserExpandedAction(uint32_t fileIndex)
     return result;
 }
 
+uint8_t menuGetCollapsedBrowserFileMetrics(size_t length, const char* filename,
+    size_t* textLength)
+{
+    size_t i = 0;
+    size_t width = 8;
+    ++length;
+    while (filename[i] != 0)
+    {
+        char c = ((filename[i] >= 128) ? '?' : filename[i]);
+        width += *(menuTextWidths + (c - ' '));
+        ++length;
+        if (width < BROWSER_PIXEL_WIDTH)
+        {
+            ++i;
+        } else {
+            break;
+        }
+    }
+
+    // Provide text length, and number of lines
+    *textLength = length + 1;
+    return 1;
+}
+
+uint8_t menuGetExpandedBrowserFileMetrics(size_t length, const char* filename,
+    size_t* textLength)
+{
+    size_t i = 0;
+    uint8_t lines = 0;
+    bool firstLine = true;
+    do
+    {
+        size_t width = 8;
+        if (firstLine)
+        {
+            ++length;
+            firstLine = false;
+        } else {
+            length += 4;
+            width += (3 * 8);
+        }
+        while (filename[i] != 0)
+        {
+            char c = ((filename[i] >= 128) ? '?' : filename[i]);
+            width += *(menuTextWidths + (c - ' '));
+            if (width < BROWSER_PIXEL_WIDTH)
+            {
+                ++length;
+                ++i;
+            } else {
+                break;
+            }
+        }
+        ++length;
+        ++lines;
+    } while (filename[i] != 0);
+
+    // Provide text length, and number of lines
+    *textLength = length;
+    return lines;
+}
+
+size_t menuGetFileIconLength(icon_type_t icon)
+{
+    switch (icon)
+    {
+        case ICON_TYPE_DSK :
+        case ICON_TYPE_ZXC2 :
+        case ICON_TYPE_CART :
+        case ICON_TYPE_Z80 :
+        case ICON_TYPE_TZX :
+            return 3;
+        default :
+            return 0;
+    }
+}
+
+bool menuGetBrowserFileMetrics(FsFile& directory,
+    const browser_sort_entry_t* browserEntry, char* displayName,
+    bool allowExpanded, size_t* textLength, uint8_t* entryCount)
+{
+    // Measure the exact text bytes and action entries that this browser item
+    // will consume before writing it into the menu RAM page.
+    bool result = false;
+    FsFile entry;
+    if (entry.open(&directory, browserEntry->dirIndex, O_RDONLY))
+    {
+        if (entry.getName(displayName, MAX_PATH))
+        {
+            icon_type_t icon;
+            menuGetBrowserFileAction(displayName, browserEntry->isDirectory,
+                &icon);
+            size_t length = menuGetFileIconLength(icon);
+            if (allowExpanded &&
+                (menuBrowserExpandedIndex == browserEntry->dirIndex))
+            {
+                *entryCount = menuGetExpandedBrowserFileMetrics(length, displayName,
+                    textLength);
+            } else {
+                *entryCount = menuGetCollapsedBrowserFileMetrics(length, displayName,
+                    textLength);
+            }
+            result = true;
+        }
+        entry.close();
+    }
+    return result;
+}
+
+bool menuReserveBrowserBatchSpace(size_t* used, uint16_t* entries,
+    size_t textLength, uint8_t entryCount)
+{
+    if (((*entries) + entryCount) > 255)
+    {
+        return false;
+    }
+    if (((*used) + textLength) > (size_t)(menuEndPtr - menuTxtPtr))
+    {
+        return false;
+    }
+
+    *entries += entryCount;
+    *used += textLength;
+    return true;
+}
+
+size_t menuGetSettingTextLength(const char* label)
+{
+    size_t length = strlen(label);
+    if (length > MENU_TXT_LEN)
+    {
+        length = MENU_TXT_LEN;
+    }
+    return (length + 2);
+}
+
+bool menuReserveBrowserPageControls(size_t* used, uint16_t* entries,
+    bool hasPrevious, bool hasNext)
+{
+    // Reserve the page controls up front so the file batch leaves room for
+    // the previous and duplicated next-page entries.
+    if (hasPrevious &&
+        !menuReserveBrowserBatchSpace(used, entries,
+            menuGetSettingTextLength(MENU_STRINGS[STRING_PREVIOUS_PAGE]), 1))
+    {
+        return false;
+    }
+
+    if (hasNext)
+    {
+        size_t nextLength =
+            menuGetSettingTextLength(MENU_STRINGS[STRING_NEXT_PAGE]);
+        if (!menuReserveBrowserBatchSpace(used, entries, nextLength, 1) ||
+            !menuReserveBrowserBatchSpace(used, entries, nextLength, 1))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+browser_page_batch_t menuBatchForwardBrowserPage(FsFile& directory,
+    browser_sort_entry_t* entries, uint8_t count, char* displayName,
+    char* ptr, bool hasPrevious, bool allowExpanded)
+{
+    browser_page_batch_t batch = {0, 0, hasPrevious, false};
+    size_t noNextUsed = (size_t)(ptr - menuTxtPtr);
+    size_t withNextUsed = noNextUsed;
+    uint16_t noNextEntries = menuEntries;
+    uint16_t withNextEntries = menuEntries;
+    bool noNextCanFit = menuReserveBrowserPageControls(&noNextUsed,
+        &noNextEntries, hasPrevious, false);
+    bool withNextCanFit = menuReserveBrowserPageControls(&withNextUsed,
+        &withNextEntries, hasPrevious, true);
+    uint8_t noNextCount = 0;
+    uint8_t withNextCount = 0;
+
+    if (!noNextCanFit && !withNextCanFit)
+    {
+        return batch;
+    }
+
+    // Build both possible forward batches in one directory pass: one that
+    // assumes no next page exists, and one that reserves room for it.
+    for (uint8_t index = 0; index < count; ++index)
+    {
+        size_t textLength = 0;
+        uint8_t entryCount = 0;
+        bool haveMetrics = menuGetBrowserFileMetrics(directory,
+            &(entries[index]), displayName, allowExpanded, &textLength,
+            &entryCount);
+
+        if (noNextCanFit)
+        {
+            if (!haveMetrics ||
+                menuReserveBrowserBatchSpace(&noNextUsed, &noNextEntries,
+                    textLength, entryCount))
+            {
+                ++noNextCount;
+            } else {
+                noNextCanFit = false;
+            }
+        }
+
+        if (withNextCanFit)
+        {
+            if (!haveMetrics ||
+                menuReserveBrowserBatchSpace(&withNextUsed, &withNextEntries,
+                    textLength, entryCount))
+            {
+                ++withNextCount;
+            } else {
+                withNextCanFit = false;
+            }
+        }
+
+        if (!noNextCanFit && !withNextCanFit)
+        {
+            break;
+        }
+    }
+
+    batch.hasNext = ((noNextCount < count) ||
+        (count == BROWSER_SORT_ENTRY_LIMIT));
+    batch.count = (batch.hasNext ? withNextCount : noNextCount);
+    if (batch.count == 0)
+    {
+        batch.hasNext = false;
+    }
+    return batch;
+}
+
+browser_page_batch_t menuBatchPreviousBrowserPage(FsFile& directory,
+    browser_sort_entry_t* entries, uint8_t count, char* displayName,
+    char* ptr, bool allowExpanded)
+{
+    browser_page_batch_t batch = {0, 0, false, false};
+    bool hasNext = (count > 0);
+    size_t noPreviousUsed = (size_t)(ptr - menuTxtPtr);
+    size_t withPreviousUsed = noPreviousUsed;
+    uint16_t noPreviousEntries = menuEntries;
+    uint16_t withPreviousEntries = menuEntries;
+    bool noPreviousCanFit = menuReserveBrowserPageControls(&noPreviousUsed,
+        &noPreviousEntries, false, hasNext);
+    bool withPreviousCanFit = menuReserveBrowserPageControls(&withPreviousUsed,
+        &withPreviousEntries, true, hasNext);
+    uint8_t noPreviousStart = count;
+    uint8_t withPreviousStart = count;
+
+    if (!noPreviousCanFit && !withPreviousCanFit)
+    {
+        return batch;
+    }
+
+    // Build both possible previous batches from the end of the collected
+    // window, keeping the newest entries visible while preserving controls.
+    for (uint8_t index = count; index > 0; --index)
+    {
+        size_t textLength = 0;
+        uint8_t entryCount = 0;
+        bool haveMetrics = menuGetBrowserFileMetrics(directory,
+            &(entries[index - 1]), displayName, allowExpanded, &textLength,
+            &entryCount);
+
+        if (noPreviousCanFit)
+        {
+            if (!haveMetrics ||
+                menuReserveBrowserBatchSpace(&noPreviousUsed,
+                    &noPreviousEntries, textLength, entryCount))
+            {
+                noPreviousStart = index - 1;
+            } else {
+                noPreviousCanFit = false;
+            }
+        }
+
+        if (withPreviousCanFit)
+        {
+            if (!haveMetrics ||
+                menuReserveBrowserBatchSpace(&withPreviousUsed,
+                    &withPreviousEntries, textLength, entryCount))
+            {
+                withPreviousStart = index - 1;
+            } else {
+                withPreviousCanFit = false;
+            }
+        }
+
+        if (!noPreviousCanFit && !withPreviousCanFit)
+        {
+            break;
+        }
+    }
+
+    batch.hasPrevious = ((noPreviousStart > 0) ||
+        (count == BROWSER_SORT_ENTRY_LIMIT));
+    batch.start = (batch.hasPrevious ? withPreviousStart : noPreviousStart);
+    batch.count = count - batch.start;
+    batch.hasPrevious = (batch.start > 0);
+    batch.hasNext = (batch.count > 0);
+    return batch;
+}
+
 char* menuGenerateBrowser(char* ptr)
 {
-    browser_sort_entry_t browserSortEntries[BROWSER_PAGE_ENTRY_LIMIT + 1];
+    browser_sort_entry_t browserSortEntries[BROWSER_SORT_ENTRY_LIMIT];
     char browserDisplayName[MAX_PATH];
 
     if (beginSdfsSd())
@@ -1316,6 +1628,7 @@ char* menuGenerateBrowser(char* ptr)
         FsFile directory = SD.sdfs.open(menuBrowserPath, O_RDONLY);
         if (!directory)
         {
+            // If the stored path has gone away, recover to the root browser.
             strcpy(menuBrowserPath, "/");
             menuResetBrowserPage();
             directory = SD.sdfs.open(menuBrowserPath, O_RDONLY);
@@ -1325,55 +1638,85 @@ char* menuGenerateBrowser(char* ptr)
         if (directory)
         {
             uint8_t count = 0;
-            uint8_t renderStart = 0;
+            browser_page_batch_t batch = {0, 0, false, false};
+            bool renderView = false;
             if (directory.isDirectory())
             {
+                // Expanded filenames are drawn over the current listing, so
+                // do not advance or rewind the browser cursors for that view.
+                bool allowExpanded = (menuCurrent == MENU_TYPE_BROWSER_EXPAND);
+                bool updatePageState = !allowExpanded;
+                renderView = true;
                 ptr = menuInsertSetting(MENU_ACTION_BROWSER_CD,
                     BROWSER_PARENT_INDEX, ptr, "..", 0);
                 if (menuBrowserPreviousPage && menuBrowserHasLowerBound)
                 {
+                    // Moving backwards collects entries up to the current lower
+                    // bound, then keeps the last batch that fits the menu page.
                     browser_sort_entry_t nextLowerBound =
                         menuBrowserLowerBound;
                     count = menuCollectPreviousBrowserEntries(directory,
                         &nextLowerBound, browserSortEntries,
-                        (BROWSER_PAGE_ENTRY_LIMIT + 1), browserDisplayName);
-                    if (count > BROWSER_PAGE_ENTRY_LIMIT)
+                        BROWSER_SORT_ENTRY_LIMIT, browserDisplayName);
+
+                    batch = menuBatchPreviousBrowserPage(directory,
+                        browserSortEntries, count, browserDisplayName,
+                        ptr, allowExpanded);
+
+                    if (updatePageState)
                     {
-                        menuBrowserLowerBound = browserSortEntries[0];
-                        menuBrowserHasLowerBound = true;
-                        renderStart = 1;
-                        count = BROWSER_PAGE_ENTRY_LIMIT;
-                    } else {
-                        menuBrowserHasLowerBound = false;
-                        menuBrowserStartIndex = 0;
+                        // Shift the lower bound to the entry immediately before
+                        // this batch, or clear it when we reached the first page.
+                        if (batch.hasPrevious)
+                        {
+                            menuBrowserLowerBound =
+                                browserSortEntries[batch.start - 1];
+                            menuBrowserHasLowerBound = true;
+                        } else {
+                            menuBrowserHasLowerBound = false;
+                            menuBrowserStartIndex = 0;
+                        }
+                        menuBrowserNextLowerBound = nextLowerBound;
+                        menuBrowserHasNextLowerBound = batch.hasNext;
                     }
-                    menuBrowserNextLowerBound = nextLowerBound;
-                    menuBrowserHasNextLowerBound = (count > 0);
                 } else {
-                    count = menuCollectBrowserEntries(directory,
+                    // Moving forwards collects entries after the current lower
+                    // bound, then keeps the first batch that fits the menu page.
+                    batch.hasPrevious = menuBrowserHasLowerBound;
+                    count = menuCollectForwardBrowserEntries(directory,
                         (menuBrowserHasLowerBound ?
                             &menuBrowserLowerBound : 0),
-                        browserSortEntries, (BROWSER_PAGE_ENTRY_LIMIT + 1),
+                        browserSortEntries, BROWSER_SORT_ENTRY_LIMIT,
                         browserDisplayName);
-                    if (count > BROWSER_PAGE_ENTRY_LIMIT)
+
+                    batch = menuBatchForwardBrowserPage(directory,
+                        browserSortEntries, count, browserDisplayName, ptr,
+                        batch.hasPrevious, allowExpanded);
+
+                    if (updatePageState)
                     {
-                        count = BROWSER_PAGE_ENTRY_LIMIT;
-                        menuBrowserNextLowerBound =
-                            browserSortEntries[BROWSER_PAGE_ENTRY_LIMIT - 1];
-                        menuBrowserHasNextLowerBound = true;
-                    } else {
-                        menuBrowserHasNextLowerBound = false;
+                        // The last rendered entry becomes the cursor for the
+                        // next forward batch.
+                        if (batch.hasNext && (batch.count > 0))
+                        {
+                            menuBrowserNextLowerBound =
+                                browserSortEntries[batch.count - 1];
+                            menuBrowserHasNextLowerBound = true;
+                        } else {
+                            menuBrowserHasNextLowerBound = false;
+                        }
                     }
                 }
                 menuBrowserPreviousPage = false;
 
-                // Add previous and next page selections
-                if (menuBrowserStartIndex > 0)
+                // Add previous and next page selections before the filenames
+                // so they have stable action indexes on the first menu page.
+                if (batch.hasPrevious)
                 {
                     ptr = menuInsertSetting(MENU_ACTION_BROWSER_PAGE, 0, ptr,
                         MENU_STRINGS[STRING_PREVIOUS_PAGE], 0);
                 }
-                if (menuBrowserHasNextLowerBound)
+                if (batch.hasNext)
                 {
                     ptr = menuInsertSetting(MENU_ACTION_BROWSER_PAGE, 1, ptr,
                         MENU_STRINGS[STRING_NEXT_PAGE], 0);
@@ -1387,15 +1730,15 @@ char* menuGenerateBrowser(char* ptr)
             directory.close();
 
             // Render the file names in the sorted window
-            if (count > 0)
+            if (renderView && (batch.count > 0))
             {
                 directory = SD.sdfs.open(menuBrowserPath, O_RDONLY);
                 if (directory)
                 {
-                    for (uint8_t index = 0; index < count; ++index)
+                    for (uint8_t index = 0; index < batch.count; ++index)
                     {
                         const browser_sort_entry_t* browserEntry =
-                            &(browserSortEntries[index + renderStart]);
+                            &(browserSortEntries[index + batch.start]);
                         FsFile entry;
                         if (entry.open(&directory, browserEntry->dirIndex, O_RDONLY))
                         {
@@ -1411,9 +1754,11 @@ char* menuGenerateBrowser(char* ptr)
                             break;
                         }
                     }
-                    if (menuBrowserHasNextLowerBound && (menuEntries < 255) &&
+                    if (batch.hasNext && (menuEntries < 255) &&
                         (ptr <= menuEndPtr))
                     {
+                        // Duplicate "next page" after the filenames so paging
+                        // remains reachable at the bottom of the listing.
                         ptr = menuInsertSetting(MENU_ACTION_BROWSER_PAGE, 1, ptr,
                             MENU_STRINGS[STRING_NEXT_PAGE], 0);
                     }
@@ -1953,6 +2298,10 @@ void menuInitialise(volatile uint8_t* romPtr, volatile uint8_t* ramPtr)
     uint16_t address = ((menuPtr[(MENU_VERSION_STR + 1)] << 8) + menuPtr[MENU_VERSION_STR]);
     strncpy((char*)&menuPtr[address], VERSION_STR, 9);
 
+    // Store the variable width font width table
+    address = ((menuPtr[(MENU_TEXT_WIDTHS + 1)] << 8) + menuPtr[MENU_TEXT_WIDTHS]);
+    menuTextWidths = (uint8_t*)&(menuPtr[address]);
+
     // Check for microdrive emulator ROM
     File mdrRomFile = SD.open(MDR_EMULATOR_ROM_PATH, FILE_READ);
     if (mdrRomFile)
@@ -2245,16 +2594,19 @@ bool menuPerformSelection(uint8_t index)
                 if (menuBrowserHasNextLowerBound)
                 {
                     menuBrowserLowerBound = menuBrowserNextLowerBound;
-                    menuBrowserStartIndex += BROWSER_PAGE_ENTRY_LIMIT;
+                    ++menuBrowserStartIndex;
                     menuBrowserHasLowerBound = true;
                     menuBrowserPreviousPage = false;
                 } else {
                     menuResetBrowserPage();
                 }
             } else {
-                if (menuBrowserStartIndex > BROWSER_PAGE_ENTRY_LIMIT)
+                if (menuBrowserHasLowerBound)
                 {
-                    menuBrowserStartIndex -= BROWSER_PAGE_ENTRY_LIMIT;
+                    if (menuBrowserStartIndex > 0)
+                    {
+                        --menuBrowserStartIndex;
+                    }
                     menuBrowserPreviousPage = true;
                 } else {
                     menuResetBrowserPage();
