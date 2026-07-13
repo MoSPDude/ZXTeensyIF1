@@ -211,9 +211,9 @@ menu_action_t menuGetBrowserFileAction(const char* filename,
 bool menuSetBrowserExpandedAction(uint32_t fileIndex);
 size_t menuGetSettingTextLength(const char* label);
 size_t menuGetFileIconLength(icon_type_t icon);
-uint8_t menuGetCollapsedBrowserFileMetrics(size_t length, const char* filename, 
+uint8_t menuGetCollapsedBrowserFileMetrics(size_t length, const char* filename,
     size_t* textLength);
-uint8_t menuGetExpandedBrowserFileMetrics(size_t length, const char* filename, 
+uint8_t menuGetExpandedBrowserFileMetrics(size_t length, const char* filename,
     size_t* textLength);
 bool menuGetBrowserFileMetrics(FsFile& directory,
     const browser_sort_entry_t* browserEntry, char* displayName,
@@ -372,7 +372,12 @@ char* menuInsertInGameStatus(char* ptr)
 {
     // Show current ROMs
     char label[(MENU_STR_LEN + 1)];
-    strcpy(label, " > ROM:         ");
+    if (snprintf(label, (MENU_STR_LEN + 1), " > ROM:--------- RAM: %d%s",
+        (spectrumBankM & 0x07), ((spectrumBankM & 0x20) ? " LOCK" : ""))
+        >= (MENU_STR_LEN + 1))
+    {
+        label[MENU_STR_LEN] = 0;
+    }
     if ((romArrayPresent & BANK_ROM0) != 0)
     {
         if (IS_ROM_PAGED(ROM_ROM3))
@@ -447,7 +452,8 @@ char* menuInsertInGameStatus(char* ptr)
         char zxc2Label[(MENU_STR_LEN + 1)], divMmcLabel[(MENU_STR_LEN + 1)];
         if (zxC2Present)
         {
-            if (snprintf(zxc2Label, (MENU_STR_LEN + 1), " /x18/x19 %d%s", (zxC2RomBank >> 1),
+            if (snprintf(zxc2Label, (MENU_STR_LEN + 1), " \x18\x19%s: %d%s",
+                zxC3Present ? "3" : "2", (zxC2RomBank >> 1),
                 (zxC2Lock ? " LOCK" : "")) >= (MENU_STR_LEN + 1))
             {
                 zxc2Label[MENU_STR_LEN] = 0;
@@ -652,7 +658,7 @@ char* menuAddConfigurationFile(uint32_t index, char* ptr, const char* filename)
         *ptr++ = ((stricmp(filename, cfgData.cfgName) == 0) ? CHAR_TICK : CHAR_BORDER);
 
         // Insert the menu entry
-        ptr = menuInsertFile(MENU_ACTION_LOAD_CFG, ICON_TYPE_NONE, index, ptr, 
+        ptr = menuInsertFile(MENU_ACTION_LOAD_CFG, ICON_TYPE_NONE, index, ptr,
             name, false);
     }
     return ptr;

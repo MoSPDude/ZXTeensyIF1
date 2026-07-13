@@ -2632,8 +2632,9 @@ FASTRUN void isrWrEvent()
         uint16_t address = decodeAddress(gpioSix);
 
         // Perform ZXC2 address based paging
-        if (zxC2Present && !zxC2Lock &&
-            (!zxC2ShadowRom || IS_ROM_PAGED(ROM_ZXC2)) &&
+        if (zxC2Present && !zxC2Lock && !nmiPending &&
+            (!zxC2ShadowRom || IS_ROM_PRIORITY(ROM_ZXC2)) &&
+            !IS_ROM_PRIORITY(ROM_SNA) &&
             ((address & 0xffc0) == 0x3fc0))
         {
             if (zxC3Present)
@@ -3097,8 +3098,9 @@ FASTRUN void isrRdEvent()
             uint16_t address = decodeAddress(gpioSix);
 
             // Perform ZXC2 address based paging
-            if (zxC2Present && !zxC2Lock &&
-                (!zxC2ShadowRom || IS_ROM_PAGED(ROM_ZXC2)) &&
+            if (zxC2Present && !zxC2Lock && !nmiPending &&
+                (!zxC2ShadowRom || IS_ROM_PRIORITY(ROM_ZXC2)) &&
+                !IS_ROM_PRIORITY(ROM_SNA) &&
                 ((address & 0xffc0) == 0x3fc0))
             {
                 if (zxC3Present)
