@@ -70,5 +70,6 @@
 #define PAGE_OUT_ROM(bit) (romPaged &= ~(1UL << (bit)))
 #define IS_ROM_PAGED(bit) ((romPaged >> (bit)) & 0x01)
 #define IS_ROM_PRIORITY(bit) ((romPaged >= (1UL << (bit))))
+#define IS_ROM_HIGHEST(bit) ((romPaged < (1UL << (bit + 1))))
 
 #endif

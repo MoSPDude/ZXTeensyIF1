@@ -372,7 +372,7 @@ char* menuInsertInGameStatus(char* ptr)
 {
     // Show current ROMs
     char label[(MENU_STR_LEN + 1)];
-    if (snprintf(label, (MENU_STR_LEN + 1), " > ROM:--------- RAM: %d%s",
+    if (snprintf(label, (MENU_STR_LEN + 1), " > ROM: -------- RAM: %d%s",
         (spectrumBankM & 0x07), ((spectrumBankM & 0x20) ? " LOCK" : ""))
         >= (MENU_STR_LEN + 1))
     {
@@ -878,12 +878,14 @@ char* menuGenerateInGame(char* ptr)
         MENU_STRINGS[STRING_IN_GAME_EXIT_BASIC], 0);
     ptr = menuInsertSetting(MENU_ACTION_IN_GAME_NMI, 0, ptr,
         MENU_STRINGS[STRING_IN_GAME_NMI], 0);
-    if (mf128Present && ((romArrayPresent & BANK_MF128) != 0))
+    if (mf128Present && ((romArrayPresent & BANK_MF128) != 0) &&
+        (menuPrevRomSelected <= ROM_MF128))
     {
         ptr = menuInsertSetting(MENU_ACTION_IN_GAME_MF128, 0, ptr,
             MENU_STRINGS[STRING_IN_GAME_MF128], 0);
     }
-    if (divMmcRomEnabled && ((romArrayPresent & BANK_DIVMMC) != 0))
+    if (divMmcRomEnabled && ((romArrayPresent & BANK_DIVMMC) != 0) &&
+        (menuPrevRomSelected <= ROM_DIVMMC))
     {
         ptr = menuInsertSetting(MENU_ACTION_IN_GAME_DIVMMC, 0, ptr,
             MENU_STRINGS[STRING_IN_GAME_DIVMMC], 0);
