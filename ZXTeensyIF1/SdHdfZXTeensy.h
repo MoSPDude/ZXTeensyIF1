@@ -9,6 +9,8 @@
 #include "DefinesZXTeensy.h"
 #include <SD.h>
 #include <SdFat.h>
+#include <stdio.h>
+#include <string.h>
 
 //define DEBUG_HDF_OUTPUT
 
@@ -40,10 +42,14 @@ template <size_t READ_BUFFER_SIZE> class SdHdfZXTeensy
         } command_t;
 
     protected :
+        static const uint16_t MAX_IMAGE_SEGMENTS = 8;
+        static const uint16_t INVALID_SEGMENT = 0xFFFF;
+
         RingBuffer<READ_BUFFER_SIZE> sdSpiReadBuffer;
 
         File sdCard;
         char sdCardPath[MAX_PATH];
+        size_t sdCardSegmentBaseLength;
         bool validSdCard;
         bool readOnlySdCard;
         bool isSdIdle;
@@ -56,7 +62,13 @@ template <size_t READ_BUFFER_SIZE> class SdHdfZXTeensy
         uint32_t dataIndex;
         volatile uint8_t dataBuffer[528] __attribute__((aligned(16)));
 
-        uint64_t sectorOffset;
+        size_t sectorOffset;
+        uint32_t segmentSectors[MAX_IMAGE_SEGMENTS + 1];
+        uint16_t numSegments;
+        uint16_t currentSegment;
+        uint32_t currentSegmentStart;
+        uint32_t currentSegmentSectors;
+        size_t currentSegmentOffset;
         uint32_t currentSector;
         uint32_t numSectors;
 
@@ -75,27 +87,216 @@ template <size_t READ_BUFFER_SIZE> class SdHdfZXTeensy
             writeReadData(error | (isSdIdle ? 0x01 : 0x00));
         }
 
-        inline __attribute__((always_inline)) void openSdCard()
+        size_t findSegmentPathBaseLength() const
         {
-            if (!validSdCard)
+            const char* extension = 0;
+            size_t pathLength = strlen(sdCardPath);
+            const char* p = sdCardPath + pathLength;
+            while (p != sdCardPath)
             {
-                if (!readOnlySdCard)
+                --p;
+                if ((*p == '/') || (*p == '\\'))
                 {
-                    sdCard = SD.open(sdCardPath, FILE_WRITE_BEGIN);
-                    if (!sdCard)
-                    {
-                        readOnlySdCard = true;
-                        sdCard = SD.open(sdCardPath, FILE_READ);
-                    }
-                } else {
-                    sdCard = SD.open(sdCardPath, FILE_READ);
+                    break;
                 }
-                if (sdCard)
+                if (*p == '.')
                 {
-                    currentSector = numSectors;
-                    validSdCard = true;
+                    extension = p;
+                    break;
                 }
             }
+            return ((extension != 0) ?
+                (size_t)(extension - sdCardPath) : pathLength);
+        }
+
+        bool buildSegmentPath(uint16_t index, char* path) const
+        {
+            if (index > 0)
+            {
+                memcpy(path, sdCardPath, sdCardSegmentBaseLength);
+                snprintf(&(path[sdCardSegmentBaseLength]),
+                    (MAX_PATH - sdCardSegmentBaseLength), ".%03u",
+                    (unsigned int)index);
+                return true;
+            } else {
+                strncpy(path, sdCardPath, MAX_PATH);
+                path[(MAX_PATH - 1)] = 0;
+                return (path[0] != 0);
+            }
+        }
+
+        File openSegmentFile(uint16_t index)
+        {
+            char segmentPath[MAX_PATH];
+            if (!buildSegmentPath(index, segmentPath))
+            {
+                return File();
+            }
+
+            File file;
+            if (!readOnlySdCard)
+            {
+                file = SD.open(segmentPath, FILE_WRITE_BEGIN);
+                if (!file)
+                {
+                    readOnlySdCard = true;
+                    file = SD.open(segmentPath, FILE_READ);
+                }
+            } else {
+                file = SD.open(segmentPath, FILE_READ);
+            }
+            return file;
+        }
+
+        bool appendSegmentSectors(uint32_t sectorCount)
+        {
+            if (numSegments < MAX_IMAGE_SEGMENTS)
+            {
+                ++numSegments;
+                numSectors += sectorCount;
+                segmentSectors[numSegments] = numSectors;
+                return (sectorCount > 0);
+            }
+            return false;
+        }
+
+        void discoverAdditionalSegments()
+        {
+            for (uint16_t index = 1; index < MAX_IMAGE_SEGMENTS; ++index)
+            {
+                char segmentPath[MAX_PATH];
+                if (buildSegmentPath(index, segmentPath))
+                {
+                    File segmentFile = SD.open(segmentPath, FILE_READ);
+                    if (segmentFile)
+                    {
+                        uint64_t sectorCount = segmentFile.size() / 512;
+                        segmentFile.close();
+                        if (!appendSegmentSectors(sectorCount))
+                        {
+                            break;
+                        }
+                    } else {
+                        break;
+                    }
+                } else {
+                    break;
+                }
+            }
+        }
+
+        bool findSegmentForSector(uint32_t sector, uint16_t* segmentIndex,
+            uint32_t* segmentStart) const
+        {
+            // Perform a binary search to find the segment that contains the
+            // required sector
+            uint16_t low = 0;
+            uint16_t high = numSegments;
+            if ((currentSegment != INVALID_SEGMENT) &&
+                (currentSegment < numSegments))
+            {
+                uint32_t currentEnd =
+                    currentSegmentStart + currentSegmentSectors;
+                if (sector < currentSegmentStart)
+                {
+                    high = currentSegment;
+                } else if (sector >= currentEnd)
+                {
+                    low = currentSegment + 1;
+                } else {
+                    *segmentIndex = currentSegment;
+                    *segmentStart = currentSegmentStart;
+                    return true;
+                }
+            }
+
+            while (low < high)
+            {
+                uint16_t index = low + ((high - low) >> 1);
+                uint32_t start = segmentSectors[index];
+                uint32_t end = segmentSectors[index + 1];
+                if (sector < start)
+                {
+                    high = index;
+                } else if (sector >= end)
+                {
+                    low = index + 1;
+                } else {
+                    *segmentIndex = index;
+                    *segmentStart = start;
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        bool currentSegmentContains(uint32_t sector) const
+        {
+            return (validSdCard && (currentSegment != INVALID_SEGMENT) &&
+                (sector >= currentSegmentStart) &&
+                ((sector - currentSegmentStart) < currentSegmentSectors));
+        }
+
+        bool openSdCard(uint32_t sector)
+        {
+            // Ensure the sector is within the SD card
+            if (sector >= numSectors)
+            {
+                return false;
+            }
+
+            // Open the segment file that contains the sector, as required
+            if (!currentSegmentContains(sector))
+            {
+                uint16_t segmentIndex = INVALID_SEGMENT;
+                uint32_t segmentStart = 0;
+                if (findSegmentForSector(sector, &segmentIndex, &segmentStart))
+                {
+                    if (sdCard)
+                    {
+                        sdCard.close();
+                    }
+                    sdCard = openSegmentFile(segmentIndex);
+                    currentSector = numSectors;
+                    if (sdCard)
+                    {
+                        validSdCard = true;
+                        currentSegment = segmentIndex;
+                        currentSegmentStart = segmentStart;
+                        currentSegmentSectors =
+                            segmentSectors[segmentIndex + 1] - segmentSectors[segmentIndex];
+                        currentSegmentOffset = ((segmentIndex == 0) ? sectorOffset : 0);
+                    } else {
+                        validSdCard = false;
+                        currentSegment = INVALID_SEGMENT;
+                        currentSegmentStart = 0;
+                        currentSegmentSectors = 0;
+                        currentSegmentOffset = 0;
+                    }
+                } else {
+                    validSdCard = false;
+                }
+            }
+            return validSdCard;
+        }
+
+        bool seekSdCardSector(uint32_t sector)
+        {
+            if (openSdCard(sector))
+            {
+                if (sector != currentSector)
+                {
+                    size_t offset = currentSegmentOffset +
+                        (((size_t)(sector - currentSegmentStart)) * 512);
+                    if (!sdCard.seek(offset, SeekSet))
+                    {
+                        return false;
+                    }
+                    currentSector = sector;
+                }
+                return true;
+            }
+            return false;
         }
 
         bool processData(uint8_t data)
@@ -153,17 +354,11 @@ template <size_t READ_BUFFER_SIZE> class SdHdfZXTeensy
                 {
                     case CMD_READ_SINGLE_BLOCK :
                         {
-                            openSdCard();
-                            if (sdCard && (commandArgument < numSectors))
+                            if ((commandArgument < numSectors) &&
+                                seekSdCardSector(commandArgument))
                             {
                                 writeStatusData();
                                 writeReadData(0xFF);
-                                if (commandArgument != currentSector)
-                                {
-                                    uint64_t offset = ((uint64_t)commandArgument * 512) + sectorOffset;
-                                    sdCard.seek(offset, SeekSet);
-                                    currentSector = commandArgument;
-                                }
                                 sdCard.read((uint8_t*)dataBuffer, 512);
                                 ++currentSector;
                                 sdSpiReadBuffer.writeBlockWithToken(0xFE,
@@ -180,17 +375,11 @@ template <size_t READ_BUFFER_SIZE> class SdHdfZXTeensy
                         break;
                     case CMD_WRITE_BLOCK :
                         {
-                            openSdCard();
-                            if (sdCard && (commandArgument < numSectors))
+                            if ((commandArgument < numSectors) &&
+                                seekSdCardSector(commandArgument))
                             {
                                 writeStatusData();
                                 writeReadData(0xFF);
-                                if (commandArgument != currentSector)
-                                {
-                                    uint64_t offset = ((uint64_t)commandArgument * 512) + sectorOffset;
-                                    sdCard.seek(offset, SeekSet);
-                                    currentSector = commandArgument;
-                                }
                                 currentState = STATE_DATA;
                                 return;
                             } else {
@@ -280,11 +469,15 @@ template <size_t READ_BUFFER_SIZE> class SdHdfZXTeensy
         }
 
     public :
-        constexpr SdHdfZXTeensy() : sdCard(), sdCardPath(), validSdCard(false),
-            readOnlySdCard(false), isSdIdle(true), currentState(STATE_IDLE),
-            currentCommand(CMD_IDLE), commandAppCmd(false), commandArgument(0),
-            dataActive(false), dataRegister(0), dataIndex(0), dataBuffer(),
-            sectorOffset(0), currentSector(0), numSectors(0)
+        constexpr SdHdfZXTeensy() : sdCard(), sdCardPath(),
+            sdCardSegmentBaseLength(0), validSdCard(false), readOnlySdCard(false),
+            isSdIdle(true), currentState(STATE_IDLE), currentCommand(CMD_IDLE),
+            commandAppCmd(false), commandArgument(0), dataActive(false),
+            dataRegister(0), dataIndex(0), dataBuffer(), sectorOffset(0),
+            segmentSectors(), numSegments(0),
+            currentSegment(INVALID_SEGMENT), currentSegmentStart(0),
+            currentSegmentSectors(0), currentSegmentOffset(0),
+            currentSector(0), numSectors(0)
         {
             sdCardPath[0] = 0;
         }
@@ -333,14 +526,37 @@ template <size_t READ_BUFFER_SIZE> class SdHdfZXTeensy
             Serial.begin(115200);
 #endif
 
-            // Load the image header
+            // Close the previous image
+            end();
             numSectors = 0;
+            numSegments = 0;
+            segmentSectors[0] = 0;
             currentSector = 0;
+            sectorOffset = 0;
+            sdCardSegmentBaseLength = 0;
             readOnlySdCard = false;
+            if ((filename == 0) || (strlen(filename) >= MAX_PATH))
+            {
+                sdCardPath[0] = 0;
+                return false;
+            }
             strcpy(sdCardPath, filename);
-            openSdCard();
+            sdCardSegmentBaseLength = findSegmentPathBaseLength();
+            if (sdCardSegmentBaseLength > (MAX_PATH - 5))
+            {
+                return false;
+            }
+
+            // Load the image header
+            sdCard = openSegmentFile(0);
             if (sdCard)
             {
+                validSdCard = true;
+                currentSegment = 0;
+                currentSegmentStart = 0;
+                currentSegmentOffset = 0;
+
+                // Read the image header
                 uint8_t header[16];
                 if (sdCard.read(header, 16) >= 16)
                 {
@@ -354,27 +570,36 @@ template <size_t READ_BUFFER_SIZE> class SdHdfZXTeensy
                     }
 
                     // Determine the card size
-                    sdCard.seek(0, SeekEnd);
-                    uint64_t cardsize = ((sdCard.size() - sectorOffset) / 512);
-                    numSectors = cardsize;
-                    currentSector = numSectors;
-                    return true;
+                    if (sdCard.size() >= sectorOffset)
+                    {
+                        appendSegmentSectors((sdCard.size() - sectorOffset) / 512);
+                        discoverAdditionalSegments();
+                        currentSegmentSectors = segmentSectors[1] - segmentSectors[0];
+                        currentSegmentOffset = sectorOffset;
+                        currentSector = numSectors;
+                        return true;
+                    }
                 }
                 sdCard.close();
             }
             validSdCard = false;
             sdCardPath[0] = 0;
+            sdCardSegmentBaseLength = 0;
             return false;
         }
 
         void end()
         {
-            if (validSdCard)
+            if (sdCard)
             {
                 sdCard.close();
                 sdCard = File();
-                validSdCard = false;
             }
+            validSdCard = false;
+            currentSegment = INVALID_SEGMENT;
+            currentSegmentStart = 0;
+            currentSegmentSectors = 0;
+            currentSegmentOffset = 0;
         }
 
         void reset(bool setSdIdle)
