@@ -348,8 +348,10 @@ _left100:
 ; Write the menu index to the Teensy at port 0xeb, then redraw any changes
 ; ------------------------------------------+----------------------------------
 _teensyMenuAction:
+    push af
     ld hl,_compressedBlank  ; blank explorer screen
     call _decompressScr     ; decompress screen
+    pop af
     jr _teensyAction
 _romSelected:
     ld hl,_compressedBlank  ; blank explorer screen
