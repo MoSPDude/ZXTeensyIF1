@@ -891,12 +891,17 @@ char* menuGenerateInGame(char* ptr)
         }
     }
 
-    // Add NMI, peripherals and reset options
+    // Add peripheral and reset options
     ptr = menuInsertSpacer(ptr);
     ptr = menuInsertSetting(MENU_ACTION_IN_GAME_EXIT_BASIC, 0, ptr,
         MENU_STRINGS[STRING_IN_GAME_EXIT_BASIC], 0);
     ptr = menuInsertSetting(MENU_ACTION_IN_GAME_RESET, 0, ptr,
         MENU_STRINGS[STRING_IN_GAME_RESET], 0);
+    ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_OPEN_IN_GAME_SETTINGS,
+        ptr, MENU_STRINGS[STRING_IN_GAME_SETTINGS], 0);
+
+    // Add NMI options
+    ptr = menuInsertSpacer(ptr);
     ptr = menuInsertSetting(MENU_ACTION_IN_GAME_NMI, 0, ptr,
         MENU_STRINGS[STRING_IN_GAME_NMI], 0);
     if (mf128Present && ((romArrayPresent & BANK_MF128) != 0) &&
@@ -911,8 +916,6 @@ char* menuGenerateInGame(char* ptr)
         ptr = menuInsertSetting(MENU_ACTION_IN_GAME_DIVMMC, 0, ptr,
             MENU_STRINGS[STRING_IN_GAME_DIVMMC], 0);
     }
-    ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_OPEN_IN_GAME_SETTINGS,
-        ptr, MENU_STRINGS[STRING_IN_GAME_SETTINGS], 0);
 
     // Add debug and status
     ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_OPEN_DEBUG,
