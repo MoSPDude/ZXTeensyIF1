@@ -71,6 +71,7 @@ typedef enum {
     MENU_TYPE_SAVE_STATE_SLOT,
     MENU_TYPE_LOAD_STATE_SLOT,
     MENU_TYPE_PREVIEW_STATE_SLOT,
+    MENU_TYPE_IN_GAME_SETTINGS,
     MENU_TYPE_DEBUG
 } menu_type_t;
 
@@ -121,7 +122,8 @@ typedef enum {
     SETTING_ACTION_UNMOUNT_FDB,
     SETTING_ACTION_IN_GAME_TOGGLE_IF1,
     SETTING_ACTION_IN_GAME_TOGGLE_USB,
-    SETTING_ACTION_OPEN_DEBUG = 0xF5,
+    SETTING_ACTION_OPEN_DEBUG = 0xF4,
+    SETTING_ACTION_OPEN_IN_GAME_SETTINGS = 0xF5,
     SETTING_ACTION_OPEN_SAVE_STATE_SLOT = 0xF6,
     SETTING_ACTION_OPEN_LOAD_STATE_SLOT = 0xF7,
     SETTING_ACTION_OPEN_TAPE_BROWSER = 0xF8,
@@ -802,6 +804,27 @@ char* menuGeneratePokBrowser(char* ptr)
     return ptr;
 }
 
+char* menuGenerateInGameSettings(char* ptr)
+{
+    ptr = menuInsertSetting(MENU_ACTION_TOP_MENU, 0, ptr, MENU_STRINGS[STRING_CANCEL], 0);
+    if (interface1Present && divMmcPresent)
+    {
+        ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_IN_GAME_TOGGLE_IF1,
+            ptr, MENU_STRINGS[STRING_ENABLE_IF1], interface1Enabled);
+    }
+    if (usbPresent)
+    {
+        ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_IN_GAME_TOGGLE_USB, ptr,
+            MENU_STRINGS[STRING_ENABLE_USB], usbEnabled);
+        if (usbEnabled)
+        {
+            ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_FIRE_BUTTONS,
+                ptr, MENU_STRINGS[STRING_ENABLE_FIRE_BUTTONS], gamepadButtons);
+        }
+    }
+    return ptr;
+}
+
 char* menuGenerateInGame(char* ptr)
 {
     ptr = menuInsertSetting(MENU_ACTION_IN_GAME_EXIT, 0, ptr, MENU_STRINGS[STRING_CANCEL], 0);
@@ -825,7 +848,6 @@ char* menuGenerateInGame(char* ptr)
         ptr, MENU_STRINGS[STRING_OPEN_SAVE_STATE_SLOT], 0);
     ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_OPEN_LOAD_STATE_SLOT,
         ptr, MENU_STRINGS[STRING_OPEN_LOAD_STATE_SLOT], 0);
-    ptr = menuInsertSpacer(ptr);
 
     // Add tape and disk options
     if (tzxPresent)
@@ -868,14 +890,13 @@ char* menuGenerateInGame(char* ptr)
                 "B:", menuGetFdcFdbPath());
         }
     }
-    if (tzxPresent || dskPresent)
-    {
-        ptr = menuInsertSpacer(ptr);
-    }
 
     // Add NMI, peripherals and reset options
+    ptr = menuInsertSpacer(ptr);
     ptr = menuInsertSetting(MENU_ACTION_IN_GAME_EXIT_BASIC, 0, ptr,
         MENU_STRINGS[STRING_IN_GAME_EXIT_BASIC], 0);
+    ptr = menuInsertSetting(MENU_ACTION_IN_GAME_RESET, 0, ptr,
+        MENU_STRINGS[STRING_IN_GAME_RESET], 0);
     ptr = menuInsertSetting(MENU_ACTION_IN_GAME_NMI, 0, ptr,
         MENU_STRINGS[STRING_IN_GAME_NMI], 0);
     if (mf128Present && ((romArrayPresent & BANK_MF128) != 0) &&
@@ -890,25 +911,8 @@ char* menuGenerateInGame(char* ptr)
         ptr = menuInsertSetting(MENU_ACTION_IN_GAME_DIVMMC, 0, ptr,
             MENU_STRINGS[STRING_IN_GAME_DIVMMC], 0);
     }
-    if (interface1Present && divMmcPresent)
-    {
-        ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_IN_GAME_TOGGLE_IF1,
-            ptr, MENU_STRINGS[STRING_ENABLE_IF1], interface1Enabled);
-    }
-    if (usbPresent)
-    {
-        ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_IN_GAME_TOGGLE_USB, ptr,
-            MENU_STRINGS[STRING_ENABLE_USB], usbEnabled);
-        if (usbEnabled)
-        {
-            ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_FIRE_BUTTONS,
-                ptr, MENU_STRINGS[STRING_ENABLE_FIRE_BUTTONS], gamepadButtons);
-        }
-    }
-    ptr = menuInsertSetting(MENU_ACTION_IN_GAME_RESET, 0, ptr,
-        MENU_STRINGS[STRING_IN_GAME_RESET], 0);
-    ptr = menuInsertSetting(MENU_ACTION_IN_GAME_HARD_RESET, 0, ptr,
-        MENU_STRINGS[STRING_IN_GAME_HARD_RESET], 0);
+    ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_OPEN_IN_GAME_SETTINGS,
+        ptr, MENU_STRINGS[STRING_IN_GAME_SETTINGS], 0);
 
     // Add debug and status
     ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_OPEN_DEBUG,
@@ -2244,6 +2248,9 @@ void menuGenerate()
         case MENU_TYPE_PREVIEW_STATE_SLOT :
             textPtr = menuGeneratePreviewStateSlot(textPtr);
             break;
+        case MENU_TYPE_IN_GAME_SETTINGS :
+            textPtr = menuGenerateInGameSettings(textPtr);
+            break;
         case MENU_TYPE_DEBUG :
             textPtr = menuGenerateDebug(textPtr);
             break;
@@ -2531,6 +2538,9 @@ bool menuPerformSelection(uint8_t index)
                     break;
                 case SETTING_ACTION_OPEN_SETTINGS :
                     menuCurrent = MENU_TYPE_SETTINGS;
+                    break;
+                case SETTING_ACTION_OPEN_IN_GAME_SETTINGS :
+                    menuCurrent = MENU_TYPE_IN_GAME_SETTINGS;
                     break;
                 case SETTING_ACTION_INTERNAL_ROM :
                     // Load internal ROM name
@@ -2835,7 +2845,6 @@ bool menuPerformSelection(uint8_t index)
         case MENU_ACTION_IN_GAME_MF128 :
         case MENU_ACTION_IN_GAME_DIVMMC :
         case MENU_ACTION_IN_GAME_RESET :
-        case MENU_ACTION_IN_GAME_HARD_RESET :
             // These actions require additional NMI or reset handling
             return true;
         case MENU_ACTION_IN_GAME_SAVE_STATE :
@@ -2859,6 +2868,11 @@ bool menuPerformSelection(uint8_t index)
     // Clear the action as "No-Op", to redraw the main screen
     menuAction = MENU_ACTION_TOP_MENU;
     return false;
+}
+
+inline bool menuIsInGameMenu()
+{
+    return (menuTopMenu != MENU_TYPE_MAIN);
 }
 
 inline menu_action_t menuGetMenuAction()

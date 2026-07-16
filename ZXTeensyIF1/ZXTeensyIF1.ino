@@ -67,8 +67,7 @@ typedef enum {
     MENU_ACTION_IN_GAME_NMI,
     MENU_ACTION_IN_GAME_MF128,
     MENU_ACTION_IN_GAME_DIVMMC,
-    MENU_ACTION_IN_GAME_RESET,
-    MENU_ACTION_IN_GAME_HARD_RESET
+    MENU_ACTION_IN_GAME_RESET
 } menu_action_t;
 
 typedef enum {
@@ -359,6 +358,7 @@ volatile bool menuEnterOnReset = false;
 volatile bool menuSelected = false;
 volatile bool menuRedraw = false;
 volatile bool menuTriggerNMI = false;
+volatile bool menuTriggerExitNMI = false;
 volatile uint8_t menuSelectedIndex = 0;
 RingBuffer<MENU_BUFFER_SIZE> menuBuffer;
 volatile DMAMEM uint8_t menuRamArray[MENU_PAGE_COUNT][RAM_PAGE_SIZE] __attribute__((aligned(16)));
@@ -1946,6 +1946,15 @@ FASTRUN void loop()
             digitalWriteFast(NMI_PIN, 1);
         }
 
+        // Trigger exit from menu with NMI, when requested
+        if (menuTriggerExitNMI && IS_ROM_PAGED(ROM_MENU))
+        {
+            menuSelected = false;
+            menuTriggerExitNMI = false;
+            nmiRomTarget = (divMmcRomEnabled ? ROM_DIVMMC : ROM_MF128);
+            menuBuffer.write(MENU_ROM_CMD_IN_GAME_EXIT);
+        }
+
         // Perform menu actions
         if (menuSelected)
         {
@@ -2002,12 +2011,7 @@ FASTRUN void loop()
                         nmiRomTarget = ROM_DIVMMC;
                         break;
                     case MENU_ACTION_IN_GAME_RESET :
-                        // Reset into the main menu
-                        menuEnterOnReset = true;
-                        stateActiveSlot = -1;
-                        setState(STATE_RESET);
-                        break;
-                    case MENU_ACTION_IN_GAME_HARD_RESET :
+                        // Hard reset into the main menu
                         stateActiveSlot = -1;
                         performHardReset();
                         break;
@@ -2148,7 +2152,7 @@ FASTRUN void loop()
                 if (digitalReadFast(BUTTON_PIN))
                 {
                     buttonTrigState = TRIGGER_DELAY;
-                    buttonTrigExitCount = TRIGGER_DELAY_CNT;
+                    buttonTrigExitCount = BUTTON_DELAY_CNT;
                 }
                 break;
             case TRIGGER_DELAY :
@@ -2160,7 +2164,7 @@ FASTRUN void loop()
                         buttonTrigState = TRIGGER_READY;
                     }
                 } else {
-                    buttonTrigExitCount = TRIGGER_DELAY_CNT;
+                    buttonTrigExitCount = BUTTON_DELAY_CNT;
                 }
                 break;
             default :
@@ -2608,10 +2612,16 @@ FASTRUN void isrPinButton()
         }
 
         // Perform NMI when not already handling previous NMI
-        if (!isGlobalStateReset() && (IS_ROM_PAGED(ROM_MENU) == 0) &&
-            !nmiPending && !menuTriggerNMI)
+        if (!isGlobalStateReset() && !nmiPending &&
+            !menuTriggerNMI && !menuTriggerExitNMI)
         {
-            if (menuEnableInGame)
+            if (IS_ROM_PAGED(ROM_MENU))
+            {
+                if (menuIsInGameMenu())
+                {
+                    menuTriggerExitNMI = true;
+                }
+            } else if (menuEnableInGame)
             {
                 menuTriggerNMI = true;
             } else if (!wasTapePlaying)

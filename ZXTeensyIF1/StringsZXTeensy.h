@@ -99,8 +99,8 @@ typedef enum {
     STRING_IN_GAME_NMI,
     STRING_IN_GAME_MF128,
     STRING_IN_GAME_DIVMMC,
+    STRING_IN_GAME_SETTINGS,
     STRING_IN_GAME_RESET,
-    STRING_IN_GAME_HARD_RESET,
     STRING_IN_GAME_EXIT_TAPE,
     STRING_IN_GAME_EXIT_BASIC,
     STRING_IN_GAME_APPLY_POK
@@ -203,11 +203,11 @@ static const char* const PROGMEM MENU_STRINGS[] = {
     "Send NMI to current ROM",
     "Send NMI to Multiface 128",
     "Send NMI to DivMMC ROM",
+    "Modify Configuration",
     "Reset into Main Menu",
-    "Cold Reset into Main Menu",
     "Back and Play Tape",
     "Break into BASIC",
-    "Apply Selected POKEs",
+    "Apply Selected POKEs"
 };
 
 #endif
