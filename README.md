@@ -12,8 +12,8 @@ A Teensy 4.1 powered DivMMC and ZX Interface 1 clone for the ZX Spectrum 48K/128
 * DivMMC with 512KB RAM
     * Supports accessing the main SD card, HDF and IMG images
     * Large images over FAT32 file limit can be split into multiple files
-        * eg. esximage.hdf, esximage.001, up to esximage.007
-        * 8 x 4GB gives a maximum of ~32GB SD card image size
+        * eg. esximage.hdf, esximage.001, up to esximage.999
+        * The maximum SD card image size is ~2TB
     * If you use images from https://esxdos.zxfiles.net/ - remember to hex edit "DMA=1" to "DMA=0"
 * Multiface 128 emulation
     * NMI button and soft ROM
