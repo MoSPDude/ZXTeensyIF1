@@ -34,6 +34,7 @@ static const uint16_t HTTP_DAV_ALL_PROPERTIES =
 void httpPerformPacket(http_action_t action, const char* path, size_t contentLength,
     char* header, uint8_t* content, size_t size);
 void httpPerformDelete(const char* decodedPath, bool isChild);
+void httpUpdateServerStatus(http_action_t action, size_t bytes);
 
 // Occasionally, receive 2 x MTU into buffer, so size over (2 * 1500)
 static const size_t PACKET_BUFFER_SIZE = (RAM_PAGE_SIZE / 2);
@@ -58,6 +59,37 @@ size_t httpUploadContentLength = 0;
 bool httpUploadCreated = false;
 size_t httpResponseLength = 0;
 bool httpResponseOverflow = false;
+size_t httpPutBytesTransferred = 0;
+size_t httpGetBytesTransferred = 0;
+
+void httpUpdateServerStatus(http_action_t action, size_t bytes)
+{
+    if (action == HTTP_ACTION_PUT)
+    {
+        httpPutBytesTransferred += bytes;
+    } else if (action == HTTP_ACTION_GET)
+    {
+        httpGetBytesTransferred += bytes;
+    }
+    char status[(MENU_STR_LEN + 1)];
+    double temp = httpPutBytesTransferred;
+    temp /= 1024.0;
+    int a = temp;
+    temp *= 100;
+    int b = (int)(temp) % 100;
+    temp = httpGetBytesTransferred;
+    temp /= 1024.0;
+    int c = temp;
+    temp *= 100;
+    int d = (int)(temp) % 100;
+    if (snprintf(status, (MENU_STR_LEN + 1), " > PUT %d.%02dKB GET %d.%02dKB",
+        a, b, c, d) >= (MENU_STR_LEN + 1))
+    {
+        status[MENU_STR_LEN] = 0;
+    }
+    httpServerStatus = status;
+    menuRedraw = true;
+}
 
 const char* httpFindHeaderValue(char* header, const char* name)
 {
@@ -131,8 +163,9 @@ bool httpWaitFor(const char *token, uint32_t timeout = 3000)
     return false;
 }
 
-void sendData(const uint8_t *data, size_t size)
+size_t sendData(const uint8_t *data, size_t size)
 {
+    size_t totalBytesSent = 0;
     while (size > 0)
     {
         size_t bytesSent = ((size >= MAX_TX_PACKET_SIZE) ?
@@ -147,10 +180,12 @@ void sendData(const uint8_t *data, size_t size)
             httpWaitFor(HTTP_STRINGS[HTTP_STR_AT_SEND_OK]);
             data += bytesSent;
             size -= bytesSent;
+            totalBytesSent += bytesSent;
         } else {
             break;
         }
     }
+    return totalBytesSent;
 }
 
 void httpSendText(const char* text)
@@ -208,8 +243,7 @@ bool httpSendResponse()
     {
         return false;
     }
-    sendData(httpContentBuffer, httpResponseLength);
-    return true;
+    return sendData(httpContentBuffer, httpResponseLength) == httpResponseLength;
 }
 
 void httpSendHeader(const char *code, const char *type, size_t length)
@@ -318,6 +352,7 @@ void httpPerformOptions()
 void httpPerformGet(bool sendBody)
 {
     // Perform download or list via HTTP GET
+    size_t bytesSent = 0;
     File file = SD.open(httpURLPath, FILE_READ);
     if (file)
     {
@@ -354,7 +389,7 @@ void httpPerformGet(bool sendBody)
                     HTTP_STRINGS[HTTP_STR_TEXT_HTML], httpResponseLength);
                 if (sendBody)
                 {
-                    httpSendResponse();
+                    bytesSent = sendData(httpContentBuffer, httpResponseLength);
                 }
             }
         } else {
@@ -369,7 +404,12 @@ void httpPerformGet(bool sendBody)
                     size_t size = file.read(httpContentBuffer,
                         ((CONTENT_BUFFER_SIZE / MAX_TX_PACKET_SIZE) *
                             MAX_TX_PACKET_SIZE));
-                    sendData(httpContentBuffer, size);
+                    size_t sent = sendData(httpContentBuffer, size);
+                    bytesSent += sent;
+                    if (sent != size)
+                    {
+                        break;
+                    }
                 }
             }
         }
@@ -380,6 +420,9 @@ void httpPerformGet(bool sendBody)
 
     // Close
     httpFinishConnection();
+
+    // Update server status
+    httpUpdateServerStatus(httpAction, bytesSent);
 }
 
 void httpAppendXmlEscaped(const char* text)
@@ -1206,6 +1249,9 @@ void httpFinishPut()
 
     // Close
     httpFinishConnection();
+
+    // Update server status
+    httpUpdateServerStatus(HTTP_ACTION_PUT, httpUploadBytesWritten);
 }
 
 void httpContinuePut(uint8_t* data, size_t size)
@@ -1213,12 +1259,11 @@ void httpContinuePut(uint8_t* data, size_t size)
     if ((size > 0) && httpUploadFile)
     {
         size_t bytesWritten = httpUploadFile.write(data, size);
+        httpUploadBytesWritten += bytesWritten;
         if (bytesWritten != size)
         {
             // Close the file on write error
             httpUploadFile.close();
-        } else {
-            httpUploadBytesWritten += bytesWritten;
         }
     }
     if (size < httpUploadContentLength)
@@ -1254,7 +1299,12 @@ void httpPerformPut(size_t contentLength, uint8_t* data, size_t size)
         {
             httpSendHeader(HTTP_STRINGS[HTTP_STR_HTTP_405],
                 HTTP_STRINGS[HTTP_STR_TEXT_PLAIN], 0);
+
+            // Close
             httpFinishConnection();
+
+            // Update server status
+            httpUpdateServerStatus(HTTP_ACTION_PUT, 0);
             return;
         }
     } else {
@@ -1638,6 +1688,8 @@ void httpStopServer()
     httpServerStatus.remove(0);
     httpEnabled = false;
     httpAction = HTTP_ACTION_UNKNOWN;
+    httpPutBytesTransferred = 0;
+    httpGetBytesTransferred = 0;
     httpReceivingPacket = false;
     httpPacketBufferIndex = 0;
     httpPacketLength = 0;
