@@ -3489,13 +3489,7 @@ void menuSaveConfiguration()
 
 void menuClearPrinterFile()
 {
-    File outFile = SD.open(PRINTER_OUT_PATH, FILE_WRITE_BEGIN);
-    if (outFile)
-    {
-        outFile.seek(0, SeekSet);
-        outFile.truncate();
-        outFile.close();
-    }
+    printerPort.clearOutput();
 }
 
 inline bool menuIsDebugging()

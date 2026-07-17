@@ -48,7 +48,7 @@ A Teensy 4.1 powered DivMMC and ZX Interface 1 clone for the ZX Spectrum 48K/128
     * Creates a serial tunnel over WiFi to given URL
     * Default URL is '"glasstty.com",6502' - https://glasstty.com/telstar/
 * Spectrum +3 and ZX LPRINT III Centronics printer
-    * Writes output into a "printer.txt" file on SD card
+    * Writes output into a timestamped "printer-YYYYMMDD-HHMMSS.txt" file on SD card, adding a numeric suffix if that file already exists
 * Soft ROM emulation
     * Override the internal Spectrum ROM with ROMs from SD card
     * Supports 16KB (Spectrum 48K), 32KB (Spectrum 128K/+2 (Grey)) and 64KB (Spectrum +2A/+3) ROMs

@@ -22,7 +22,6 @@
 #define ZXTEENSY_CFG_PATH ((const char*)F("/ZXTEENSY/ZXTEENSY.CFG"))
 #define NETMAN_Z80_PATH ((const char*)F("/ZXTEENSY/netman.z80"))
 #define RTC_SETUP_Z80_PATH ((const char*)F("/ZXTEENSY/rtc_setup.z80"))
-#define PRINTER_OUT_PATH ((const char*)F("/printer.txt"))
 #define STATE_ROOT_PATH ((const char*)F("/ZXTEENSY/STATE"))
 
 #define STATE_SLOT_COUNT 16
