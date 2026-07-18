@@ -422,7 +422,10 @@ void httpPerformGet(bool sendBody)
     httpFinishConnection();
 
     // Update server status
-    httpUpdateServerStatus(httpAction, bytesSent);
+    if (sendBody)
+    {
+        httpUpdateServerStatus(HTTP_ACTION_GET, bytesSent);
+    }
 }
 
 void httpAppendXmlEscaped(const char* text)
