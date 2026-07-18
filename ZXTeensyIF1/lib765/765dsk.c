@@ -25,7 +25,7 @@
 #define SHORT_TIMEOUT	1000
 #define LONGER_TIMEOUT  1333333L
 
-/* Get the status of a DSK file. In fact this routine does not depend on 
+/* Get the status of a DSK file. In fact this routine does not depend on
  * the drive being a DSK file and could be used by other drive types. */
 
 fdc_byte fdd_drive_status(FLOPPY_DRIVE *fd)
@@ -83,7 +83,7 @@ static int fdd_isready(FLOPPY_DRIVE *fd)
 
 	if (!fd->fd_motor) return 0;	/* Motor is not running */
 
-	if (fdd->fdd_fp) return 1;		 /* DSK file is open and OK */	
+	if (fdd->fdd_fp) return 1;		 /* DSK file is open and OK */
 	if (fdd->fdd_filename[0] == 0) return 0; /* No filename */
 
 	File file = SD.open(fdd->fdd_filename, FILE_WRITE);
@@ -93,12 +93,11 @@ static int fdd_isready(FLOPPY_DRIVE *fd)
 		if (file)
 		{
 			fd->fd_readonly = 1;	/* Read-only drive */
-			fdc_dprintf(0, "Could only open %s read-only.\n", 
-					fdd->fdd_filename);
+			//fdc_dprintf(2, "Could only open %s read-only.\n", fdd->fdd_filename);
 		}
-		else fdc_dprintf(0, "Could not open %s.\n", fdd->fdd_filename);
+		else fdc_dprintf(0, "Could not open '%s'", fdd->fdd_filename);
 	}
-	if (!file) 
+	if (!file)
 	{
 		fdd_reset(fd);
 		return 0;
@@ -109,26 +108,26 @@ static int fdd_isready(FLOPPY_DRIVE *fd)
 	fdd->fdd_fp->seek(0, SeekSet);
 	if (fdd->fdd_fp->read(fdd->fdd_disk_header, 256) < 256)
 	{
-		fdc_dprintf(0, "Could not load DSK file header: %s\n", 
-				fdd->fdd_filename);
-		fdd_reset(fd);
-		return 0;	
-	}
-	if (memcmp("MV - CPC", fdd->fdd_disk_header, 8) &&
-	    memcmp("EXTENDED", fdd->fdd_disk_header, 8)) 
-	{
-		fdc_dprintf(0, "File %s is not in DSK or extended DSK format\n",
-				fdd->fdd_filename);
+        fdc_dprintf(0, "Could not load DSK file header '%s'",
+            fdd->fdd_filename);
 		fdd_reset(fd);
 		return 0;
-	} 
+	}
+	if (memcmp("MV - CPC", fdd->fdd_disk_header, 8) &&
+	    memcmp("EXTENDED", fdd->fdd_disk_header, 8))
+	{
+        fdc_dprintf(0, "File '%s' is not in DSK or extended DSK format",
+            fdd->fdd_filename);
+		fdd_reset(fd);
+		return 0;
+	}
 /* File loaded OK. */
 	fdd->fdd_track_header[0] = 0;	/* Track header not loaded */
-	
+
         return 1;
 }
 
-/* Find the offset in a DSK for a particular cylinder/head. 
+/* Find the offset in a DSK for a particular cylinder/head.
  *
  * CPCEMU DSK files work in "tracks". For a single-sided disk, track number
  * is the same as cylinder number. For a double-sided disk, track number is
@@ -148,7 +147,7 @@ static long fdd_lookup_track(DSK_FLOPPY_DRIVE *fdd, int cylinder, int head)
 
 	/* Support for double-stepping. If this is a 3" or 5.25" drive, and *
          * the DSK has <44 tracks, and the drive has >= 80 tracks, then     *
-         * when asked for cylinder (n) we actually go to cylinder (n/2).    */ 
+         * when asked for cylinder (n) we actually go to cylinder (n/2).    */
 
 	if ((fdd->fdd.fd_type == FD_30 || fdd->fdd.fd_type == FD_525) &&
 	    (fdd->fdd_disk_header[0x30] > 43) && (fdd->fdd.fd_cylinders >= 80))
@@ -162,9 +161,9 @@ static long fdd_lookup_track(DSK_FLOPPY_DRIVE *fdd, int cylinder, int head)
 	if (fdd->fdd_disk_header[0x31] > 1) track *= 2;
 	track += head;
 
-        /* Look up the cylinder and head using the header. This behaves 
+        /* Look up the cylinder and head using the header. This behaves
          * differently in normal and extended DSK files */
-	
+
 	if (!memcmp(fdd->fdd_disk_header, "EXTENDED", 8))
 	{
 		trk_offset = 256;	/* DSK header = 256 bytes */
@@ -180,7 +179,7 @@ static long fdd_lookup_track(DSK_FLOPPY_DRIVE *fdd, int cylinder, int head)
 		trk_offset += fdd->fdd_disk_header[0x32];
 
 		trk_offset *= track;		/* No. of tracks */
-		trk_offset += 256;		/* DSK header */	
+		trk_offset += 256;		/* DSK header */
 	}
 	return trk_offset;
 }
@@ -201,7 +200,7 @@ static unsigned char *sector_head(DSK_FLOPPY_DRIVE *fdd, int sector)
 
 
 
-/* Seek to a cylinder. Checks if that particular cylinder exists. 
+/* Seek to a cylinder. Checks if that particular cylinder exists.
  * We test for the existence of a cylinder by looking for Track <n>, Head 0.
  * Fortunately the DSK format does not allow for discs with different numbers
  * of tracks on each side (though this is obviously possible with a real disc)
@@ -214,20 +213,20 @@ static fd_err_t fdd_seek_cylinder(FLOPPY_DRIVE *fd, int cylinder)
 	long nr;
         DSK_FLOPPY_DRIVE *fdd = (DSK_FLOPPY_DRIVE *)fd;
 
-	fdc_dprintf(4, "fdd_seek_cylinder: cylinder=%d\n",cylinder);
+	//fdc_dprintf(4, "fdd_seek_cylinder: cylinder=%d\n",cylinder);
 
 	if (!fdd->fdd_fp) return FD_E_NOTRDY;
 
-	fdc_dprintf(6, "fdd_seek_cylinder: DSK file open OK\n");
+	//fdc_dprintf(6, "fdd_seek_cylinder: DSK file open OK\n");
 
 	/* Check if the DSK image goes out to the correct cylinder */
 	nr = fdd_lookup_track(fdd, cylinder, 0);
-	
+
 	if (nr < 0) return FD_E_SEEKFAIL;
 
-	fdc_dprintf(6, "fdd_seek_cylinder: OK\n");
+	//fdc_dprintf(6, "fdd_seek_cylinder: OK\n");
 
-	fd->fd_cylinder = req_cyl;	
+	fd->fd_cylinder = req_cyl;
 	return 0;
 }
 
@@ -241,8 +240,8 @@ static fd_err_t fdd_load_track_header(DSK_FLOPPY_DRIVE *fdd, int head)
                 return FD_E_NOADDR;              /* Missing address mark */
         if (memcmp(fdd->fdd_track_header, "Track-Info", 10))
         {
-                fdc_dprintf(0, "FDC: Did not find track %d header at 0x%lx in %s\n",
-                        fdd->fdd.fd_cylinder, track, fdd->fdd_filename);
+                //fdc_dprintf(2, "FDC: Did not find track %d header at 0x%lx in %s\n",
+                //        fdd->fdd.fd_cylinder, track, fdd->fdd_filename);
                 return FD_E_NOADDR;
         }
 	return 0;
@@ -259,15 +258,15 @@ static fd_err_t fdd_read_id(FLOPPY_DRIVE *fd, int head, int sector, fdc_byte *bu
 	if (n < 0) return n;
 
 	/* Offset of the chosen sector header */
-	offs = 0x18 + 8 * (sector % fdd->fdd_track_header[0x15]);	
+	offs = 0x18 + 8 * (sector % fdd->fdd_track_header[0x15]);
 
 	for (n = 0; n < 4; n++) buf[n] = fdd->fdd_track_header[offs+n];
-	return 0;	
+	return 0;
 }
 
 
-/* Find the offset of a sector in the current track 
- * Enter with fdd_track_header loaded and the file pointer 
+/* Find the offset of a sector in the current track
+ * Enter with fdd_track_header loaded and the file pointer
  * just after it (ie, you have just called fdd_load_track_header() ) */
 
 static long fdd_sector_offset(DSK_FLOPPY_DRIVE *fdd, int sector, int *seclen,
@@ -280,7 +279,7 @@ static long fdd_sector_offset(DSK_FLOPPY_DRIVE *fdd, int sector, int *seclen,
 	/* Pointer to sector details */
 	*secid = fdd->fdd_track_header + 0x18;
 
-	/* Length of sector */	
+	/* Length of sector */
 	*seclen = (0x80 << fdd->fdd_track_header[0x14]);
 
 	/* Extended DSKs have individual sector sizes */
@@ -325,29 +324,29 @@ static fd_err_t fdd_seekto_sector(FLOPPY_DRIVE *fd, int xcylinder, int xhead,
 
 	if (xcylinder != secid[0] || xhead != secid[1])
 	{
-		fdc_dprintf(0, "FDC: Looking for cyl=%d head=%d but found "
-		    "cyl=%d head=%d\n", xcylinder, xhead, secid[0], secid[1]);
+		//fdc_dprintf(2, "FDC: Looking for cyl=%d head=%d but found "
+		//    "cyl=%d head=%d\n", xcylinder, xhead, secid[0], secid[1]);
 		return FD_E_NOSECTOR;
 	}
-	if (seclen < *len) 
+	if (seclen < *len)
 	{
-		err = FD_E_DATAERR; 
+		err = FD_E_DATAERR;
 		*len = seclen;
 	}
 	else if (seclen > *len)
 	{
 		err = FD_E_DATAERR;
 		seclen = *len;
-	}	
-	offs += fdd->fdd_fp->position();	
-	fdd->fdd_fp->seek(offs, SeekSet);				
-	return err;			
+	}
+	offs += fdd->fdd_fp->position();
+	fdd->fdd_fp->seek(offs, SeekSet);
+	return err;
 }
 
 
 /* Read a sector */
-static fd_err_t fdd_read_sector(FLOPPY_DRIVE *fd, int xcylinder, int xhead, 
-		int head,  int sector, fdc_byte *buf, int len, 
+static fd_err_t fdd_read_sector(FLOPPY_DRIVE *fd, int xcylinder, int xhead,
+		int head,  int sector, fdc_byte *buf, int len,
 		int *deleted, int skip_deleted, int mfm, int multi)
 {
         int rdeleted = 0;
@@ -356,21 +355,21 @@ static fd_err_t fdd_read_sector(FLOPPY_DRIVE *fd, int xcylinder, int xhead,
 	unsigned char *sh;
 	fd_err_t err;
 
-	fdc_dprintf(4, "fdd_read_sector: Expected cyl=%d head=%d sector=%d\n",
-			xcylinder, xhead, sector);
+	//fdc_dprintf(4, "fdd_read_sector: Expected cyl=%d head=%d sector=%d\n",
+			//xcylinder, xhead, sector);
         if (deleted && *deleted) rdeleted = 0x40;
-	
+
 	do
 	{
 		err  = fdd_seekto_sector(fd,xcylinder,xhead,head,
 							sector,buf,&len);
-/* Are we retrying because we are looking for deleted data and found 
+/* Are we retrying because we are looking for deleted data and found
  * nondeleted or vice versa?
  *
- * Strictly speaking, we should allow for multitrack mode (like libdsk 
+ * Strictly speaking, we should allow for multitrack mode (like libdsk
  * does in drvcpcem.c) and search the rest of the cylinder. But lib765
  * doesn't claim to support multitrack mode, so I won't do it.
- */ 
+ */
                 if (try_again == 1 && err == FD_E_NOADDR)
                 {
                         err = FD_E_NODATA;
@@ -383,7 +382,7 @@ static fd_err_t fdd_read_sector(FLOPPY_DRIVE *fd, int xcylinder, int xhead,
                 *deleted = 0;
                 if (rdeleted != (sh[5] & 0x40)) /* Mismatch! */
                 {
-                        if (skip_deleted) 
+                        if (skip_deleted)
                         {
 /* Try the next sector. */
                                 try_again = 1;
@@ -392,11 +391,11 @@ static fd_err_t fdd_read_sector(FLOPPY_DRIVE *fd, int xcylinder, int xhead,
                         }
 			else *deleted = 1;
                 }
-		if (((DSK_FLOPPY_DRIVE *)fd)->fdd_fp->read(buf, len) < (size_t)len) 
+		if (((DSK_FLOPPY_DRIVE *)fd)->fdd_fp->read(buf, len) < (size_t)len)
 			err = FD_E_DATAERR;
 	} while (try_again);
 	return err;
-}		
+}
 
 /* Read a track */
 static fd_err_t fdd_read_track(FLOPPY_DRIVE *fd, int xcylinder, int xhead,
@@ -406,37 +405,37 @@ static fd_err_t fdd_read_track(FLOPPY_DRIVE *fd, int xcylinder, int xhead,
         int n, trklen;
         fd_err_t err = FD_E_OK;
 
-        fdc_dprintf(4, "fdd_read_track: Expected cyl=%d head=%d\n",
-                        xcylinder, xhead);
+        //fdc_dprintf(4, "fdd_read_track: Expected cyl=%d head=%d\n",
+                        //xcylinder, xhead);
 
         n = fdd_load_track_header(fdd, head);
         if (n < 0) return n;
 
-        if (xcylinder != fdd->fdd_track_header[0x18] || 
-	    xhead     != fdd->fdd_track_header[0x19])
+        if ((xcylinder != fdd->fdd_track_header[0x18]) ||
+            (xhead != fdd->fdd_track_header[0x19]))
         {
-                fdc_dprintf(0, "FDC: Looking for cyl=%d head=%d but found "
-                    "cyl=%d head=%d\n", xcylinder, xhead, 
-		    fdd->fdd_track_header[0x18], fdd->fdd_track_header[0x19]);
-                return FD_E_NOSECTOR;
+            //fdc_dprintf(2, "FDC: Looking for cyl=%d head=%d but found "
+                //"cyl=%d head=%d\n", xcylinder, xhead,
+                //fdd->fdd_track_header[0x18], fdd->fdd_track_header[0x19]);
+            return FD_E_NOSECTOR;
         }
         if (!memcmp(fdd->fdd_disk_header, "EXTENDED", 8))
         {
-		trklen = fdd->fdd_disk_header[0x34 + 
+		trklen = fdd->fdd_disk_header[0x34 +
 		(fdd->fdd_track_header[0x10] * fdd->fdd_disk_header[0x31]) +
 		 fdd->fdd_track_header[0x11]];
-              
-		trklen *= 256; 
+
+		trklen *= 256;
         }
         else    /* Normal; all tracks have the same length */
         {
                 trklen = (fdd->fdd_disk_header[0x33] * 256);
                 trklen += fdd->fdd_disk_header[0x32];
         }
-	if (trklen > *len) 
+	if (trklen > *len)
         {
                 err = FD_E_DATAERR;
-		trklen = (*len);	
+		trklen = (*len);
 	}
 
         if (err == FD_E_DATAERR || err == FD_E_OK)
@@ -451,14 +450,14 @@ static fd_err_t fdd_read_track(FLOPPY_DRIVE *fd, int xcylinder, int xhead,
 
 /* Write a sector */
 static fd_err_t fdd_write_sector(FLOPPY_DRIVE *fd, int xcylinder, int xhead,
-			int head, int sector, fdc_byte *buf, int len, 
+			int head, int sector, fdc_byte *buf, int len,
 			int deleted, int skip_deleted, int mfm, int multi)
 {
 	fd_err_t err;
 	DSK_FLOPPY_DRIVE *fdd = (DSK_FLOPPY_DRIVE *)fd;
 
-        fdc_dprintf(4, "fdd_write_sector: Expected cyl=%d head=%d sector=%d\n",
-                        xcylinder, xhead, sector);
+        //fdc_dprintf(4, "fdd_write_sector: Expected cyl=%d head=%d sector=%d\n",
+                        //xcylinder, xhead, sector);
 
 	err = fdd_seekto_sector(fd,xcylinder,xhead,head,sector,buf,
 						&len);
@@ -482,7 +481,7 @@ static fd_err_t fdd_write_sector(FLOPPY_DRIVE *fd, int xcylinder, int xhead,
                         if (track < 0) return FD_E_SEEKFAIL;       /* Bad track */
                         fdd->fdd_fp->seek(track, SeekSet);
                         if (fdd->fdd_fp->write(fdd->fdd_track_header, 256) < 256)
-                                return FD_E_DATAERR; 
+                                return FD_E_DATAERR;
                 }
 
 	}
@@ -496,26 +495,26 @@ static fd_err_t fdd_format_track(FLOPPY_DRIVE *fd, int head,
 {
 	DSK_FLOPPY_DRIVE *fdd = (DSK_FLOPPY_DRIVE *)fd;
 	int n, img_trklen, trklen, trkoff, trkno, ext, seclen;
-	fdc_byte oldhead[256];     
+	fdc_byte oldhead[256];
 
-        fdc_dprintf(4, "fdd_format_track: head=%d sectors=%d\n",
-                        head, sectors); 
+        //fdc_dprintf(4, "fdd_format_track: head=%d sectors=%d\n",
+                        //head, sectors);
 
- 
+
 	if (!fdd->fdd_fp) return FD_E_NOTRDY;
 	if (fd->fd_readonly) return FD_E_READONLY;
 	ext = 0;
 	memcpy(oldhead, fdd->fdd_disk_header, 256);
-	
-/* 1. Only if the DSK has either (1 track & 1 head) or (2 heads) can we 
+
+/* 1. Only if the DSK has either (1 track & 1 head) or (2 heads) can we
  *   format the second head
  */
 	if (head)
 	{
-		if (fdd->fdd_disk_header[0x31] == 1 && 
+		if (fdd->fdd_disk_header[0x31] == 1 &&
 		    fdd->fdd_disk_header[0x30] > 1) return FD_E_READONLY;
 
-		if (fdd->fdd_disk_header[0x31] == 1) 
+		if (fdd->fdd_disk_header[0x31] == 1)
 			fdd->fdd_disk_header[0x31] = 2;
 	}
 /* 2. Find out the CPCEMU number of the new cylinder/head */
@@ -537,7 +536,7 @@ static fd_err_t fdd_format_track(FLOPPY_DRIVE *fd, int head,
 	{
 		trklen += (128 << (track[(4 * n) + 3]));
 		printf("%02x %02x %02x %02x\n",
-			track[4*n], track[4*n+1], track[4*n+2], track[4*n+3]);	
+			track[4*n], track[4*n+1], track[4*n+2], track[4*n+3]);
 	}
 	trklen += 256;	/* For header */
 	printf("fdc_format: trklen = %d\n", trklen);
@@ -546,10 +545,10 @@ static fd_err_t fdd_format_track(FLOPPY_DRIVE *fd, int head,
 	if (!memcmp(fdd->fdd_disk_header, "EXTENDED", 8))
 	{
 		fdc_byte *b;
-		/* For an extended DSK, work as follows: 
-		 * If the track is reformatting an existing one, 
-		 * the length must be <= what's there. 
-		 * If the track is new, it must be contiguous with the 
+		/* For an extended DSK, work as follows:
+		 * If the track is reformatting an existing one,
+		 * the length must be <= what's there.
+		 * If the track is new, it must be contiguous with the
 		 * others */
 
 		ext = 1;
@@ -558,16 +557,16 @@ static fd_err_t fdd_format_track(FLOPPY_DRIVE *fd, int head,
 		{
 			if (trklen > img_trklen) return FD_E_READONLY;
 		}
-		else if (trkno > 0) 
+		else if (trkno > 0)
 		{
-			if (!fdd->fdd_disk_header[0x34 + trkno - 1]) 
+			if (!fdd->fdd_disk_header[0x34 + trkno - 1])
 			{
 				memcpy(fdd->fdd_disk_header, oldhead, 256);
 				return FD_E_READONLY;
 			}
 		}
 		/* Work out where the track should be. */
-        trkoff = 256; 
+        trkoff = 256;
         b = fdd->fdd_disk_header + 0x34;
         for (n = 0; n < trkno; n++)
         {
@@ -583,14 +582,14 @@ static fd_err_t fdd_format_track(FLOPPY_DRIVE *fd, int head,
 		/* If no tracks formatted, or just the one track, length can
                  * be what we like */
 		if ( (fdd->fdd_disk_header[0x30] == 0) ||
-		     (fdd->fdd_disk_header[0x30] == 1 && 
+		     (fdd->fdd_disk_header[0x30] == 1 &&
                       fdd->fdd_disk_header[0x31] == 1) )
 		{
 			if (trklen > img_trklen)
 			{
 				fdd->fdd_disk_header[0x32] = trklen & 0xFF;
 				fdd->fdd_disk_header[0x33] = (trklen >> 8);
-				img_trklen = trklen;	
+				img_trklen = trklen;
 			}
 		}
 		if (trklen > img_trklen)
@@ -600,7 +599,7 @@ static fd_err_t fdd_format_track(FLOPPY_DRIVE *fd, int head,
 		}
 		trkoff = 256 + (trkno * img_trklen);
 	}
-	printf("trklen=%x trkno=%d img_trklen=%x trkoff=%x\n", 
+	printf("trklen=%x trkno=%d img_trklen=%x trkoff=%x\n",
 		trklen, trkno, img_trklen, trkoff);
 /* Seek to the track. Note: We do NOT double-step while formatting, because
  * we can't tell between a DSK with 40 tracks that's finished, and one with
@@ -609,8 +608,8 @@ static fd_err_t fdd_format_track(FLOPPY_DRIVE *fd, int head,
 	/* Now generate and write a Track-Info buffer */
 	memset(fdd->fdd_track_header, 0, sizeof(fdd->fdd_track_header));
 
-	strcpy((char *)fdd->fdd_track_header, "Track-Info\r\n");	
-	
+	strcpy((char *)fdd->fdd_track_header, "Track-Info\r\n");
+
 	fdd->fdd_track_header[0x10] = fd->fd_cylinder;
 	fdd->fdd_track_header[0x11] = head;
 	fdd->fdd_track_header[0x14] = track[3];
@@ -644,7 +643,7 @@ static fd_err_t fdd_format_track(FLOPPY_DRIVE *fd, int head,
 		seclen = 128 << track[4 * n + 3];
 		for (m = 0; m < seclen; m++)
 		{
-			if (fdd->fdd_fp->write((uint8_t)filler) != 1) 
+			if (fdd->fdd_fp->write((uint8_t)filler) != 1)
 			{
 				memcpy(fdd->fdd_disk_header, oldhead, 256);
 				return FD_E_READONLY;
@@ -668,8 +667,18 @@ static fd_err_t fdd_format_track(FLOPPY_DRIVE *fd, int head,
 static int fdd_dirty(FLOPPY_DRIVE *fd)
 {
 	DSK_FLOPPY_DRIVE *fdd = (DSK_FLOPPY_DRIVE *)fd;
-
-	return fdd->fdd_dirty ? FD_D_DIRTY : FD_D_CLEAN;
+    if (fdd->fdd_dirty)
+    {
+        // NOTE: Modified fdd_dirty function to flush the file,
+        // and clear dirty flag
+        if (fdd->fdd_fp)
+        {
+            fdd->fdd_fp->flush();
+            fdd->fdd_dirty = 0;
+        }
+        return FD_D_DIRTY;
+    }
+	return FD_D_CLEAN;
 }
 
 /* Eject a DSK - close the image file */
@@ -688,7 +697,7 @@ static void fdd_eject(FLOPPY_DRIVE *fd)
 }
 
 
-static FLOPPY_DRIVE_VTABLE fdv_dsk = 
+static FLOPPY_DRIVE_VTABLE fdv_dsk =
 {
 	fdd_seek_cylinder,
 	fdd_read_id,
@@ -714,7 +723,7 @@ FDRV_PTR fd_newdsk(void)
 	return p;
 }
 
-	
+
 
 
 /* Create a new DSK file. Not necessary for emulation but well worth having */
@@ -727,8 +736,8 @@ fd_err_t fdd_new_dsk(FLOPPY_DRIVE *fd)
         fp = fopen(fdd->fdd_filename, "wb");
         if (!fp)
         {
-                fdc_dprintf(0, "Cannot open %s\n", fdd->fdd_filename);
-                return 0;
+            fdc_dprintf(0, "Cannot open '%s'", fdd->fdd_filename);
+            return 0;
         }
 
 	/* XXX Currently only creates the normal sort of DSK */
@@ -742,7 +751,7 @@ fd_err_t fdd_new_dsk(FLOPPY_DRIVE *fd)
 
 
 /* Get / set DSK file associated with this drive.
- *  * Note that doing fdd_setfilename() causes an implicit eject on the 
+ *  * Note that doing fdd_setfilename() causes an implicit eject on the
  *   * previous disc in the drive. */
 const char *   fdd_getfilename(FDRV_PTR fd)
 {

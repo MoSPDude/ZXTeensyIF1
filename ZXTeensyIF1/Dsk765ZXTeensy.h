@@ -142,6 +142,15 @@ class Dsk765ZXTeensy
                             break;
                         case WRITE_MOTOR :
                             fdc_set_motor(fdc, data);
+
+                            // Flush writes to the disk image when motor stops
+                            if (!motorOn)
+                            {
+                                // NOTE: Modified fdd_dirty function to flush
+                                // the file, and clear dirty flag
+                                fd_dirty(fdd_a);
+                                fd_dirty(fdd_b);
+                            }
                             break;
                         default :
                             break;

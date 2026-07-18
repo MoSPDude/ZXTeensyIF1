@@ -3504,7 +3504,7 @@ inline void menuClearDebug()
     menuHasDebug = false;
 }
 
-bool menuPrintDebug(bool clearDebug, const char *fmt, ...)
+bool menuVaPrintDebug(bool clearDebug, const char *fmt, va_list ap)
 {
     if (clearDebug)
     {
@@ -3512,8 +3512,6 @@ bool menuPrintDebug(bool clearDebug, const char *fmt, ...)
     }
     if (menuDebugIndex < MENU_DEBUG_SIZE)
     {
-        va_list ap;
-        va_start(ap, fmt);
         char* ptr = &(menuDebugBuffer[menuDebugIndex]);
         size_t count = vsnprintf(ptr, (MENU_DEBUG_SIZE - menuDebugIndex), fmt, ap);
         if ((menuDebugIndex + count + 1) >= MENU_DEBUG_SIZE)
@@ -3523,8 +3521,16 @@ bool menuPrintDebug(bool clearDebug, const char *fmt, ...)
         } else {
             menuDebugIndex += (strlen(ptr) + 1);
         }
-        va_end(ap);
     }
     menuHasDebug = true;
     return (menuCurrent == MENU_TYPE_DEBUG);
+}
+
+bool menuPrintDebug(bool clearDebug, const char *fmt, ...)
+{
+    va_list ap;
+    va_start(ap, fmt);
+    bool result_ = menuVaPrintDebug(clearDebug, fmt, ap);
+    va_end(ap);
+    return result_;
 }

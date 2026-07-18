@@ -83,7 +83,7 @@ static void fdc_part_reset(FDC_765 *self)
 	memset(self->fdc_exec_buf,  0, sizeof(self->fdc_exec_buf));
 	memset(self->fdc_result_buf,0, sizeof(self->fdc_result_buf));
 /* Reset any changelines */
-	for (n = 0; n < 4; n++)	
+	for (n = 0; n < 4; n++)
 	{
 		if (self->fdc_drive[n]) self->fdc_drive[n]->fd_changed = 0;
 	}
@@ -119,14 +119,14 @@ static void fdc_dorcheck(FDC_765 *self)
 
 /* Update the ST3 register based on a drive's status */
 static void fdc_get_st3(FDC_765 *self)
-{	
+{
 	FLOPPY_DRIVE *fd = self->fdc_dor_drive[self->fdc_curunit];
 	fdc_byte value = 0;
 
 	/* 0.3.4: Check this, it could be null! */
 	if (fd->fd_vtable->fdv_drive_status)
 	{
-		value = (*fd->fd_vtable->fdv_drive_status)(fd);	
+		value = (*fd->fd_vtable->fdv_drive_status)(fd);
 	}
 	value &= 0xF8;
 	value |= (self->fdc_curhead ? 4 : 0);
@@ -138,7 +138,7 @@ static void fdc_get_st3(FDC_765 *self)
 int fdc_isready(FDC_765 *self, FLOPPY_DRIVE *fd)
 {
         int rdy = fd_isready(fd);
- 
+
         if (!rdy) {self->fdc_st3 &= 0xDF; return 0; }
         self->fdc_st3 |= 0x20;
         return 1;
@@ -148,7 +148,7 @@ int fdc_isready(FDC_765 *self, FLOPPY_DRIVE *fd)
 /* Convert an error from the fd_* routines to a value in the status registers */
 static void fdc_xlt_error(FDC_765 *self, fd_err_t error)
 {
-	fdc_dprintf(4, "FDC: Error from drive: %d\n", error);
+	//fdc_dprintf(4, "FDC: Error from drive: %d\n", error);
         switch(error)
         {
                 case FD_E_NOTRDY: self->fdc_st0 |= 0x48; break;
@@ -165,7 +165,7 @@ static void fdc_xlt_error(FDC_765 *self, fd_err_t error)
                 case FD_E_NOSECTOR:
                                   self->fdc_st0 |= 0x40;
                                   self->fdc_st1 |= 0x82; break;
-                case FD_E_READONLY: 
+                case FD_E_READONLY:
 				  self->fdc_st0 |= 0x40;
 				  self->fdc_st1 |= 0x02; break;
         }
@@ -226,8 +226,8 @@ static void fdc_scan_byte(FDC_765 *self, fdc_byte fdcbyte, fdc_byte cpubyte)
 {
         int cmd = self->fdc_cmd_buf[0] & 0x1F;
         if ((self->fdc_st2 & 0x0C) != 8) return;	/* Mismatched already */
-        
-        if ((fdcbyte == cpubyte) || (fdcbyte == 0xFF) || (cpubyte == 0xFF)) 
+
+        if ((fdcbyte == cpubyte) || (fdcbyte == 0xFF) || (cpubyte == 0xFF))
 		return;	/* Bytes match */
 
         /* They differ */
@@ -281,11 +281,11 @@ static void fdc_write_end(FDC_765 *self)
 				 self->fdc_curhead,    /* head */
 				 self->fdc_cmd_buf[4], /* sec */
 				 self->fdc_exec_buf, len,
-				 self->fdc_write_deleted, 
+				 self->fdc_write_deleted,
 				 self->fdc_cmd_buf[0] & 0x20,
 				 self->fdc_cmd_buf[0] & 0x40,
 				 self->fdc_cmd_buf[0] & 0x80);
-	
+
 	fdc_xlt_error(self, rv);
 
         fdc_results_7(self);
@@ -306,7 +306,7 @@ static void fdc_format_end(FDC_765 *self)
 			     self->fdc_cmd_buf[3],  /* Sectors/track */
 			     self->fdc_exec_buf,    /* Track template */
 			     self->fdc_cmd_buf[5]); /* Filler byte */
-	
+
 	fdc_xlt_error(self, rv);
 
         fdc_results_7(self);
@@ -321,7 +321,7 @@ static void fdc_end_execution_phase(FDC_765 *self)
         fdc_byte cmd = self->fdc_cmd_buf[0] & 0x1F;
 
 	self->fdc_mainstat = 0xD0;	/* Ready to return results */
-	
+
 	self->fdc_result_pos = 0;
 
         switch(cmd)
@@ -330,8 +330,8 @@ static void fdc_end_execution_phase(FDC_765 *self)
                 case 25:
                 case 30:  fdc_results_7(self);    /* fall through */
 		case 12:
-                case 6:   self->fdc_result_len = 7; 
-			/* Do an fdc_result_interrupt, the command has 
+                case 6:   self->fdc_result_len = 7;
+			/* Do an fdc_result_interrupt, the command has
 			 * finished. Would normally happen on buffer
 		 	 * exhaustion, but if you set the terminal count
 			 * then the buffer doesn't get exhausted */
@@ -362,18 +362,18 @@ static void fdc_read_track(FDC_765 *self)
 
 	self->fdc_st0 = self->fdc_st1 = self->fdc_st2 = 0;
 	self->fdc_lastidread = 0;
-	
-	fdc_get_drive(self);	
+
+	fdc_get_drive(self);
 
 	fd = self->fdc_dor_drive[self->fdc_curunit];
 
 	self->fdc_exec_len = MAX_SECTOR_LEN;
 
         if (!fdc_isready(self, fd)) err = FD_E_NOTRDY;
-	else err = fd_read_track(fd, 
+	else err = fd_read_track(fd,
 		self->fdc_cmd_buf[2], self->fdc_cmd_buf[3],
 		self->fdc_curhead,
-		self->fdc_exec_buf, 
+		self->fdc_exec_buf,
 		&self->fdc_exec_len);
 
 	if (err) fdc_xlt_error(self, err);
@@ -412,7 +412,7 @@ static void fdc_sense_drive(FDC_765 *self)
 
 
 /* READ DATA
- * READ DELETED DATA 
+ * READ DELETED DATA
  */
 
 static void fdc_read(FDC_765 *self, int deleted)
@@ -425,30 +425,30 @@ static void fdc_read(FDC_765 *self, int deleted)
 
 	self->fdc_st0 = self->fdc_st1 = self->fdc_st2 = 0;
 	self->fdc_lastidread = 0;
-	
-	fdc_get_drive(self);	
+
+	fdc_get_drive(self);
 
 	self->fdc_exec_len = 0;
 	/* 0.4.0: Support for multisector reads. Do it naively by reading
 	 * all the sectors in one go. */
-	for (sector = self->fdc_cmd_buf[4]; sector <= self->fdc_cmd_buf[6]; 
+	for (sector = self->fdc_cmd_buf[4]; sector <= self->fdc_cmd_buf[6];
 			sector++)
 	{
 		fd = self->fdc_dor_drive[self->fdc_curunit];
        		lensector = (128 << self->fdc_cmd_buf[5]);
-       		if ((self->fdc_cmd_buf[5] == 0) && (self->fdc_cmd_buf[8] < 255)) 
+       		if ((self->fdc_cmd_buf[5] == 0) && (self->fdc_cmd_buf[8] < 255))
 			lensector = self->fdc_cmd_buf[8];
 
 		memset(buf, 0, lensector);
 
 		if (!fdc_isready(self, fd)) err = FD_E_NOTRDY;
-		else err = fd_read_sector(fd, 
+		else err = fd_read_sector(fd,
 			self->fdc_cmd_buf[2], /* Cylinder expected */
 			self->fdc_cmd_buf[3], /* Head expected */
 			self->fdc_curhead,    /* Real head */
 			self->fdc_cmd_buf[4], /* Sector */
 			buf,
-			lensector, 
+			lensector,
 			&deleted,
 			self->fdc_cmd_buf[0] & 0x20,
 			self->fdc_cmd_buf[0] & 0x40,
@@ -478,7 +478,7 @@ static void fdc_read(FDC_765 *self, int deleted)
 }
 
 /* WRITE DATA
- * WRITE DELETED DATA 
+ * WRITE DELETED DATA
  *
  * XXX Does not support multisector
  */
@@ -504,7 +504,7 @@ static void fdc_write(FDC_765 *self, int deleted)
         if (!fdc_isready(self, fd))     err = FD_E_NOTRDY;
 	else if (fd && fd->fd_readonly) err = FD_E_READONLY;
 
-	if (err) 
+	if (err)
 	{
 		fdc_xlt_error(self, err);
                 self->fdc_mainstat = 0xD0;      /* Ready to return results */
@@ -528,7 +528,7 @@ static void fdc_recalibrate(FDC_765 *self)
 	FLOPPY_DRIVE *fd;
 
 	self->fdc_st0 = self->fdc_st1 = self->fdc_st2 = 0;
-	
+
 	fdc_get_drive(self);
 	self->fdc_lastidread = 0;
 
@@ -557,25 +557,25 @@ static void fdc_recalibrate(FDC_765 *self)
 /* SENSE INTERRUPT STATUS */
 static void fdc_sense_int(FDC_765 *self)
 {
-        if (self->fdc_interrupting > 2) 
+        if (self->fdc_interrupting > 2)
 		/* FDC interrupted, and is ready to return status */
         {
 		fdc_byte cyl = 0;
-		if (self->fdc_dor_drive[self->fdc_curunit]) 
-			cyl = self->fdc_dor_drive[self->fdc_curunit]->fd_cylinder;	
+		if (self->fdc_dor_drive[self->fdc_curunit])
+			cyl = self->fdc_dor_drive[self->fdc_curunit]->fd_cylinder;
 
 		self->fdc_result_buf[0] = self->fdc_st0;
 		self->fdc_result_buf[1] = cyl;
 		self->fdc_result_len = 2;
-		fdc_dprintf(7, "SENSE INTERRUPT STATUS: Return %02x %02x\n",
-					self->fdc_st0, cyl);
+		//fdc_dprintf(7, "SENSE INTERRUPT STATUS: Return %02x %02x\n",
+					//self->fdc_st0, cyl);
         }
         else    /* FDC did not interrupt, error */
         {
                 self->fdc_st0 = 0x80;
 		self->fdc_result_buf[0] = self->fdc_st0;
                 self->fdc_result_len = 1;
-		fdc_dprintf(7, "SENSE INTERRUPT STATUS: Return 0x80\n");
+		//fdc_dprintf(7, "SENSE INTERRUPT STATUS: Return 0x80\n");
         }
 	fdc_end_execution_phase(self);
 
@@ -598,12 +598,12 @@ static void fdc_read_id(FDC_765 *self)
 
 	self->fdc_result_len = 7;
 	self->fdc_st0 = self->fdc_st1 = self->fdc_st2 = 0;
-	
+
 	fdc_get_drive(self);
 
 	fd = self->fdc_dor_drive[self->fdc_curunit];
 
-        if (!fdc_isready(self, fd)) 
+        if (!fdc_isready(self, fd))
         {
                 self->fdc_st0 |= 0x48;          /* Drive not ready */
         }
@@ -616,8 +616,8 @@ static void fdc_read_id(FDC_765 *self)
 		{
 			self->fdc_st1 |= 1;
 			self->fdc_st0 |= 0x40;
-		}	
-		if (ret == FD_E_NOADDR) 
+		}
+		if (ret == FD_E_NOADDR)
 		{
 			self->fdc_st2 |= 1;
 			self->fdc_st0 |= 0x40;
@@ -648,7 +648,7 @@ static void fdc_format(FDC_765 *self)
         if (!fdc_isready(self, fd))     err = FD_E_NOTRDY;
 	else if (fd && fd->fd_readonly) err = FD_E_READONLY;
 
-	if (err) 
+	if (err)
 	{
 		fdc_xlt_error(self, err);
        		self->fdc_mainstat = 0xD0;      /* Ready to return results */
@@ -670,7 +670,7 @@ static void fdc_seek(FDC_765 *self)
 {
 	int cylinder = self->fdc_cmd_buf[2];
 	FLOPPY_DRIVE *fd;
-	
+
 	self->fdc_st0 = self->fdc_st1 = self->fdc_st2 = 0;
 	fdc_get_drive(self);
 	self->fdc_lastidread = 0;
@@ -721,7 +721,7 @@ static void fdc_scan(FDC_765 *self)
                 self->fdc_cmd_buf[2], self->fdc_cmd_buf[3],
                 self->fdc_curhead,
                 self->fdc_cmd_buf[4], self->fdc_exec_buf,
-                self->fdc_exec_len, 0, 
+                self->fdc_exec_len, 0,
 		self->fdc_cmd_buf[0] & 0x20,
 		self->fdc_cmd_buf[0] & 0x40,
 		self->fdc_cmd_buf[0] & 0x80);
@@ -750,17 +750,17 @@ static void fdc_execute(FDC_765 *self)
  *
  * */
 	int NC;
-	fdc_dprintf(5, "FDC: ");
+	//fdc_dprintf(5, "FDC: ");
 	for (NC = 0; NC < bytes_in_cmd[self->fdc_cmd_buf[0] & 0x1F]; NC++)
-		fdc_dprintf(5, "%02x ", self->fdc_cmd_buf[NC]);
-	fdc_dprintf(5, "\n");
+		//fdc_dprintf(5, "%02x ", self->fdc_cmd_buf[NC]);
+	//fdc_dprintf(5, "\n");
  /* */
-	/* Check if the DOR (ugh!) is being used to force us to a 
+	/* Check if the DOR (ugh!) is being used to force us to a
 	   different drive. */
 	fdc_dorcheck(self);
 
 	/* Reset "seek finished" flag */
-	self->fdc_st0 &= 0xBF;	 
+	self->fdc_st0 &= 0xBF;
 	switch(self->fdc_cmd_buf[0] & 0x1F)
 	{
 		case 2: fdc_read_track(self);	break;	/* 2: READ TRACK */
@@ -779,8 +779,8 @@ static void fdc_execute(FDC_765 *self)
 		case 25:				/*25: SCAN LOW/EQUAL */
 		case 30:fdc_scan(self);		break;	/*30: SCAN HIGH/EQUAL*/
 		default:
-			fdc_dprintf(2, "Unknown FDC command %d\n", 
-					self->fdc_cmd_buf[0] & 0x1F);
+			//fdc_dprintf(2, "Unknown FDC command %d\n",
+					//self->fdc_cmd_buf[0] & 0x1F);
 			fdc_error(self);	break;
 	}
 
@@ -821,7 +821,7 @@ void fdc_write_data(FDC_765 *self, fdc_byte value)
 				break;
 			default:	/* WRITE commands */
 				self->fdc_exec_buf[self->fdc_exec_pos] = value;
-				break;	
+				break;
 		}
 		++self->fdc_exec_pos;
 		--self->fdc_exec_len;
@@ -862,7 +862,7 @@ void fdc_write_data(FDC_765 *self, fdc_byte value)
 		self->fdc_mainstat |= 0x10;	/* In a command */
 		return;
 	}
-	/* FDC is not idle, nor in execution phase; so it must be 
+	/* FDC is not idle, nor in execution phase; so it must be
 	 * accepting a multibyte command */
 	self->fdc_cmd_buf[++self->fdc_cmd_pos] = value;
 	--self->fdc_cmd_len;
@@ -896,7 +896,7 @@ fdc_byte fdc_read_data (FDC_765 *self)
                  * the next byte is ready */
     /* [JCE 8-3-2002] Changed > to >= for xjoyce 2.1.0 */
                 if (self->fdc_interrupting >= 0 &&
-                        self->fdc_interrupting < 3) 
+                        self->fdc_interrupting < 3)
                 {
                     self->fdc_isr_countdown = SHORT_TIMEOUT;
                 }
@@ -905,7 +905,7 @@ fdc_byte fdc_read_data (FDC_765 *self)
                 return v;
             }
 		}
-		/* Not in execution phase. So we must be in the result phase */	
+		/* Not in execution phase. So we must be in the result phase */
         if (self->fdc_result_len > 0)
         {
             v = self->fdc_result_buf[self->fdc_result_pos++];
@@ -927,7 +927,7 @@ fdc_byte fdc_read_data (FDC_765 *self)
 /* Read the FDC's main control register */
 fdc_byte fdc_read_ctrl (FDC_765 *self)
 {
-	//fdc_dprintf(5, "FDC: Read main status: %02x\n", self->fdc_mainstat);
+	////fdc_dprintf(5, "FDC: Read main status: %02x\n", self->fdc_mainstat);
 	return self->fdc_mainstat;
 }
 
@@ -936,11 +936,11 @@ fdc_byte fdc_read_ctrl (FDC_765 *self)
 void fdc_set_terminal_count(FDC_765 *self, fdc_byte value)
 {
 	if (self->fdc_terminal_count != value)
-		fdc_dprintf(5, "FDC terminal count becomes %d\n", value);
+		//fdc_dprintf(5, "FDC terminal count becomes %d\n", value);
 	self->fdc_terminal_count = value;
 	if (value && (self->fdc_mainstat & 0x20)) /* In execution phase? */
 	{
-		fdc_dprintf(5, "FDC: Comand stopped by terminal count\n");
+		//fdc_dprintf(5, "FDC: Comand stopped by terminal count\n");
 		fdc_end_execution_phase(self);
 	}
 }
@@ -951,13 +951,13 @@ void fdc_set_motor(FDC_765 *self, fdc_byte running)
 	int oldmotor[4], newmotor[4];
 	int n;
 
-	fdc_dorcheck(self);	
-	fdc_dprintf(3, "FDC: Setting motor states to %d %d %d %d\n",
-			(running & 1), (running & 2) >> 1, (running & 4) >> 2,
-			(running & 8) >> 3);
+	fdc_dorcheck(self);
+	//fdc_dprintf(3, "FDC: Setting motor states to %d %d %d %d\n",
+			//(running & 1), (running & 2) >> 1, (running & 4) >> 2,
+			//(running & 8) >> 3);
 	/* Save the old motor states */
-	for (n = 0; n < 4; n++) 
-	    if (self->fdc_drive[n]) 
+	for (n = 0; n < 4; n++)
+	    if (self->fdc_drive[n])
 		 oldmotor[n] = self->fdc_drive[n]->fd_motor;
 	    else oldmotor[n] = 0;
 
@@ -969,8 +969,8 @@ void fdc_set_motor(FDC_765 *self, fdc_byte running)
         if (self->fdc_drive[3]) self->fdc_drive[3]->fd_motor = (running&8)?1:0;
 
 	/* Now get the new motor states */
-        for (n = 0; n < 4; n++) 
-            if (self->fdc_drive[n]) 
+        for (n = 0; n < 4; n++)
+            if (self->fdc_drive[n])
                  newmotor[n] = self->fdc_drive[n]->fd_motor;
             else newmotor[n] = 0;
 
@@ -981,7 +981,7 @@ void fdc_set_motor(FDC_765 *self, fdc_byte running)
 	/* The status of the active drive is changing. Wait for a while, then
 	 * interrupt */
 
-	fdc_dprintf(5, "FDC: queued interrupt for drive motor change.\n");
+	//fdc_dprintf(5, "FDC: queued interrupt for drive motor change.\n");
 	self->fdc_isr_countdown = LONGER_TIMEOUT;
 
 	if (n) self->fdc_st0 &= 0xF7;	/* Motor -> on ; drive is ready */
@@ -991,9 +991,9 @@ void fdc_set_motor(FDC_765 *self, fdc_byte running)
 	/* FDC is doing something and the motor has stopped! */
 	if ((self->fdc_mainstat & 0xF0) != 0x80 && (n == 0))
 	{
-		fdc_dprintf(5, "FDC: Motor stopped during command.\n");
+		//fdc_dprintf(5, "FDC: Motor stopped during command.\n");
 		self->fdc_st0 |= 0xC0;
-		fdc_end_execution_phase(self);	
+		fdc_end_execution_phase(self);
 	}
 }
 
@@ -1007,18 +1007,18 @@ void fdc_tick(FDC_765 *self)
 	if (!self->fdc_isr_countdown && self->fdc_isr)
 	{
 		(*self->fdc_isr)(self, 1);
-	} 
+	}
 }
 
 
 /* Simulate the Digital Output Register in the IBM PC and clones
- * This is not part of the uPD765A itself, but part of the support 
+ * This is not part of the uPD765A itself, but part of the support
  * circuitry.
- */ 
+ */
 void fdc_write_dor(FDC_765 *self, int value)
 {
 /* The DOR bits are as follows:
- * Bits 7-4: Motors on or off 
+ * Bits 7-4: Motors on or off
  * Bit    3: Enable DMA (overrides the DMA-mode bit in commands)
  * Bit    2: ~Reset
  * Bits 1-0: Drive select (overrides the drive selector in commands);
@@ -1033,7 +1033,7 @@ void fdc_write_dor(FDC_765 *self, int value)
 	if (old_dor < 0) old_dor = ~value;
 
 	/* The "motor" bits have changed */
-	if ((value ^ old_dor) & 0xF0) 	
+	if ((value ^ old_dor) & 0xF0)
 	{
 		fdc_set_motor(self, value >> 4);
 	}
@@ -1042,7 +1042,7 @@ void fdc_write_dor(FDC_765 *self, int value)
 	if ( (value ^ old_dor) & 4)
 	{
 /* The PCW16 expects that the FDC, on finishing its reset, will
- * interrupt. Play along with it. */ 
+ * interrupt. Play along with it. */
 		if (value & 4)	/* Coming out of reset	*/
 		{
 			self->fdc_st0 = 0xC0 | (self->fdc_st0 & 0x3F); /* failed? */
@@ -1061,7 +1061,7 @@ void fdc_write_dor(FDC_765 *self, int value)
 void fdc_write_drr(FDC_765 *self, fdc_byte value)
 {
 	int n;
-	
+
 	for (n = 0; n < 4; n++)
 	{
 		if (self->fdc_drive[n])
@@ -1076,38 +1076,38 @@ fdc_byte fdc_read_dir(FDC_765 *self)
 
 	fdc_dorcheck(self);
 // The changeline won't work without the DOR.
-	if (self->fdc_dor < 0) 
+	if (self->fdc_dor < 0)
 	{
-		fdc_dprintf(6, "fdc_read_dir: changeline=0 (no DOR)\n");
+		//fdc_dprintf(6, "fdc_read_dir: changeline=0 (no DOR)\n");
 		return 0;
-	}	
+	}
 
 	drv = self->fdc_dor & 3;
 
 	// No such drive => no changeline
-	if (!self->fdc_drive[drv]) 
+	if (!self->fdc_drive[drv])
 	{
-		fdc_dprintf(6, "fdc_read_dir: changeline=0 (no drive %d)\n", drv);
+		//fdc_dprintf(6, "fdc_read_dir: changeline=0 (no drive %d)\n", drv);
 		return 0;
-	}	
+	}
 	// Motor not running => no changeline
-	if (!self->fdc_drive[drv]->fd_motor) 
+	if (!self->fdc_drive[drv]->fd_motor)
 	{
-		fdc_dprintf(6, "fdc_read_dir: changeline=0 (motor off)\n");
+		//fdc_dprintf(6, "fdc_read_dir: changeline=0 (motor off)\n");
 		return 0;
-	}	
+	}
 
-        if (!fd_isready(self->fdc_drive[drv])) 
+        if (!fd_isready(self->fdc_drive[drv]))
 	{
-		fdc_dprintf(6, "fdc_read_dir: changeline=1 (drive not ready)\n");
+		//fdc_dprintf(6, "fdc_read_dir: changeline=1 (drive not ready)\n");
 		return 0x80;
 	}
 	if (fd_changed(self->fdc_drive[drv]))
 	{
-		fdc_dprintf(6, "fdc_read_dir: changeline=1\n");
+		//fdc_dprintf(6, "fdc_read_dir: changeline=1\n");
 		return 0x80;
 	}
-	fdc_dprintf(6, "fdc_read_dir: changeline=0\n");
+	//fdc_dprintf(6, "fdc_read_dir: changeline=0\n");
 	return 0;
 }
 
@@ -1119,7 +1119,7 @@ FDC_PTR fdc_new(void)
 
 	if (!self) return NULL;
 	fdc_reset(self);
-	return self;	
+	return self;
 }
 
 void fdc_destroy(FDC_PTR *p)
@@ -1138,7 +1138,7 @@ fdc_byte fdc_readst3(FDC_PTR fdc) { return fdc->fdc_st3; }
 int fdc_getunit(FDC_PTR fdc) { return fdc->fdc_curunit; }
 int fdc_gethead(FDC_PTR fdc) { return fdc->fdc_curhead; }
 
-void fdc_setisr(FDC_PTR self, FDC_ISR isr) 
+void fdc_setisr(FDC_PTR self, FDC_ISR isr)
 {
 	if (!self) return;
 	self->fdc_isr = isr;

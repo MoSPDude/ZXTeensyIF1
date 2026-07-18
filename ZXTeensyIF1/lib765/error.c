@@ -22,37 +22,13 @@
 #include <stdarg.h>
 #include "765.h"
 
-/* The function to call on errors */
-lib765_error_function_t lib765_error_function =
-	lib765_default_error_function;
-
 void fdc_dprintf(int debuglevel, const char *fmt, ...)
 {
-	/*va_list ap;
-
-	// If we don't have an error function, do nothing
-	if( !lib765_error_function ) return;
-
-	// Otherwise, call that error function
-	va_start( ap, fmt );
-	lib765_error_function( debuglevel, fmt, ap );
-	va_end( ap );*/
-}
-
-/* Default error action is just to print a message to stderr */
-void
-lib765_default_error_function(int debuglevel, const char *fmt, va_list ap)
-{
-	/* Let's say default action is level 1; showing all messages
-	 * would be just too horribly disturbing. */
-	
-	/*if (debuglevel > 1) return;	
-	fprintf( stderr, "lib765 level:%d error: ", debuglevel );
-	vfprintf( stderr, fmt, ap );
-	fprintf( stderr, "\n" );*/
-}
-
-void lib765_register_error_function(lib765_error_function_t ef)
-{
-	lib765_error_function = ef;
+    va_list ap;
+    if (debuglevel <= 1)
+    {
+        va_start( ap, fmt );
+        dsk765PrintDebug(false, fmt, ap);
+        va_end( ap );
+    }
 }
