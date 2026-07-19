@@ -2969,32 +2969,29 @@ FASTRUN void isrWrEvent()
                     {
                         // DivMMC control
                         uint8_t data = readData();
-                        if ((data & 0x80) != 0)
-                        {
-                            divMmcConMem = 1;
-                            PAGE_IN_ROM(ROM_DIVMMC);
-                        } else {
-                            divMmcConMem = 0;
-                            if (!divMmcAutoMap)
-                            {
-                                PAGE_OUT_ROM(ROM_DIVMMC);
-                            }
-                        }
+                        divMmcConMem = ((data & 0x80) != 0);
                         if ((data & 0x40) != 0)
                         {
                             divMmcMapRam = true;
                         }
+                        if (divMmcConMem || divMmcAutoMap)
+                        {
+                            PAGE_IN_ROM(ROM_DIVMMC);
+                        } else {
+                            PAGE_OUT_ROM(ROM_DIVMMC);
+                        }
 
                         // DivMMC RAM banking
                         data &= (EXT_RAM_PAGE_COUNT + RAM_PAGE_COUNT - 1);
-                        divMmcRamBank = data;
                         if (divMmcExtRamEnabled && (data >= RAM_PAGE_COUNT))
                         {
+                            divMmcRamBank = data;
                             divMmcRamPtr = divMmcExtRamArray[(data - RAM_PAGE_COUNT)];
                             divMmcRamBankThree = false;
                         } else {
-                            divMmcRamPtr = divMmcRamArray[data & (RAM_PAGE_COUNT - 1)];
-                            divMmcRamBankThree = ((data == 0x03) ? true : false);
+                            divMmcRamBank = data & (RAM_PAGE_COUNT - 1);
+                            divMmcRamPtr = divMmcRamArray[divMmcRamBank];
+                            divMmcRamBankThree = ((divMmcRamBank == 0x03) ? true : false);
                         }
                         updateRomIndex(true);
                     }
@@ -3210,7 +3207,7 @@ FASTRUN void isrRdEvent()
                             updateRomPtr(true);
                         }
 
-                        if (divMmcRomEnabled && (IS_ROM_PAGED(ROM_MF128) == 0))
+                        if (divMmcRomEnabled)
                         {
                             // Detect M1 cycle for DivMMC paging
                             if ((address & 0xff00) == 0x3d00)
@@ -3299,6 +3296,12 @@ FASTRUN void isrRdEvent()
                         }
                         break;
                     case ROM_DIVMMC :
+                        // Detect M1 cycle for DivMMC paging
+                        if (divMmcRomEnabled && ((address & 0xff00) == 0x3d00))
+                        {
+                            divMmcAutoMap = true;
+                        }
+
                         // Write ROM data to bus
                         writeDivMmcRomData(address);
 
@@ -3308,7 +3311,10 @@ FASTRUN void isrRdEvent()
                         if (!divMmcMapRam && ((address & 0xfff8) == 0x1ff8))
                         {
                             divMmcAutoMap = false;
-                            PAGE_OUT_ROM(ROM_DIVMMC);
+                            if (!divMmcConMem)
+                            {
+                                PAGE_OUT_ROM(ROM_DIVMMC);
+                            }
                             updateRomIndex(false);
 
                             // Disable the DivMMC, and enable the Interface 1
