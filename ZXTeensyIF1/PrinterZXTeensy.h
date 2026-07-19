@@ -111,28 +111,6 @@ class PrinterZXTeensy
             resetOutputPath();
         }
 
-        inline void clearOutput()
-        {
-            if (outFile)
-            {
-                outFile.close();
-            }
-            if (outPath[0] != 0)
-            {
-                File clearFile = SD.open(outPath, FILE_WRITE_BEGIN);
-                if (clearFile)
-                {
-                    clearFile.seek(0, SeekSet);
-                    clearFile.truncate();
-                    clearFile.close();
-                }
-            }
-            enabled = false;
-            printDelayCount = 0;
-            printerBuffer.clear();
-            resetOutputPath();
-        }
-
         inline __attribute__((always_inline)) void writeData(uint8_t data)
         {
             printerBuffer.write(data);

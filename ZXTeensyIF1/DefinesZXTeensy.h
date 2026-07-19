@@ -2,7 +2,7 @@
 #ifndef DEFINES_ZX_TEENSY_H
 #define DEFINES_ZX_TEENSY_H
 
-#define ZXTEENSY_VERSION "20260718"
+#define ZXTEENSY_VERSION "20260720"
 #define ENABLE_BUILTIN_ROM_IF1
 //define DEBUG_OUTPUT
 //define ENABLE_JOYSTICK_DEBUG
@@ -41,8 +41,8 @@
 #define TRIGGER_DELAY_MS 500
 #define TRIGGER_DELAY_CNT ((TRIGGER_DELAY_MS * TEENSY_CLK_FREQ) / (TICK_CYCCNT * 1000))
 
-// Allow ~200ms for button to debounce
-#define BUTTON_DELAY_MS 200
+// Allow ~125ms for button to debounce
+#define BUTTON_DELAY_MS 125
 #define BUTTON_DELAY_CNT ((BUTTON_DELAY_MS * TEENSY_CLK_FREQ) / (TICK_CYCCNT * 1000))
 
 // If reset is held for an additional 2 seconds, then perform a hard reset

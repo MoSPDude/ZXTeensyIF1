@@ -141,7 +141,7 @@ static const char* const PROGMEM MENU_STRINGS[] = {
     "   Enable B:",
     "Enable Centronics printer",
     "   Enable ZX LPRINT III",
-    "   Clear printer output",
+    "   Create new Document",
     "Load RTC Setup",
     "Load WiFi Network Manager",
     "Load as ROM cartridge\x09\x1A\x1B",

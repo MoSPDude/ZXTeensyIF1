@@ -121,6 +121,7 @@ typedef enum {
     SETTING_ACTION_UNMOUNT_FDA,
     SETTING_ACTION_UNMOUNT_FDB,
     SETTING_ACTION_IN_GAME_TOGGLE_IF1,
+    SETTING_ACTION_IN_GAME_TOGGLE_PRINTER,
     SETTING_ACTION_IN_GAME_TOGGLE_USB,
     SETTING_ACTION_OPEN_DEBUG = 0xF4,
     SETTING_ACTION_OPEN_IN_GAME_SETTINGS = 0xF5,
@@ -811,6 +812,16 @@ char* menuGenerateInGameSettings(char* ptr)
     {
         ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_IN_GAME_TOGGLE_IF1,
             ptr, MENU_STRINGS[STRING_ENABLE_IF1], interface1Enabled);
+    }
+    if (printerPresent)
+    {
+        ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_IN_GAME_TOGGLE_PRINTER,
+            ptr, MENU_STRINGS[STRING_ENABLE_PRINTER], (printerEnabled || lprintEnabled));
+        if (printerEnabled || lprintEnabled)
+        {
+            ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_CLEAR_PRINTER,
+                ptr, MENU_STRINGS[STRING_CLEAR_PRINTER], 0);
+        }
     }
     if (usbPresent)
     {
@@ -1990,15 +2001,10 @@ char* menuGenerateSettings(char* ptr)
     }
     ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_PRINTER,
         ptr, MENU_STRINGS[STRING_ENABLE_PRINTER], printerPresent);
-    if (printerPresent)
+    if (printerPresent && ((romArrayPresent & BANK_LPRINT) != 0))
     {
-        if ((romArrayPresent & BANK_LPRINT) != 0)
-        {
-            ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_LPRINT,
-                ptr, MENU_STRINGS[STRING_ENABLE_LPRINT], lprintPresent);
-        }
-        ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_CLEAR_PRINTER,
-            ptr, MENU_STRINGS[STRING_CLEAR_PRINTER], 0);
+        ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_LPRINT,
+            ptr, MENU_STRINGS[STRING_ENABLE_LPRINT], lprintPresent);
     }
     ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_USB, ptr,
         MENU_STRINGS[STRING_ENABLE_USB], usbPresent);
@@ -2459,7 +2465,7 @@ bool menuPerformSelection(uint8_t index)
                     }
                     break;
                 case SETTING_ACTION_CLEAR_PRINTER :
-                    menuClearPrinterFile();
+                    printerPort.end();
                     break;
                 case SETTING_ACTION_MOUNT_SD_SDA :
                     strcpy(cfgData.divMmcSdaPath, "/");
@@ -2496,6 +2502,19 @@ bool menuPerformSelection(uint8_t index)
                         divMmcEnabled = (divMmcPresent && !interface1Enabled);
                     }
                     divMmcRomEnabled = (divMmcEnabled && divMmcRomPresent);
+                    break;
+                case SETTING_ACTION_IN_GAME_TOGGLE_PRINTER :
+                    // Toggle active Centronics printer
+                    if (printerEnabled || lprintEnabled)
+                    {
+                        printerEnabled = false;
+                        lprintEnabled = false;
+                    } else if (lprintPresent)
+                    {
+                        lprintEnabled = true;
+                    } else {
+                        printerEnabled = true;
+                    }
                     break;
                 case SETTING_ACTION_IN_GAME_TOGGLE_USB :
                     // Toggle active USB
@@ -3485,11 +3504,6 @@ void menuSaveConfiguration()
             cfgFile.close();
         }
     }
-}
-
-void menuClearPrinterFile()
-{
-    printerPort.clearOutput();
 }
 
 inline bool menuIsDebugging()
