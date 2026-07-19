@@ -2945,7 +2945,6 @@ void menuPerformAction()
             divMmcPresent = true;
             modemPresent = false;
             lprintPresent = false;
-            wifiNtpPresent = false;
             break;
         default :
             break;

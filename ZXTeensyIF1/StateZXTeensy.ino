@@ -645,15 +645,13 @@ void stateApplyConfiguration()
     uartPresent = stateRestoreDevice.uartPresent;
     usbPresent = stateRestoreDevice.usbPresent;
     gamepadButtons = stateRestoreDevice.gamepadButtons;
-    wifiNtpPresent = stateRestoreDevice.wifiNtpPresent;
-    wifiNtpTz = stateRestoreDevice.wifiNtpTz;
+    // NOTE: Preserve existing wifiNtpPresent and wifiNtpTz
     dskPresent = stateRestoreDevice.dskPresent;
     dskEnableDriveB = stateRestoreDevice.dskEnableDriveB;
     modemPresent = stateRestoreDevice.modemPresent;
     printerPresent = stateRestoreDevice.printerPresent;
     lprintPresent = stateRestoreDevice.lprintPresent;
-    bootIntoMenu = stateRestoreDevice.bootIntoMenu;
-    menuEnableInGame = stateRestoreDevice.menuEnableInGame;
+    // NOTE: Preserve existing bootIntoMenu and menuEnableInGame
     memcpy(&cfgData, &stateRestoreDevice.cfgData, sizeof(cfgData));
     cfgData.romName[MAX_PATH - 1] = 0;
     cfgData.divMmcSdaPath[MAX_PATH - 1] = 0;
