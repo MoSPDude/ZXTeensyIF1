@@ -375,7 +375,7 @@ char* menuInsertInGameStatus(char* ptr)
 {
     // Show current ROMs
     char label[(MENU_STR_LEN + 1)];
-    if (snprintf(label, (MENU_STR_LEN + 1), " > ROM: -------- RAM: %d%s",
+    if (snprintf(label, (MENU_STR_LEN + 1), " > ROM: --------- RAM: %d%s",
         (spectrumBankM & 0x07), ((spectrumBankM & 0x20) ? " LOCK" : ""))
         >= (MENU_STR_LEN + 1))
     {
@@ -439,12 +439,19 @@ char* menuInsertInGameStatus(char* ptr)
     {
         label[14] = 'z';
     }
+    if (IS_ROM_PAGED(ROM_MLD))
+    {
+        label[15] = 'D';
+    } else if (mldPresent)
+    {
+        label[15] = 'd';
+    }
     if (IS_ROM_PAGED(ROM_SNA))
     {
-        label[15] = 'S';
+        label[16] = 'S';
     } else if (snaLoaderPresent)
     {
-        label[15] = 's';
+        label[16] = 's';
     }
     ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_NO_OP,
         ptr, label, 0);
@@ -691,6 +698,10 @@ menu_action_t menuGetBrowserFileAction(const char* filename, bool isDirectory,
             // Open ROM type selector, as ".bin" could be various types
             *icon = ICON_TYPE_ZXC2;
             action = MENU_ACTION_BROWSER_OPEN_ROM;
+        } else if (stricmp(fileext + 1, "mld") == 0)
+        {
+            *icon = ICON_TYPE_CART;
+            action = MENU_ACTION_BROWSER_LOAD_MLD;
         } else if ((stricmp(fileext + 1, "z80") == 0) ||
             (stricmp(fileext + 1, "sna") == 0))
         {
@@ -1049,6 +1060,7 @@ char* menuGenerateBrowserOpenRom(char* ptr)
     ptr = menuInsertSetting(MENU_ACTION_BROWSER_LOAD_CART, 0, ptr, MENU_STRINGS[STRING_LOAD_ROM], 0);
     ptr = menuInsertSetting(MENU_ACTION_BROWSER_LOAD_ZXC2, 0, ptr, MENU_STRINGS[STRING_LOAD_ZXC2], 0);
     ptr = menuInsertSetting(MENU_ACTION_BROWSER_LOAD_ZXC3, 0, ptr, MENU_STRINGS[STRING_LOAD_ZXC3], 0);
+    ptr = menuInsertSetting(MENU_ACTION_BROWSER_LOAD_MLD, 0, ptr, MENU_STRINGS[STRING_LOAD_MLD], 0);
     if ((menuTopMenu != MENU_TYPE_MAIN) && mf128Present)
     {
         ptr = menuInsertSetting(MENU_ACTION_BROWSER_LOAD_MF128, 0, ptr, MENU_STRINGS[STRING_LOAD_MF128], 0);
@@ -2751,6 +2763,7 @@ bool menuPerformSelection(uint8_t index)
         case MENU_ACTION_BROWSER_LOAD_CART :
         case MENU_ACTION_BROWSER_LOAD_ZXC2 :
         case MENU_ACTION_BROWSER_LOAD_ZXC3 :
+        case MENU_ACTION_BROWSER_LOAD_MLD :
             if ((menuCurrent == MENU_TYPE_BROWSER_OPEN) ||
                 (menuCurrent == MENU_TYPE_BROWSER_OPEN_ROM) ||
                 updateBrowserPath(entryIndex))
@@ -2923,6 +2936,7 @@ void menuPerformAction()
         case MENU_ACTION_BROWSER_LOAD_CART :
         case MENU_ACTION_BROWSER_LOAD_ZXC2 :
         case MENU_ACTION_BROWSER_LOAD_ZXC3 :
+        case MENU_ACTION_BROWSER_LOAD_MLD :
         case MENU_ACTION_BROWSER_LOAD_Z80 :
             // Load new cartridge - with DivMMC, modem and LPRINT III disabled
             divMmcPresent = false;
@@ -2968,6 +2982,9 @@ rom_type_t getRomType(const char* fileName)
         } else if (stricmp(fileext + 1, "sna") == 0)
         {
             return TYPE_SNA;
+        } else if (stricmp(fileext + 1, "mld") == 0)
+        {
+            return TYPE_MLD;
         }
     }
     return TYPE_CART;
@@ -3172,6 +3189,9 @@ File menuGetForegroundRomFile(rom_type_t* romType)
             return menuGetBrowserRomFile();
         case MENU_ACTION_BROWSER_LOAD_ZXC3 :
             *romType = TYPE_ZXC3;
+            return menuGetBrowserRomFile();
+        case MENU_ACTION_BROWSER_LOAD_MLD :
+            *romType = TYPE_MLD;
             return menuGetBrowserRomFile();
         case MENU_ACTION_BROWSER_LOAD_CART :
             *romType = TYPE_CART;
