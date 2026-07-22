@@ -178,6 +178,21 @@ typedef enum {
 } zxc3_flash_state_t;
 
 typedef enum {
+    MLD_PULSE_IDLE,
+    MLD_PULSE_COMMAND,
+    MLD_PULSE_DATA1,
+    MLD_PULSE_DATA2,
+    MLD_PULSE_FAST
+} mld_pulse_state_t;
+
+typedef enum {
+    MLD_EEP_IDLE,
+    MLD_EEP_PROGRAM_BYTE,
+    MLD_EEP_ERASE_SECTOR,
+    MLD_EEP_PROGRAM_SECTOR
+} mld_eep_program_t;
+
+typedef enum {
     MENU_ROM_CMD_IDLE = 0,
     MENU_ROM_CMD_REDRAW = 1,
     MENU_ROM_CMD_IN_GAME_EXIT = 2,
@@ -344,6 +359,11 @@ static const uint16_t MLD_HEADER_OFFSET = 0x3FEA;
 static const uint16_t MLD_SIGNATURE_OFFSET = 0x3FFC;
 static const uint8_t MLD_MAX_PAGE_COUNT = RAM_PAGE_COUNT + EXT_RAM_PAGE_COUNT;
 static const uint8_t MLD_MAX_SLOT_COUNT = MLD_MAX_PAGE_COUNT / 2;
+static const uint8_t MLD_SECTOR_COUNT = MLD_MAX_PAGE_COUNT * 2;
+static const uint32_t MLD_PULSE_TIMEOUT_CNT =
+    (uint32_t)((TEENSY_CLK_FREQ / 1000000ULL) * 32ULL);
+static const uint32_t MLD_SPECIAL_TIMEOUT_CNT =
+    (uint32_t)((TEENSY_CLK_FREQ / 1000000ULL) * 512ULL);
 volatile bool mldPresent = false;
 volatile uint8_t mldSlotCount = 0;
 volatile uint8_t mldCmdOpcode = 0x00;
@@ -352,6 +372,13 @@ volatile uint8_t mldCmdData2 = 0x00;
 volatile uint8_t mldCmdRepeat = 0x00;
 volatile bool mldCmdLocked = false;
 volatile bool mldCmdDisabled = false;
+volatile uint8_t mldCurrentSlot = 1;
+volatile uint8_t mldPreviousSlot = 1;
+volatile mld_pulse_state_t mldPulseState = MLD_PULSE_IDLE;
+volatile uint32_t mldPulseCycle = 0;
+volatile mld_eep_program_t mldEepProgram = MLD_EEP_IDLE;
+volatile uint8_t mldEepSector = 0x00;
+volatile uint16_t mldEepProgramRemaining = 0;
 
 // Microdrive emulator
 static const uint8_t MDR_MAX_SECTOR = 0xB4;
@@ -471,10 +498,16 @@ FASTRUN void isrWrEvent() __attribute__((hot, optimize("O3")));
 FASTRUN void loop() __attribute__((hot, optimize("O3")));
 inline void sdSpiOnTick() __attribute__((always_inline, hot, optimize("O3")));
 inline void zxC3OnTick() __attribute__((always_inline, hot, optimize("O3")));
+inline void mldPulseOnTick(uint32_t cycle) __attribute__((always_inline, hot, optimize("O3")));
+
+// Optimised functions used by ISR
+void stateLoaderFinished(bool onPageOut) __attribute__((optimize("O3")));
+inline void mldClearCommand() __attribute__((always_inline, hot, optimize("O3")));
+inline void mldClearEepProgram() __attribute__((always_inline, hot, optimize("O3")));
+void mldRunCommand(uint8_t command) __attribute__((hot, optimize("O3")));
+void updateMldSlotPtr(uint8_t slot) __attribute__((hot, optimize("O3")));
 
 // Optimised read ISR ROM functions
-void stateLoaderFinished(bool onPageOut) __attribute__((optimize("O3")));
-inline void mldRunCommand(uint8_t command) __attribute__((always_inline, hot, optimize("O3")));
 inline void updateRomPtr(bool pageNow) __attribute__((always_inline, hot, optimize("O3")));
 inline void updateRomIndex(bool pageNow) __attribute__((always_inline, hot, optimize("O3")));
 inline void writeRomData(uint16_t address) __attribute__((always_inline, hot, optimize("O3")));
@@ -680,14 +713,14 @@ inline void zxC3OnTick()
             switch (zxC3EraseTrigState)
             {
                 case TRIGGER_HOLD :
-                    if (!zxC3Write)
+                    if (mldPresent || !zxC3Write)
                     {
                         zxC3EraseTrigState = TRIGGER_DELAY;
                         zxC3EraseTrigExitCount = ZXC3_ERASE_DELAY_CNT;
                     }
                     break;
                 case TRIGGER_DELAY :
-                    if (!zxC3Write)
+                    if (mldPresent || !zxC3Write)
                     {
                         --zxC3EraseTrigExitCount;
                         if (zxC3EraseTrigExitCount == 0)
@@ -739,7 +772,7 @@ inline void zxC3OnTick()
                     }
                     break;
                 default :
-                    if (!zxC3Write)
+                    if (mldPresent || !zxC3Write)
                     {
                         zxC3EraseTrigState = TRIGGER_HOLD;
                     }
@@ -750,20 +783,20 @@ inline void zxC3OnTick()
         switch (zxC3WriteTrigState)
         {
             case TRIGGER_ACTIVE :
-                if (!zxC3Write)
+                if (mldPresent || !zxC3Write)
                 {
                     zxC3WriteTrigState = TRIGGER_HOLD;
                 }
                 break;
             case TRIGGER_HOLD :
-                if (!zxC3Write)
+                if (mldPresent || !zxC3Write)
                 {
                     zxC3WriteTrigState = TRIGGER_DELAY;
                     zxC3WriteTrigExitCount = TRIGGER_DELAY_CNT;
                 }
                 break;
             case TRIGGER_DELAY :
-                if (!zxC3Write)
+                if (mldPresent || !zxC3Write)
                 {
                     --zxC3WriteTrigExitCount;
                     if (zxC3WriteTrigExitCount == 0)
@@ -1080,8 +1113,9 @@ void saveZXC3RomFile(const char* filePath)
     }
 }
 
-inline volatile uint8_t* mldPagePtr(uint8_t page)
+inline volatile uint8_t* mldGetSlotPtr(uint8_t page)
 {
+    page <<= 1;
     if (page >= RAM_PAGE_COUNT)
     {
         return divMmcExtRamArray[page - RAM_PAGE_COUNT];
@@ -1089,29 +1123,12 @@ inline volatile uint8_t* mldPagePtr(uint8_t page)
     return divMmcRamArray[page];
 }
 
-inline uint8_t mldReadByte(uint32_t offset)
-{
-    return mldPagePtr(offset / RAM_PAGE_SIZE)[offset & (RAM_PAGE_SIZE - 1)];
-}
-
-inline void mldWriteByte(uint32_t offset, uint8_t data)
-{
-    mldPagePtr(offset / RAM_PAGE_SIZE)[offset & (RAM_PAGE_SIZE - 1)] = data;
-}
-
-inline uint16_t mldReadWord(uint32_t offset)
-{
-    return mldReadByte(offset) | (mldReadByte(offset + 1) << 8);
-}
-
 uint8_t mldFindHeaderSlot()
 {
     for (uint8_t slot = 0; slot < mldSlotCount; ++slot)
     {
-        uint32_t signature = ((uint32_t)slot * ROM_PAGE_SIZE) + MLD_SIGNATURE_OFFSET;
-        if ((mldReadByte(signature) == 'M') &&
-            (mldReadByte(signature + 1) == 'L') &&
-            (mldReadByte(signature + 2) == 'D'))
+        volatile uint8_t* ptr = mldGetSlotPtr(slot);
+        if (memcmp((const void*)&(ptr[MLD_SIGNATURE_OFFSET]), "MLD", 3) == 0)
         {
             return slot;
         }
@@ -1121,22 +1138,29 @@ uint8_t mldFindHeaderSlot()
 
 bool mldRelocateToSlotZero(uint8_t headerSlot)
 {
-    uint32_t headerOffset = ((uint32_t)headerSlot * ROM_PAGE_SIZE) + MLD_HEADER_OFFSET;
-    uint8_t baseSlot = mldReadByte(headerOffset);
-    uint16_t tableOffset = mldReadWord(headerOffset + 7);
-    uint16_t tableRowSize = mldReadWord(headerOffset + 9);
-    uint16_t tableRows = mldReadWord(headerOffset + 11);
-    uint8_t rowSlotOffset = mldReadByte(headerOffset + 13);
+    // Read the MLD header directly from its ROM slot
+    volatile uint8_t* ptr = mldGetSlotPtr(headerSlot);
+    uint8_t baseSlot = ptr[MLD_HEADER_OFFSET];
+    uint16_t tableOffset = ptr[MLD_HEADER_OFFSET + 7] |
+        (ptr[MLD_HEADER_OFFSET + 8] << 8);
+    uint16_t tableRowSize = ptr[MLD_HEADER_OFFSET + 9] |
+        (ptr[MLD_HEADER_OFFSET + 10] << 8);
+    uint16_t tableRows = ptr[MLD_HEADER_OFFSET + 11] |
+        (ptr[MLD_HEADER_OFFSET + 12] << 8);
+    uint8_t rowSlotOffset = ptr[MLD_HEADER_OFFSET + 13];
     uint8_t tableSlot = tableOffset / ROM_PAGE_SIZE;
     uint16_t tableSlotOffset = tableOffset & (ROM_PAGE_SIZE - 1);
 
+    // The relocation table must fit in a loaded MLD slot
     if (tableSlot >= mldSlotCount)
     {
         return false;
     }
 
+    volatile uint8_t* tablePtr = mldGetSlotPtr(tableSlot);
     for (uint16_t row = 0; row < tableRows; ++row)
     {
+        // Each row contains one slot reference to adjust by the header base slot
         uint32_t rowOffset = tableSlotOffset + ((uint32_t)row * tableRowSize) +
             rowSlotOffset;
         if (rowOffset >= ROM_PAGE_SIZE)
@@ -1144,14 +1168,14 @@ bool mldRelocateToSlotZero(uint8_t headerSlot)
             return false;
         }
 
-        uint32_t slotOffset = ((uint32_t)tableSlot * ROM_PAGE_SIZE) + rowOffset;
-        uint8_t oldValue = mldReadByte(slotOffset);
+        volatile uint8_t* slotPtr = &(tablePtr[rowOffset]);
+        uint8_t oldValue = *slotPtr;
         uint8_t oldSlot = oldValue & 0x7F;
-        mldWriteByte(slotOffset, (oldValue & 0x80) |
-            ((oldSlot - baseSlot) & 0x7F));
+        *slotPtr = (oldValue & 0x80) | ((oldSlot - baseSlot) & 0x7F);
     }
 
-    mldWriteByte(headerOffset, 0);
+    // Slot zero is now the base slot
+    ptr[MLD_HEADER_OFFSET] = 0;
     return true;
 }
 
@@ -1180,12 +1204,17 @@ bool loadMldRomFile(File RomFile)
         }
         if (mldPresent)
         {
+            // Relocate MLD slots as necessary - assume full ROM images are already
+            // laid out from slot zero
             mldSlotCount = (count + ROM_PAGE_SIZE - 1) / ROM_PAGE_SIZE;
-            uint8_t headerSlot = mldFindHeaderSlot();
-            if ((headerSlot == 0xFF) || !mldRelocateToSlotZero(headerSlot))
+            if (mldSlotCount < MLD_MAX_SLOT_COUNT)
             {
-                mldPresent = false;
-                mldSlotCount = 0;
+                uint8_t headerSlot = mldFindHeaderSlot();
+                if ((headerSlot != 0xFF) && !mldRelocateToSlotZero(headerSlot))
+                {
+                    mldPresent = false;
+                    mldSlotCount = 0;
+                }
             }
         }
         RomFile.close();
@@ -1835,10 +1864,14 @@ void handleStateReset()
     zxC3WriteTrigState = TRIGGER_READY;
     mldCmdLocked = false;
     mldCmdDisabled = false;
-    mldCmdOpcode = 0;
+    mldCurrentSlot = 1;
+    mldPreviousSlot = 1;
+    mldClearCommand();
     mldCmdData1 = 0;
     mldCmdData2 = 0;
-    mldCmdRepeat = 0;
+    mldEepProgram = MLD_EEP_IDLE;
+    mldEepSector = 0;
+    mldEepProgramRemaining = 0;
     mdrEnabled = false;
     uartEnabled = false;
     tzxEnabled = false;
@@ -2086,6 +2119,7 @@ FASTRUN void loop()
         sdSpiOnTick();
         espUart.onTick();
         tzxPlayer.onTick();
+        mldPulseOnTick(cycle_);
         zxC3OnTick();
         printerPort.onTick();
         if (wifiNtpEnabled && wifiNtp.onTick())
@@ -2533,39 +2567,134 @@ void usbKeyboardReleased(int key)
     joystickPresent = true;
 }
 
-inline void mldRunCommand(uint8_t command)
+inline void mldClearCommand()
+{
+    mldPulseState = MLD_PULSE_IDLE;
+    mldCmdOpcode = 0;
+    mldCmdRepeat = 0;
+}
+
+inline void mldClearEepProgram()
+{
+    mldEepProgram = MLD_EEP_IDLE;
+    mldEepSector = 0;
+    mldEepProgramRemaining = 0;
+    zxC3FlashState = ZXC3_FLASH_IDLE;
+    zxC3FlashSetup = false;
+}
+
+void mldPulseOnTick(uint32_t cycle)
+{
+    if (mldPresent && (mldPulseState != MLD_PULSE_IDLE))
+    {
+        if (mldCmdDisabled || (mldEepProgram != MLD_EEP_IDLE))
+        {
+            mldClearCommand();
+        } else {
+            uint32_t timeout;
+            if ((mldPulseState == MLD_PULSE_FAST) ||
+                (((mldPulseState == MLD_PULSE_DATA1) ||
+                    (mldPulseState == MLD_PULSE_DATA2)) && (mldCmdRepeat == 0)))
+            {
+                timeout = MLD_SPECIAL_TIMEOUT_CNT;
+            } else {
+                timeout = MLD_PULSE_TIMEOUT_CNT;
+            }
+            if ((cycle - mldPulseCycle) >= timeout)
+            {
+                switch (mldPulseState)
+                {
+                    case MLD_PULSE_COMMAND :
+                        if ((mldCmdRepeat >= 40) && (mldCmdRepeat <= 49))
+                        {
+                            if (!mldCmdLocked || (mldCmdRepeat == 46))
+                            {
+                                mldCmdOpcode = mldCmdRepeat;
+                                mldCmdRepeat = 0;
+                                mldPulseState = MLD_PULSE_DATA1;
+                                mldPulseCycle = cycle;
+                            } else {
+                                mldClearCommand();
+                            }
+                        } else {
+                            uint8_t command = mldCmdRepeat;
+                            mldClearCommand();
+                            if ((command != 0) && !mldCmdLocked)
+                            {
+                                mldRunCommand(command);
+                                updateRomIndex(true);
+                            }
+                        }
+                        break;
+                    case MLD_PULSE_DATA1 :
+                        mldCmdData1 = mldCmdRepeat;
+                        mldCmdRepeat = 0;
+                        mldPulseState = MLD_PULSE_DATA2;
+                        mldPulseCycle = cycle;
+                        break;
+                    case MLD_PULSE_DATA2 :
+                        mldCmdData2 = mldCmdRepeat;
+                        mldCmdRepeat = 0;
+                        mldPulseState = MLD_PULSE_FAST;
+                        mldPulseCycle = cycle;
+                        break;
+                    default :
+                        mldClearCommand();
+                        break;
+                }
+            }
+        }
+    }
+}
+
+void mldRunCommand(uint8_t command)
 {
     if (!mldCmdLocked || (command == 46))
     {
         if ((command >= 1) && (command <= 32))
         {
-            zxC2RomBank = ((command - 1) & 0x1F) << 1;
-            PAGE_IN_ROM(ROM_MLD);
+            // Bank select command
+            updateMldSlotPtr(command);
         } else {
             switch (command)
             {
                 case 33 :
-                    PAGE_OUT_ROM(ROM_MLD);
+                    // Page out command
+                    updateMldSlotPtr(33);
                     break;
                 case 34 :
-                    PAGE_OUT_ROM(ROM_MLD);
+                    // Page out and lock command
+                    updateMldSlotPtr(33);
                     mldCmdLocked = true;
                     break;
                 case 36 :
+                    // Reset spectrum command
+                    mldClearEepProgram();
                     setState(STATE_RESET);
+                    break;
+                case 37 :
+                    // Trigger NMI command
+                    if (!nmiPending)
+                    {
+                        nmiPending = true;
+                        digitalWriteFast(NMI_PIN, 1);
+                    }
                     break;
                 case 39 :
                     break;
                 case 40 :
-                    zxC2RomBank = ((mldCmdData1 - 1) & 0x1F) << 1;
-                    PAGE_IN_ROM(ROM_MLD);
+                    // "Fast" command
+                    updateMldSlotPtr(mldCmdData1);
                     if ((mldCmdData2 & 0x08) != 0)
                     {
                         mldCmdDisabled = true;
                         mldCmdLocked = false;
+                        mldClearEepProgram();
                     } else if ((mldCmdData2 & 0x04) != 0)
                     {
                         mldCmdLocked = true;
+                    } else {
+                        mldCmdLocked = false;
                     }
                     if ((mldCmdData2 & 0x02) != 0)
                     {
@@ -2577,10 +2706,12 @@ inline void mldRunCommand(uint8_t command)
                     }
                     if ((mldCmdData2 & 0x01) != 0)
                     {
+                        mldClearEepProgram();
                         setState(STATE_RESET);
                     }
                     break;
                 case 46 :
+                    // Dandanator lock command
                     if (mldCmdData1 == mldCmdData2)
                     {
                         if (mldCmdData1 == 1)
@@ -2590,18 +2721,82 @@ inline void mldRunCommand(uint8_t command)
                         {
                             mldCmdLocked = false;
                             mldCmdDisabled = false;
+                            mldClearEepProgram();
                         } else if (mldCmdData1 == 31)
                         {
                             mldCmdDisabled = true;
                             mldCmdLocked = false;
+                            mldClearEepProgram();
                         }
                     }
                     break;
+                case 48 :
+                {
+                    // Flash program command
+                    if (mldCmdData2 < MLD_SECTOR_COUNT)
+                    {
+                        mldEepProgram = MLD_EEP_IDLE;
+                        if (mldCmdData1 == 1)
+                        {
+                            mldEepProgram = MLD_EEP_PROGRAM_BYTE;
+                            mldEepProgramRemaining = 1;
+                        } else if (mldCmdData1 == 16)
+                        {
+                            mldEepProgram = MLD_EEP_ERASE_SECTOR;
+                            mldEepProgramRemaining = 0;
+                        } else if (mldCmdData1 == 32)
+                        {
+                            mldEepProgram = MLD_EEP_PROGRAM_SECTOR;
+                            mldEepProgramRemaining = 4096;
+                        }
+                        if (mldEepProgram != MLD_EEP_IDLE)
+                        {
+                            mldEepSector = mldCmdData2;
+                            updateMldSlotPtr((mldEepSector >> 2) + 1);
+                        } else {
+                            mldClearEepProgram();
+                        }
+                    } else {
+                        mldClearEepProgram();
+                    }
+                    break;
+                }
                 default :
                     break;
             }
         }
     }
+}
+
+void updateMldSlotPtr(uint8_t slot)
+{
+    if (slot == 35)
+    {
+        slot = mldPreviousSlot;
+    }
+    if ((slot >= 1) && (slot <= MLD_MAX_SLOT_COUNT))
+    {
+        uint8_t page = (slot - 1) << 1;
+        if (page < MLD_MAX_PAGE_COUNT)
+        {
+            if (slot != mldCurrentSlot)
+            {
+                mldPreviousSlot = mldCurrentSlot;
+                mldCurrentSlot = slot;
+            }
+            zxC2RomBank = page;
+            PAGE_IN_ROM(ROM_MLD);
+        }
+    } else if (slot == 33)
+    {
+        if (mldCurrentSlot != 33)
+        {
+            mldPreviousSlot = mldCurrentSlot;
+            mldCurrentSlot = 33;
+        }
+        PAGE_OUT_ROM(ROM_MLD);
+    }
+    updateRomIndex(true);
 }
 
 inline void updateRomPtr(bool pageNow)
@@ -2909,18 +3104,15 @@ FASTRUN void isrWrEvent()
         // Perform MLD, or ZXC2 address based paging
         if (mldPresent)
         {
-            if (!mldCmdDisabled && (address <= 0x0003))
+            // Handle Dandanator command modes, when not programming
+            if ((mldEepProgram == MLD_EEP_IDLE) && !mldCmdDisabled &&
+                (zxC3FlashState != ZXC3_FLASH_WRITE))
             {
                 bool hasCommand = false;
                 switch (address)
                 {
-                    case 0x0000 :
-                        if (mldCmdOpcode >= 40)
-                        {
-                            hasCommand = true;
-                        }
-                        break;
                     case 0x0001 :
+                        mldPulseState = MLD_PULSE_IDLE;
                         if (data < 40)
                         {
                             if ((data != 0) && !mldCmdLocked)
@@ -2952,21 +3144,50 @@ FASTRUN void isrWrEvent()
                         }
                         break;
                     case 0x0002 :
+                        mldPulseState = MLD_PULSE_IDLE;
                         mldCmdData1 = data;
                         break;
                     case 0x0003 :
+                        mldPulseState = MLD_PULSE_IDLE;
                         mldCmdData2 = data;
                         break;
                     default :
+                        if ((mldCmdOpcode >= 40) &&
+                            (address == 0x0000) &&
+                            ((mldPulseState == MLD_PULSE_IDLE) ||
+                                (mldPulseState == MLD_PULSE_FAST)))
+                        {
+                            hasCommand = true;
+                        } else {
+                            switch (mldPulseState)
+                            {
+                                case MLD_PULSE_IDLE :
+                                    mldCmdOpcode = 0;
+                                    mldCmdRepeat = 1;
+                                    mldPulseState = MLD_PULSE_COMMAND;
+                                    mldPulseCycle = ARM_DWT_CYCCNT;
+                                    break;
+                                case MLD_PULSE_COMMAND :
+                                case MLD_PULSE_DATA1 :
+                                case MLD_PULSE_DATA2 :
+                                    if (mldCmdRepeat < 0xFF)
+                                    {
+                                        ++mldCmdRepeat;
+                                    }
+                                    mldPulseCycle = ARM_DWT_CYCCNT;
+                                    break;
+                                default :
+                                    break;
+                            }
+                        }
                         break;
                 }
                 if (hasCommand)
                 {
                     mldRunCommand(mldCmdOpcode);
-                    mldCmdOpcode = 0;
-                    mldCmdRepeat = 0;
+                    mldClearCommand();
+                    return;
                 }
-                updateRomIndex(true);
             }
         } else if (zxC2Present && !zxC2Lock && !nmiPending &&
             (!zxC2ShadowRom || IS_ROM_PAGED(ROM_ZXC2)) &&
@@ -3011,15 +3232,16 @@ FASTRUN void isrWrEvent()
             case ROM_MLD :
                 if (zxC3Write)
                 {
+                    bool mldEepActive = (mldEepProgram != MLD_EEP_IDLE);
                     switch (zxC3FlashState)
                     {
                         case ZXC3_FLASH_UNLOCK :
-                            if ((zxC2RomBank == 0) && (address == 0x2AAA) && (data == 0x55))
+                            if (((zxC2RomBank == 0) || mldEepActive) &&
+                                (address == 0x2AAA) && (data == 0x55))
                             {
                                 zxC3FlashState = ZXC3_FLASH_CMD;
                             } else {
-                                zxC3FlashState = ZXC3_FLASH_IDLE;
-                                zxC3FlashSetup = false;
+                                mldClearEepProgram();
                             }
                             break;
                         case ZXC3_FLASH_CMD :
@@ -3028,8 +3250,8 @@ FASTRUN void isrWrEvent()
                             {
                                 case 0x10 :
                                     // Chip erase
-                                    if ((zxC2RomBank == 2) && (address == 0x1555) &&
-                                        zxC3FlashSetup)
+                                    if (!mldEepActive && (zxC2RomBank == 2) &&
+                                        (address == 0x1555) && zxC3FlashSetup)
                                     {
                                         if (mldPresent)
                                         {
@@ -3053,10 +3275,16 @@ FASTRUN void isrWrEvent()
                                         zxC3WriteTrigState = TRIGGER_ACTIVE;
                                     }
                                     zxC3FlashSetup = false;
+                                    if (mldEepActive)
+                                    {
+                                        mldClearEepProgram();
+                                    }
                                     break;
                                 case 0x30 :
                                     // Sector erase
-                                    if (zxC3FlashSetup)
+                                    if (zxC3FlashSetup &&
+                                        (!mldEepActive ||
+                                            (mldEepProgram == MLD_EEP_ERASE_SECTOR)))
                                     {
                                         if (mldPresent)
                                         {
@@ -3068,25 +3296,49 @@ FASTRUN void isrWrEvent()
                                             zxC3EraseBuffer.write(zxC2RomBank);
                                         }
                                         zxC3WriteTrigState = TRIGGER_ACTIVE;
+                                        if (mldEepActive)
+                                        {
+                                            mldClearEepProgram();
+                                        }
+                                    } else if (mldEepActive)
+                                    {
+                                        mldClearEepProgram();
                                     }
                                     zxC3FlashSetup = false;
                                     break;
                                 case 0x80 :
                                     // Setup command
-                                    if ((zxC2RomBank == 2) && (address == 0x1555))
+                                    if (((zxC2RomBank == 2) || mldEepActive) &&
+                                        (address == 0x1555) &&
+                                        (!mldEepActive ||
+                                            (mldEepProgram == MLD_EEP_ERASE_SECTOR)))
                                     {
                                         zxC3FlashSetup = true;
+                                    } else if (mldEepActive)
+                                    {
+                                        mldClearEepProgram();
                                     }
                                     break;
                                 case 0xA0 :
                                     // Program byte
-                                    if ((zxC2RomBank == 2) && (address == 0x1555))
+                                    if (((zxC2RomBank == 2) || mldEepActive) &&
+                                        (address == 0x1555) &&
+                                        (!mldEepActive ||
+                                            (mldEepProgram == MLD_EEP_PROGRAM_BYTE) ||
+                                            (mldEepProgram == MLD_EEP_PROGRAM_SECTOR)))
                                     {
                                         zxC3FlashState = ZXC3_FLASH_WRITE;
+                                    } else if (mldEepActive)
+                                    {
+                                        mldClearEepProgram();
                                     }
                                     break;
                                 default :
                                     zxC3FlashSetup = false;
+                                    if (mldEepActive)
+                                    {
+                                        mldClearEepProgram();
+                                    }
                                     break;
                             }
                             break;
@@ -3095,11 +3347,25 @@ FASTRUN void isrWrEvent()
                             romPtr[address] = data;
                             zxC3FlashState = ZXC3_FLASH_IDLE;
                             zxC3WriteTrigState = TRIGGER_ACTIVE;
+                            if (mldEepActive)
+                            {
+                                if ((mldEepProgram == MLD_EEP_PROGRAM_SECTOR) &&
+                                    (mldEepProgramRemaining > 1))
+                                {
+                                    --mldEepProgramRemaining;
+                                } else {
+                                    mldClearEepProgram();
+                                }
+                            }
                             break;
                         default :
-                            if ((zxC2RomBank == 2) && (address == 0x1555) && (data == 0xAA))
+                            if (((zxC2RomBank == 2) || mldEepActive) &&
+                                (address == 0x1555) && (data == 0xAA))
                             {
                                 zxC3FlashState = ZXC3_FLASH_UNLOCK;
+                            } else if (mldEepActive)
+                            {
+                                mldClearEepProgram();
                             }
                             break;
                     }
