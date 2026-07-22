@@ -354,11 +354,13 @@ volatile trigger_state_t zxC3EraseTrigState = TRIGGER_READY;
 volatile uint32_t zxC3EraseTrigExitCount = 0;
 RingBuffer<EXT_RAM_PAGE_COUNT> zxC3EraseBuffer;
 
-// Dandanator flash cartridge
+// Dandanator Mini flash cartridge
 static const uint16_t MLD_HEADER_OFFSET = 0x3FEA;
 static const uint16_t MLD_SIGNATURE_OFFSET = 0x3FFC;
 static const uint8_t MLD_MAX_PAGE_COUNT = RAM_PAGE_COUNT + EXT_RAM_PAGE_COUNT;
 static const uint8_t MLD_MAX_SLOT_COUNT = MLD_MAX_PAGE_COUNT / 2;
+static const uint8_t MLD_SECTORS_PER_SLOT = 4;
+static const uint8_t MLD_MAX_SAVE_SECTOR_COUNT = 4;
 static const uint8_t MLD_SECTOR_COUNT = MLD_MAX_PAGE_COUNT * 2;
 static const uint32_t MLD_PULSE_TIMEOUT_CNT =
     (uint32_t)((TEENSY_CLK_FREQ / 1000000ULL) * 32ULL);
@@ -366,19 +368,19 @@ static const uint32_t MLD_SPECIAL_TIMEOUT_CNT =
     (uint32_t)((TEENSY_CLK_FREQ / 1000000ULL) * 512ULL);
 volatile bool mldPresent = false;
 volatile uint8_t mldSlotCount = 0;
-volatile uint8_t mldCmdOpcode = 0x00;
-volatile uint8_t mldCmdData1 = 0x00;
-volatile uint8_t mldCmdData2 = 0x00;
-volatile uint8_t mldCmdRepeat = 0x00;
 volatile bool mldCmdLocked = false;
 volatile bool mldCmdDisabled = false;
 volatile uint8_t mldCurrentSlot = 1;
 volatile uint8_t mldPreviousSlot = 1;
-volatile mld_pulse_state_t mldPulseState = MLD_PULSE_IDLE;
-volatile uint32_t mldPulseCycle = 0;
 volatile mld_eep_program_t mldEepProgram = MLD_EEP_IDLE;
 volatile uint8_t mldEepSector = 0x00;
 volatile uint16_t mldEepProgramRemaining = 0;
+volatile uint8_t mldCmdOpcode = 0x00;
+volatile uint8_t mldCmdData1 = 0x00;
+volatile uint8_t mldCmdData2 = 0x00;
+volatile uint8_t mldCmdRepeat = 0x00;
+volatile mld_pulse_state_t mldPulseState = MLD_PULSE_IDLE;
+volatile uint32_t mldPulseCycle = 0;
 
 // Microdrive emulator
 static const uint8_t MDR_MAX_SECTOR = 0xB4;
@@ -803,7 +805,7 @@ inline void zxC3OnTick()
                     {
                         if (mldPresent)
                         {
-                            // TODO: 
+                            saveMldRomFile(menuGetBrowserPath());
                         } else if (mdrEnabled)
                         {
                             saveMdrEmulatorFile(menuGetBrowserPath());
@@ -1113,6 +1115,22 @@ void saveZXC3RomFile(const char* filePath)
     }
 }
 
+void saveMldRomFile(const char* filePath)
+{
+    File saveFile = SD.open(filePath, FILE_WRITE_BEGIN);
+    if (saveFile)
+    {
+        if (saveFile.write((uint8_t*)divMmcRamArray[0], (RAM_PAGE_COUNT * RAM_PAGE_SIZE)) >=
+            (RAM_PAGE_COUNT * RAM_PAGE_SIZE))
+        {
+            saveFile.write((uint8_t*)divMmcExtRamArray[0], (EXT_RAM_PAGE_COUNT * RAM_PAGE_SIZE));
+        }
+        saveFile.close();
+    } else {
+        menuPrintDebug(false, F_CSTR("Failed to save MLD '%s'"), filePath);
+    }
+}
+
 inline volatile uint8_t* mldGetSlotPtr(uint8_t page)
 {
     page <<= 1;
@@ -1141,6 +1159,7 @@ bool mldRelocateToSlotZero(uint8_t headerSlot)
     // Read the MLD header directly from its ROM slot
     volatile uint8_t* ptr = mldGetSlotPtr(headerSlot);
     uint8_t baseSlot = ptr[MLD_HEADER_OFFSET];
+    uint8_t requiredSectors = ptr[MLD_HEADER_OFFSET + 2];
     uint16_t tableOffset = ptr[MLD_HEADER_OFFSET + 7] |
         (ptr[MLD_HEADER_OFFSET + 8] << 8);
     uint16_t tableRowSize = ptr[MLD_HEADER_OFFSET + 9] |
@@ -1150,13 +1169,17 @@ bool mldRelocateToSlotZero(uint8_t headerSlot)
     uint8_t rowSlotOffset = ptr[MLD_HEADER_OFFSET + 13];
     uint8_t tableSlot = tableOffset / ROM_PAGE_SIZE;
     uint16_t tableSlotOffset = tableOffset & (ROM_PAGE_SIZE - 1);
+    uint8_t saveSlot = mldSlotCount +
+        ((requiredSectors + MLD_SECTORS_PER_SLOT - 1) / MLD_SECTORS_PER_SLOT);
 
     // The relocation table must fit in a loaded MLD slot
-    if (tableSlot >= mldSlotCount)
+    if ((tableSlot >= mldSlotCount) || (saveSlot > MLD_MAX_SLOT_COUNT) ||
+        (requiredSectors > MLD_MAX_SAVE_SECTOR_COUNT))
     {
         return false;
     }
 
+    // Update the relocation table
     volatile uint8_t* tablePtr = mldGetSlotPtr(tableSlot);
     for (uint16_t row = 0; row < tableRows; ++row)
     {
@@ -1172,6 +1195,16 @@ bool mldRelocateToSlotZero(uint8_t headerSlot)
         uint8_t oldValue = *slotPtr;
         uint8_t oldSlot = oldValue & 0x7F;
         *slotPtr = (oldValue & 0x80) | ((oldSlot - baseSlot) & 0x7F);
+    }
+
+    // Store the save slot sectors
+    if (requiredSectors > 0)
+    {
+        uint8_t lastMldSaveSector = (MLD_SECTORS_PER_SLOT * saveSlot) - 1;
+        for (uint8_t sector = 0; sector < requiredSectors; ++sector)
+        {
+            ptr[MLD_HEADER_OFFSET + 3 + sector] = lastMldSaveSector--;
+        }
     }
 
     // Slot zero is now the base slot

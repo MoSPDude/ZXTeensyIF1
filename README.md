@@ -24,6 +24,9 @@ A Teensy 4.1 powered DivMMC and ZX Interface 1 clone for the ZX Spectrum 48K/128
     * Implements ZXC3 ROM banking with 128KB Flash ROM
     * Implements SPECTRA shadow ROM support
         * The ROM file needs to be named as "SPECTRA_\*.bin"
+* Dandanator Mini with Flash ROM cartridge emulation
+    * Can load individual MLD files, or full 512KB generated ROM images
+    * http://www.dandare.es/Proyectos_Dandare/ZX_Dandanator%21_Mini_EN.html
 * ESP-01S module via TX8/RX8
     * Requires the 9V power rail for the 3.3V regulator
     * Available on ports 0x143B (5179) for RX and 0x133B (4923) for TX

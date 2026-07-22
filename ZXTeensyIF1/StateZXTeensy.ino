@@ -106,6 +106,12 @@ typedef struct __attribute__((packed)) {
     uint32_t tapeFillPosition;
     uint32_t tapeBufferFillPosition;
     uint32_t tapeLength;
+    uint8_t mldPresent;
+    uint8_t mldSlotCount;
+    uint8_t mldCmdLocked;
+    uint8_t mldCmdDisabled;
+    uint8_t mldCurrentSlot;
+    uint8_t mldPreviousSlot;
 } state_device_data_t;
 
 File stateSaveFile;
@@ -440,6 +446,12 @@ void stateCaptureDeviceData(void* data)
     state->lprintPresent = lprintPresent;
     state->bootIntoMenu = bootIntoMenu;
     state->menuEnableInGame = menuEnableInGame;
+    state->mldPresent = mldPresent;
+    state->mldSlotCount = mldSlotCount;
+    state->mldCmdLocked = mldCmdLocked;
+    state->mldCmdDisabled = mldCmdDisabled;
+    state->mldCurrentSlot = mldCurrentSlot;
+    state->mldPreviousSlot = mldPreviousSlot;
     memcpy(&state->cfgData, &cfgData, sizeof(state->cfgData));
 }
 
@@ -713,6 +725,12 @@ void stateApplyDeviceData()
     mdrPresent = stateRestoreDevice.mdrPresent;
     mdrEnabled = stateRestoreDevice.mdrEnabled;
     mdrMaxSector = stateRestoreDevice.mdrMaxSector;
+    mldPresent = stateRestoreDevice.mldPresent;
+    mldSlotCount = stateRestoreDevice.mldSlotCount;
+    mldCmdLocked = stateRestoreDevice.mldCmdLocked;
+    mldCmdDisabled = stateRestoreDevice.mldCmdDisabled;
+    mldCurrentSlot = stateRestoreDevice.mldCurrentSlot;
+    mldPreviousSlot = stateRestoreDevice.mldPreviousSlot;
     tzxPresent = stateRestoreDevice.tzxPresent;
     if (stateRestoreDevice.tzxEnabled && (stateRestoreDevice.tapeLength > 0))
     {
