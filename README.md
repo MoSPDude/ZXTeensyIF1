@@ -25,8 +25,8 @@ A Teensy 4.1 powered DivMMC and ZX Interface 1 clone for the ZX Spectrum 48K/128
     * Implements SPECTRA shadow ROM support
         * The ROM file needs to be named as "SPECTRA_\*.bin"
 * Dandanator Mini with Flash ROM cartridge emulation
+    * Implements slow pulsed banking, and fast command banking
     * Can load individual MLD files, or full 512KB generated ROM images
-    * http://www.dandare.es/Proyectos_Dandare/ZX_Dandanator%21_Mini_EN.html
 * ESP-01S module via TX8/RX8
     * Requires the 9V power rail for the 3.3V regulator
     * Available on ports 0x143B (5179) for RX and 0x133B (4923) for TX
@@ -114,6 +114,9 @@ It borrows content, ideas and inspiration from,
     * ROM menu source code, Z80 snapshot loader, and the idea of a soft ROM
 * http://www.fruitcake.plus.com/Sinclair/Interface2/Cartridges/Interface2_RC_Cartridges.htm
     * ZXC2 and ZXC3 banking, and Microdrive Emulator
+* http://www.dandare.es/Proyectos_Dandare/ZX_Dandanator%21_Mini_EN.html
+    * Dandantor Mini slow banking from PIC source code
+    * Also, https://github.com/chernandezba/zesarux/tree/main/src/storage for fast banking
 * https://github.com/nihirash/netman-zx
     * WiFi Network Manager for the ESP-01S
 * https://velesoft.speccy.cz/zx/rtcmodule/index.htm
@@ -333,6 +336,21 @@ To navigate, either press numbers to select items, or enter pages in the form of
  * SYMBOL SHIFT is the "*" key
  * ENTER is the "#" key
 
+## WebDAV class 1 support
+
+The HTTP server only supports a single connection.
+
+Windows 11 seems to still send a LOCK command when sending a file to the server,
+though it is not presented in the server Allow list or required by WebDAV class 1.
+It then ignores the "501 Not Implemented" or the "405 Method Not Allowed", and
+fails to send the file.
+
+WinSCP seems to work fine - you may need to change the preferences to ensure only
+a single upload connection.
+
+OpenAI Codex helped to provide the additional WebDAV class 1 implementation over
+just the basic HTTP PUT and GET that I'd implemented.
+
 ## DivMMC and ZX Interface 1 support
 
 Technically, the DivMMC and ZX Interface 1 cannot be active simultaneously. The DivMMC ports and
@@ -396,6 +414,31 @@ under JoystickController::pid_vid_mapping ,
 
 * 8BitDo M30 Wired Controller for Xbox One :- \{ 0x2dc8, 0x200a, XBOXONE, false \}
 
+## ROM paging and banking
+
+ROMs are paged in a priority order - if more than one ROM is paged, the highest active entry wins.
+When that ROM pages out, it falls back to the next highest active entry. The base
+Spectrum ROMs are mutually exclusive, and selected by the 128K/+2A/+3 Memory Control
+registers - while add-on ROMs can sit above them until they are paged out.
+
+The following ROMs are provided by the Teensy, listed in priority order,
+
+| Peripheral / ROM | Pages in from | Pages out from | Banking notes |
+| ---------------- | ------------- | -------------- | ------------- |
+| Spectrum ROM 0 | On reset, or 0x7FFD bit 4 = 0 and 0x1FFD bit 2 = 0 | Replaced by another Spectrum ROM | 48K BASIC ROM, or 128K/+2 Editor ROM slot |
+| Spectrum ROM 1 | 0x7FFD bit 4 = 1 and 0x1FFD bit 2 = 0 | Replaced by another Spectrum ROM | 128K/+2 BASIC ROM, or +2A/+3 Syntax ROM slot |
+| Spectrum ROM 2 | 0x7FFD bit 4 = 0 and 0x1FFD bit 2 = 1 | Replaced by another Spectrum ROM | +2A/+3 +3DOS ROM slot |
+| Spectrum ROM 3 | 0x7FFD bit 4 = 1 and 0x1FFD bit 2 = 1 | Replaced by another Spectrum ROM | +2A/+3 BASIC ROM slot |
+| Interface 1 | Post-M1 access to 0x0008 or 0x1708 from Spectrum ROM 0, 1 or 3, when Interface 1 is enabled and DivMMC is not | Post-M1 access to 0x0700 | Emulates Interface 1 ROM paging while the Teensy inhibits the physical Interface 1 ULA I/O decode when DivMMC is active. |
+| Multiface 128 | Multiface NMI path at 0x0066/0x0067, or read from 0xXXBF | Read from 0xXX3F; write to 0xXX3F also disables Multiface mode | Higher priority than Interface 1, so Interface 1 may be marked paged underneath it and then become visible after Multiface pages out. |
+| DivMMC | M1 access to 0x3Dxx, post-M1 access to 0x0000, 0x0008, 0x0038, 0x04C6 or 0x0562 from Spectrum ROM 0, 1 or 3; DivMMC NMI at 0x0066; or 0xXXE3 with CONMEM/automap active | Post-M1 access to 0x1FF8-0x1FFF unless MAPRAM is active; or 0xXXE3 when CONMEM and automap are clear | 0xXXE3 also selects the DivMMC RAM bank. Bit 7 is CONMEM, bit 6 latches MAPRAM, and the low bits select internal or extended RAM. MAPRAM serves RAM bank 3 instead of the ROM when CONMEM is clear. |
+| LPRINT III | Read from 0xXXFB | Read from 0xXX7B | Printer data/strobe writes use 0xXX7B and 0xXXFB; ROM paging itself is read-port driven. |
+| VTX5000 modem | VTX5000 register write to 0xXXFF with bit 5 clear | VTX5000 register write to 0xXXFF with bit 5 set | The first register write after reset is ignored. |
+| ZXC2/ZXC3 cartridge | ZXC2/ZXC3 address-banking write in 0x3FC0-0x3FFF, or post-M1 access to 0x0008/0x1708 when used as Shadow ROM | ZXC2/ZXC3 address-banking write in 0x3FC0-0x3FFF, or post-M1 access to 0x0700 when used as Shadow ROM | For ZXC2, address bits 0-3 select the 16KB bank and bit 4 pages in/out. ZXC3 uses bits 0-2 for the bank and bit 3 to enter flash-write handling. Bit 5 locks further ZXC2/ZXC3 paging. |
+| Dandanator/MLD cartridge | Dandanator/MLD slow-pulse or fast command bank select | Dandanator/MLD page-out command | Commands 1-32 select slots, command 33 pages out, command 34 pages out and locks, and command 40 performs the fast bank/control command. |
+| Snapshot/state loader | Snapshot/state loader start | Access to 0x3FFF advances loader banks; the final access pages out | Used for generated snapshot/state loader ROMs. |
+| Menu ROM | Menu NMI target at 0x0066, from any current ROM | Post-M1 access to 0x003B | Highest priority ROM. 0xXXBF selects the active menu RAM page, and 0xXXEB is used for menu commands and selections. |
+
 ## I/O port mapping
 
 The following ports are decoded by the Teensy,
@@ -440,18 +483,3 @@ The following ports are decoded by the Interface 1 ULA when not inhibited by the
 | 0xXXE7 (0bXXX00XXX) | R/W | Interface 1 microdrive data | Halts Z80 on read |
 | 0xXXEF (0bXXX01XXX) | R/W | Interface 1 control register | |
 | 0xXXF7 (0bXXX10XXX) | R/W | Interface 1 RS232/network data | |
-
-## WebDAV class 1 support
-
-The HTTP server only supports a single connection.
-
-Windows 11 seems to still send a LOCK command when sending a file to the server,
-though it is not presented in the server Allow list or required by WebDAV class 1.
-It then ignores the "501 Not Implemented" or the "405 Method Not Allowed", and
-fails to send the file.
-
-WinSCP seems to work fine - you may need to change the preferences to ensure only
-a single upload connection.
-
-OpenAI Codex helped to provide the additional WebDAV class 1 implementation over
-just the basic HTTP PUT and GET that I'd implemented.
