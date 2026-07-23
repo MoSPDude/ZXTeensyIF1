@@ -3128,12 +3128,12 @@ void menuClearTapeFileName()
     cfgData.tapeFileName[0] = 0;
 }
 
-File menuGetMenuRomFile(const char* cfgRomName, rom_type_t* romType)
+File menuGetMenuRomFile(char* romName, rom_type_t* romType, bool updatePath)
 {
-    if (cfgRomName[0] != 0)
+    if (romName[0] != 0)
     {
         char romPath[MAX_PATH];
-        if (snprintf(romPath, MAX_PATH, "/ROMS/%s", cfgRomName) >= (int)MAX_PATH)
+        if (snprintf(romPath, MAX_PATH, "/ROMS/%s", romName) >= (int)MAX_PATH)
         {
             romPath[(MAX_PATH - 1)] = 0;
         }
@@ -3142,7 +3142,11 @@ File menuGetMenuRomFile(const char* cfgRomName, rom_type_t* romType)
         {
             if (!entry.isDirectory())
             {
-                *romType = getRomType(cfgRomName);
+                *romType = getRomType(romName);
+                if (updatePath)
+                {
+                    strncpy(romName, romPath, MAX_PATH);
+                }
                 return entry;
             }
             entry.close();
@@ -3201,7 +3205,7 @@ File menuGetForegroundRomFile(rom_type_t* romType)
         case MENU_ACTION_BROWSER_LOAD_Z80 :
             return menuGetBrowserZ80File(romType);
         case MENU_ACTION_LOAD_CART :
-            return menuGetMenuRomFile(menuBrowserPath, romType);
+            return menuGetMenuRomFile(menuBrowserPath, romType, true);
         default :
             break;
     }
@@ -3214,7 +3218,7 @@ File menuGetForegroundRomFile(rom_type_t* romType)
 File menuGetSpectrumRomFile()
 {
     rom_type_t romType;
-    return menuGetMenuRomFile(cfgData.romName, &romType);
+    return menuGetMenuRomFile(cfgData.romName, &romType, false);
 }
 
 void menuInGameExitBasic()

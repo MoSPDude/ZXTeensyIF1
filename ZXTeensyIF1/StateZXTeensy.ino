@@ -83,6 +83,7 @@ typedef struct __attribute__((packed)) {
     uint8_t mdrPresent;
     uint8_t mdrEnabled;
     uint8_t mdrMaxSector;
+    char menuBrowserPath[MAX_PATH];
     uint8_t tzxPresent;
     uint8_t tzxEnabled;
     uint8_t dskEnabled;
@@ -403,6 +404,7 @@ void stateCaptureDeviceData(void* data)
     state->mdrPresent = mdrPresent;
     state->mdrEnabled = mdrEnabled;
     state->mdrMaxSector = mdrMaxSector;
+    memcpy(state->menuBrowserPath, menuBrowserPath, MAX_PATH);
     state->tzxPresent = tzxPresent;
     state->tzxEnabled = tzxEnabled;
     state->dskEnabled = dskEnabled;
@@ -725,6 +727,8 @@ void stateApplyDeviceData()
     mdrPresent = stateRestoreDevice.mdrPresent;
     mdrEnabled = stateRestoreDevice.mdrEnabled;
     mdrMaxSector = stateRestoreDevice.mdrMaxSector;
+    memcpy(menuBrowserPath, stateRestoreDevice.menuBrowserPath, MAX_PATH);
+    menuBrowserPath[MAX_PATH - 1] = 0;
     mldPresent = stateRestoreDevice.mldPresent;
     mldSlotCount = stateRestoreDevice.mldSlotCount;
     mldCmdLocked = stateRestoreDevice.mldCmdLocked;
