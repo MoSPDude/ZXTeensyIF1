@@ -479,7 +479,7 @@ volatile bool printerPresent = false;
 volatile bool printerEnabled = false;
 volatile bool lprintPresent = false;
 volatile bool lprintEnabled = false;
-volatile bool printerStrobe = false;
+volatile bool printerStrobe = true;
 volatile uint8_t printerByte = 0x00;
 
 // Spectrum read-only port state
@@ -1911,6 +1911,7 @@ void handleStateReset()
     dskEnabled = false;
     modemEnabled = false;
     printerEnabled = false;
+    printerStrobe = true;
     lprintEnabled = false;
     romSelected = ROM_ROM0;
     romArraySelected = BANK_ROM0;
