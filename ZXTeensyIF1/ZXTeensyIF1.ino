@@ -346,6 +346,7 @@ volatile uint8_t zxC2RomBank = 0x00;
 static const uint16_t ZXC3_PAGE_COUNT = 16;
 volatile bool zxC3Present = false;
 volatile bool zxC3Write = false;
+volatile bool zxC3EraseBusy = false;
 volatile zxc3_flash_state_t zxC3FlashState = ZXC3_FLASH_IDLE;
 volatile bool zxC3FlashSetup = false;
 volatile trigger_state_t zxC3WriteTrigState = TRIGGER_READY;
@@ -715,58 +716,60 @@ inline void zxC3OnTick()
             switch (zxC3EraseTrigState)
             {
                 case TRIGGER_HOLD :
-                    if (mldPresent || !zxC3Write)
+                    if (!zxC3Write)
                     {
                         zxC3EraseTrigState = TRIGGER_DELAY;
                         zxC3EraseTrigExitCount = ZXC3_ERASE_DELAY_CNT;
                     }
                     break;
                 case TRIGGER_DELAY :
-                    if (mldPresent || !zxC3Write)
+                    if (!zxC3Write)
                     {
                         --zxC3EraseTrigExitCount;
                         if (zxC3EraseTrigExitCount == 0)
                         {
-                            zxC3EraseTrigState = TRIGGER_READY;
                             if (zxC3EraseBuffer.canRead())
                             {
                                 uint8_t sector = zxC3EraseBuffer.readRaw();
                                 if (mldPresent)
                                 {
+                                    // Dandandator 512KB flash uses 4KB sectors
                                     if (sector < 0xFF)
                                     {
                                         uint16_t address = (sector & 0x0001) ? 0x1000 : 0x0000;
                                         sector >>= 1;
                                         if (sector >= RAM_PAGE_COUNT)
                                         {
-                                            memset((void*)&(divMmcExtRamArray[(sector - RAM_PAGE_COUNT)][address + 1]),
-                                                0xFF, (RAM_PAGE_SIZE / 2) - 1);
-                                            divMmcExtRamArray[(sector - RAM_PAGE_COUNT)][address] = 0xFF;
+                                            memset((void*)&(divMmcExtRamArray[(sector - RAM_PAGE_COUNT)][address]),
+                                                0xFF, (RAM_PAGE_SIZE / 2));
                                         } else {
-                                            memset((void*)&(divMmcRamArray[sector][address + 1]),
-                                                0xFF, (RAM_PAGE_SIZE / 2) - 1);
-                                            divMmcRamArray[sector][address] = 0xFF;
+                                            memset((void*)&(divMmcRamArray[sector][address]),
+                                                0xFF, (RAM_PAGE_SIZE / 2));
                                         }
                                     } else {
-                                        memset((void*)&(divMmcRamArray[0][1]),
-                                            0xFF, ((RAM_PAGE_COUNT * RAM_PAGE_SIZE) - 1));
-                                        memset((void*)&(divMmcExtRamArray[0][1]),
-                                            0xFF, ((EXT_RAM_PAGE_COUNT * RAM_PAGE_SIZE) - 1));
-                                        divMmcRamArray[0][0] = 0xFF;
-                                        divMmcExtRamArray[0][0] = 0xFF;
+                                        memset((void*)&(divMmcRamArray[0][0]),
+                                            0xFF, (RAM_PAGE_COUNT * RAM_PAGE_SIZE));
+                                        memset((void*)&(divMmcExtRamArray[0][0]),
+                                            0xFF, (EXT_RAM_PAGE_COUNT * RAM_PAGE_SIZE));
                                     }
                                 } else {
+                                    // ZXC3 128KB flash uses 16KB sectors
                                     if (sector < 0xFF)
                                     {
-                                        memset((void*)&(divMmcExtRamArray[sector][1]),
-                                            0xFF, (ROM_PAGE_SIZE - 1));
-                                        divMmcExtRamArray[sector][0] = 0xFF;
+                                        memset((void*)&(divMmcExtRamArray[sector][0]),
+                                            0xFF, ROM_PAGE_SIZE);
                                     } else {
-                                        memset((void*)&(divMmcExtRamArray[0][1]),
-                                            0xFF, ((ZXC3_PAGE_COUNT * RAM_PAGE_SIZE) - 1));
-                                        divMmcExtRamArray[0][0] = 0xFF;
+                                        memset((void*)&(divMmcExtRamArray[0][0]),
+                                            0xFF, (ZXC3_PAGE_COUNT * RAM_PAGE_SIZE));
                                     }
                                 }
+                            }
+                            if (zxC3EraseBuffer.canRead())
+                            {
+                                zxC3EraseTrigExitCount = ZXC3_ERASE_DELAY_CNT;
+                            } else {
+                                zxC3EraseTrigState = TRIGGER_READY;
+                                zxC3EraseBusy = false;
                             }
                         }
                     } else {
@@ -774,7 +777,7 @@ inline void zxC3OnTick()
                     }
                     break;
                 default :
-                    if (mldPresent || !zxC3Write)
+                    if (!zxC3Write)
                     {
                         zxC3EraseTrigState = TRIGGER_HOLD;
                     }
@@ -785,20 +788,20 @@ inline void zxC3OnTick()
         switch (zxC3WriteTrigState)
         {
             case TRIGGER_ACTIVE :
-                if (mldPresent || !zxC3Write)
+                if (!zxC3Write)
                 {
                     zxC3WriteTrigState = TRIGGER_HOLD;
                 }
                 break;
             case TRIGGER_HOLD :
-                if (mldPresent || !zxC3Write)
+                if (!zxC3Write)
                 {
                     zxC3WriteTrigState = TRIGGER_DELAY;
                     zxC3WriteTrigExitCount = TRIGGER_DELAY_CNT;
                 }
                 break;
             case TRIGGER_DELAY :
-                if (mldPresent || !zxC3Write)
+                if (!zxC3Write)
                 {
                     --zxC3WriteTrigExitCount;
                     if (zxC3WriteTrigExitCount == 0)
@@ -1892,6 +1895,7 @@ void handleStateReset()
     zxC2RomBank = 0x00;
     zxC2ShadowRom = false;
     zxC3Write = false;
+    zxC3EraseBusy = false;
     zxC3FlashState = ZXC3_FLASH_IDLE;
     zxC3FlashSetup = false;
     zxC3WriteTrigState = TRIGGER_READY;
@@ -2091,7 +2095,6 @@ void handleStateReset()
             PAGE_IN_ROM(ROM_SNA);
         } else if (mldPresent)
         {
-            zxC3Write = true;
             PAGE_IN_ROM(ROM_MLD);
         }
 
@@ -2615,6 +2618,7 @@ inline void mldClearEepProgram()
     mldEepProgramRemaining = 0;
     zxC3FlashState = ZXC3_FLASH_IDLE;
     zxC3FlashSetup = false;
+    zxC3Write = false;
 }
 
 void mldPulseOnTick(uint32_t cycle)
@@ -2785,6 +2789,7 @@ void mldRunCommand(uint8_t command)
                         }
                         if (mldEepProgram != MLD_EEP_IDLE)
                         {
+                            zxC3Write = true;
                             mldEepSector = mldCmdData2;
                             updateMldSlotPtr((mldEepSector >> 2) + 1);
                         } else {
@@ -2997,6 +3002,15 @@ inline void writePagedRomData(uint16_t address)
     }
 }
 
+inline void writeZXC2RomData(uint16_t address)
+{
+    if (romEnabled)
+    {
+        // Transfer soft ROM data to the bus
+        writeData(zxC3EraseBusy ? 0x08 : romPtr[address]);
+    }
+}
+
 inline void writeDivMmcRomData(uint16_t address)
 {
     if (address >= RAM_PAGE_SIZE)
@@ -3035,6 +3049,10 @@ inline void writeRomData(uint16_t address)
             break;
         case ROM_LPRINT :
             writeLprintRomData(address);
+            break;
+        case ROM_ZXC2 :
+        case ROM_MLD :
+            writeZXC2RomData(address);
             break;
         case ROM_MENU :
             writeMenuRomData(address);
@@ -3274,7 +3292,8 @@ FASTRUN void isrWrEvent()
                                 (address == 0x2AAA) && (data == 0x55))
                             {
                                 zxC3FlashState = ZXC3_FLASH_CMD;
-                            } else {
+                            } else if (mldEepActive)
+                            {
                                 mldClearEepProgram();
                             }
                             break;
@@ -3287,25 +3306,8 @@ FASTRUN void isrWrEvent()
                                     if (!mldEepActive && (zxC2RomBank == 2) &&
                                         (address == 0x1555) && zxC3FlashSetup)
                                     {
-                                        if (mldPresent)
-                                        {
-                                            for (uint8_t i = 0; i < RAM_PAGE_COUNT; ++i)
-                                            {
-                                                divMmcRamArray[i][0] = 0x08;
-                                                divMmcRamArray[i][(RAM_PAGE_SIZE / 2)] = 0x08;
-                                            }
-                                            for (uint8_t i = 0; i < EXT_RAM_PAGE_COUNT; ++i)
-                                            {
-                                                divMmcExtRamArray[i][0] = 0x08;
-                                                divMmcExtRamArray[i][(RAM_PAGE_SIZE / 2)] = 0x08;
-                                            }
-                                        } else {
-                                            for (uint8_t i = 0; i < ZXC3_PAGE_COUNT; ++i)
-                                            {
-                                                divMmcExtRamArray[i][0] = 0x08;
-                                            }
-                                        }
                                         zxC3EraseBuffer.write(0xFF);
+                                        zxC3EraseBusy = true;
                                         zxC3WriteTrigState = TRIGGER_ACTIVE;
                                     }
                                     zxC3FlashSetup = false;
@@ -3320,15 +3322,12 @@ FASTRUN void isrWrEvent()
                                         (!mldEepActive ||
                                             (mldEepProgram == MLD_EEP_ERASE_SECTOR)))
                                     {
-                                        if (mldPresent)
-                                        {
-                                            address &= 0x3000;
-                                            romPtr[address] = 0x08;
-                                            zxC3EraseBuffer.write((zxC2RomBank << 1) | (address >> 12));
-                                        } else {
-                                            romPtr[0] = 0x08;
-                                            zxC3EraseBuffer.write(zxC2RomBank);
-                                        }
+                                        // Dandandator 512KB flash uses 4KB sectors,
+                                        // ZXC3 128KB flash uses 16KB sectors
+                                        zxC3EraseBuffer.write(mldPresent ?
+                                            ((zxC2RomBank << 1) | (address >> 12)) :
+                                            zxC2RomBank);
+                                        zxC3EraseBusy = true;
                                         zxC3WriteTrigState = TRIGGER_ACTIVE;
                                         if (mldEepActive)
                                         {
@@ -3980,7 +3979,7 @@ FASTRUN void isrRdEvent()
                         break;
                     case ROM_ZXC2 :
                         // Write ROM data to bus
-                        writePagedRomData(address);
+                        writeZXC2RomData(address);
 
                         // Detect post-M1 cycle for shadow ROM paging
                         if (zxC2ShadowRom && (address == 0x700))
@@ -3988,6 +3987,10 @@ FASTRUN void isrRdEvent()
                             PAGE_OUT_ROM(ROM_ZXC2);
                             updateRomIndex(false);
                         }
+                        break;
+                    case ROM_MLD :
+                        // Write ROM data to bus
+                        writeZXC2RomData(address);
                         break;
                     case ROM_MENU :
                         // Write ROM data to bus
