@@ -892,6 +892,15 @@ void setState(run_state_t state_)
     globalState = state_;
 }
 
+void sdFatDateTime(uint16_t* date, uint16_t* time)
+{
+  // Return date using FS_DATE macro to format fields.
+  *date = FS_DATE(year(), month(), day());
+
+  // Return time using FS_TIME macro to format fields.
+  *time = FS_TIME(hour(), minute(), second());
+}
+
 FLASHMEM void startup_early_hook()
 {
     // Force initial reset
@@ -961,6 +970,9 @@ void setup()
 
     // Configure UART
     Serial8.addMemoryForRead(uartBuffer, UART_BUFFER_SIZE);
+
+    // Set SdFat date and time callback
+    FsDateTime::setCallback(sdFatDateTime);
 
     // Setup RD, WR, ROMCS, reset and button ISRs
     // NOTE: Set GPIO interrupt as high priority, to avoid misses
