@@ -1114,34 +1114,46 @@ bool loadZXC2RomFile(File RomFile)
 
 void saveZXC3RomFile(const char* filePath)
 {
+    bool result = false;
     File saveFile = SD.open(filePath, FILE_WRITE_BEGIN);
     if (saveFile)
     {
+        result = true;
         for (uint8_t i_ = 0; i_ < ZXC3_PAGE_COUNT; ++i_)
         {
             if (saveFile.write((uint8_t*)divMmcExtRamArray[i_], RAM_PAGE_SIZE) < RAM_PAGE_SIZE)
             {
+                result = false;
                 break;
             }
         }
         saveFile.close();
-    } else {
+    }
+    if (!result)
+    {
         menuPrintDebug(false, F_CSTR("Failed to save ZXC3 '%s'"), filePath);
     }
 }
 
 void saveMldRomFile(const char* filePath)
 {
+    bool result = false;
     File saveFile = SD.open(filePath, FILE_WRITE_BEGIN);
     if (saveFile)
     {
         if (saveFile.write((uint8_t*)divMmcRamArray[0], (RAM_PAGE_COUNT * RAM_PAGE_SIZE)) >=
             (RAM_PAGE_COUNT * RAM_PAGE_SIZE))
         {
-            saveFile.write((uint8_t*)divMmcExtRamArray[0], (EXT_RAM_PAGE_COUNT * RAM_PAGE_SIZE));
+            if (saveFile.write((uint8_t*)divMmcExtRamArray[0],
+                (EXT_RAM_PAGE_COUNT * RAM_PAGE_SIZE)) >= (EXT_RAM_PAGE_COUNT * RAM_PAGE_SIZE))
+            {
+                result = true;
+            }
         }
         saveFile.close();
-    } else {
+    }
+    if (!result)
+    {
         menuPrintDebug(false, F_CSTR("Failed to save MLD '%s'"), filePath);
     }
 }
@@ -1457,6 +1469,7 @@ bool loadMdrEmulatorFile(const char* fileName)
 
 void saveMdrEmulatorFile(const char* fileName)
 {
+    bool result = false;
     File mdrFile = SD.open(fileName, FILE_WRITE_BEGIN);
     if (mdrFile)
     {
@@ -1465,6 +1478,7 @@ void saveMdrEmulatorFile(const char* fileName)
         uint8_t sector = mdrMaxSector;
         uint8_t* ptr = (uint8_t*)divMmcExtRamArray[2];
         memcpy(buffer, ptr + 1, 15);
+        result = true;
 
         // Generate empty sectors that had been truncated on load
         memset(&(buffer[0x0F]), 0x00, 0x210);
@@ -1487,24 +1501,40 @@ void saveMdrEmulatorFile(const char* fileName)
             }
 
             // Write header and zero payload
-            mdrFile.write(buffer, 0x21F);
+            if (mdrFile.write(buffer, 0x21F) < 0x21F)
+            {
+                result = false;
+                break;
+            }
         }
 
         // Write out the existing sectors from pages 1 to 6
         for (uint8_t i_ = 2; i_ < 14; i_ += 2)
         {
-            for (uint8_t j_ = 0; j_ < 0x1E; ++j_)
+            if (result)
             {
-                uint8_t* ptr = (uint8_t*)divMmcExtRamArray[i_] + (j_ * 0x220);
-                if (*ptr != 0xFF)
+                for (uint8_t j_ = 0; j_ < 0x1E; ++j_)
                 {
-                    mdrFile.write(ptr + 1, 0x21F);
-                    --sector;
+                    uint8_t* ptr = (uint8_t*)divMmcExtRamArray[i_] + (j_ * 0x220);
+                    if (*ptr != 0xFF)
+                    {
+                        if (mdrFile.write(ptr + 1, 0x21F) >= 0x21F)
+                        {
+                            --sector;
+                        } else {
+                            result = false;
+                            break;
+                        }
+                    }
                 }
+            } else {
+                break;
             }
         }
         mdrFile.close();
-    } else {
+    }
+    if (!result)
+    {
         menuPrintDebug(false, F_CSTR("Failed to save MDR '%s'"), fileName);
     }
 }
@@ -4187,6 +4217,7 @@ FASTRUN void isrRdEvent()
                         {
                             writeData(printerPort.getBusy() ? 0x01 : 0x00);
                         }
+                        break;
                     case 0x2f :
                         if (dskEnabled)
                         {
@@ -4200,6 +4231,7 @@ FASTRUN void isrRdEvent()
                         }
                         break;
                 }
+                break;
             case 0xfe :
                 if (tzxEnabled && tzxPlayer.isTapePlaying())
                 {
