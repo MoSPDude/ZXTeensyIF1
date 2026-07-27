@@ -56,7 +56,29 @@ class UartZXTeensy
         void end(void);
 
         // Wait for response
-        bool espWaitFor(const char *token, uint32_t timeout);
+        static bool espWaitFor(const char *token, uint32_t timeout = 3000)
+        {
+            int index = 0;
+            uint32_t start = millis();
+            while ((millis() - start) < timeout)
+            {
+                while (Serial8.available())
+                {
+                    char c = Serial8.read();
+                    if (c != token[index])
+                    {
+                        index = 0;
+                    } else {
+                        ++index;
+                        if (token[index] == 0)
+                        {
+                            return true;
+                        }
+                    }
+                }
+            }
+            return false;
+        }
 
         inline __attribute__((always_inline)) uint8_t readData()
         {

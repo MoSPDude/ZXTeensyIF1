@@ -142,8 +142,8 @@ uint32_t simplelz(uint8_t* fload, uint8_t* store, uint32_t filesize) {
         if (i > 255) offset = i - 256; else offset = 0;
         do {
             repsize = 0;
-            while ((fload[offset + repsize] == fload[i + repsize]) &&
-                (i + repsize < filesize) && (repsize < 129))
+            while ((i + repsize < filesize) && (repsize < 129) &&
+                (fload[offset + repsize] == fload[i + repsize]))
             {
                 repsize++;
             }

@@ -1005,10 +1005,10 @@ char* menuGenerateHttpServer(char* ptr)
 {
     ptr = menuInsertSetting(MENU_ACTION_TOP_MENU, 0, ptr, MENU_STRINGS[STRING_CANCEL], 0);
     ptr = menuInsertSetting(MENU_ACTION_START_SERVER, 0, ptr, MENU_STRINGS[STRING_START_HTTP], 0);
-    if (httpServerStatus != "")
+    if (*httpServerStatus != 0)
     {
         ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_NO_OP, ptr,
-            httpServerStatus.c_str(), 0);
+            httpServerStatus, 0);
     }
     ptr = menuInsertSetting(MENU_ACTION_STOP_SERVER, 0, ptr, MENU_STRINGS[STRING_STOP_HTTP], 0);
     return ptr;
@@ -3312,8 +3312,9 @@ void menuLoadConfiguration(const char* cfgCfgName)
         String cfgStr;
         while (cfgFile.available())
         {
-            cfgStr = cfgFile.readStringUntil('\n');
-            const char* cfgPtr = cfgStr.c_str();
+            char cfgPtr[MAX_PATH];
+            size_t length = cfgFile.readBytesUntil('\n', cfgPtr, (MAX_PATH - 1));
+            cfgPtr[length] = 0;
             switch (*cfgPtr)
             {
                 case 0 :

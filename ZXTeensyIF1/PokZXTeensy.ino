@@ -39,16 +39,13 @@ void pokeSetBit(uint8_t* bits, uint8_t index)
 
 bool pokeReadLine(File& file, char* line)
 {
-    String str = file.readStringUntil('\n');
-    size_t length = str.length();
-    if (length == 0)
+    size_t length = file.readBytesUntil('\n', line, (MAX_PATH - 1));
+    if (length > 0)
     {
-        return false;
-    } else if (snprintf(line, MAX_PATH, "%s", str.c_str()) >= MAX_PATH)
-    {
-        line[(MAX_PATH - 1)] = 0;
+        line[length] = 0;
+        return true;
     }
-    return true;
+    return false;
 }
 
 void pokeTrimRight(char* value)
@@ -175,8 +172,8 @@ bool pokeParseFile(const char* pokeFilePath, char pokeTrainerNames[][MENU_STR_LE
             if (snprintf(pokeTrainerNames[trainer], MENU_STR_LEN, "%s", name) >=
                 MENU_STR_LEN)
             {
-                name[(MENU_STR_LEN - 2)] = '>';
-                name[(MENU_STR_LEN - 1)] = 0;
+                pokeTrainerNames[trainer][(MENU_STR_LEN - 2)] = '>';
+                pokeTrainerNames[trainer][(MENU_STR_LEN - 1)] = 0;
             }
             trainerOpen = true;
         } else if ((line[0] == 'M') || (line[0] == 'Z'))

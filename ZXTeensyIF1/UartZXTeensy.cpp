@@ -1,25 +1,6 @@
 
 #include "UartZXTeensy.h"
 
-bool UartZXTeensy::espWaitFor(const char *token, uint32_t timeout = 3000)
-{
-    String line;
-    uint32_t start = millis();
-    while ((millis() - start) < timeout)
-    {
-        while (Serial8.available())
-        {
-            char c = Serial8.read();
-            line += c;
-            if (line.indexOf(token) >= 0)
-            {
-                return true;
-            }
-        }
-    }
-    return false;
-}
-
 void UartZXTeensy::begin(uint8_t baudRate, const char* modemUrl)
 {
     if (!enabled)

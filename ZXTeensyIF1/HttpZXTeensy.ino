@@ -1,5 +1,6 @@
 
 #include "HttpZXTeensy.h"
+#include "UartZXTeensy.h"
 
 typedef enum {
     HTTP_ACTION_UNKNOWN,
@@ -49,7 +50,7 @@ bool httpReceivingPacket = false;
 size_t httpPacketBufferIndex = 0;
 size_t httpPacketLength = 0;
 int httpPacketCount = 0;
-String httpServerStatus;
+char httpServerStatus[(MENU_STR_LEN + 1)];
 http_action_t httpAction = HTTP_ACTION_UNKNOWN;
 char httpURLPath[MAX_PATH];
 
@@ -71,7 +72,6 @@ void httpUpdateServerStatus(http_action_t action, size_t bytes)
     {
         httpGetBytesTransferred += bytes;
     }
-    char status[(MENU_STR_LEN + 1)];
     double temp = httpPutBytesTransferred;
     temp /= 1024.0;
     int a = temp;
@@ -82,12 +82,11 @@ void httpUpdateServerStatus(http_action_t action, size_t bytes)
     int c = temp;
     temp *= 100;
     int d = (int)(temp) % 100;
-    if (snprintf(status, (MENU_STR_LEN + 1), " > PUT %d.%02dKB GET %d.%02dKB",
+    if (snprintf(httpServerStatus, (MENU_STR_LEN + 1), " > PUT %d.%02dKB GET %d.%02dKB",
         a, b, c, d) >= (MENU_STR_LEN + 1))
     {
-        status[MENU_STR_LEN] = 0;
+        httpServerStatus[MENU_STR_LEN] = 0;
     }
-    httpServerStatus = status;
     menuRedraw = true;
 }
 
@@ -141,26 +140,7 @@ bool httpBodyContains(const uint8_t* content, size_t size, const char* token)
 
 bool httpWaitFor(const char *token, uint32_t timeout = 3000)
 {
-    int index = 0;
-    uint32_t start = millis();
-    while ((millis() - start) < timeout)
-    {
-        while (Serial8.available())
-        {
-            char c = Serial8.read();
-            if (c != token[index])
-            {
-                index = 0;
-            } else {
-                ++index;
-                if (token[index] == 0)
-                {
-                    return true;
-                }
-            }
-        }
-    }
-    return false;
+    return UartZXTeensy::espWaitFor(token, timeout);
 }
 
 size_t sendData(const uint8_t *data, size_t size)
@@ -1501,7 +1481,8 @@ void httpProcessPacket()
         }
     } else {
         // Find end of the HTTP header
-        uint8_t* content = (uint8_t*)strstr((const char*)httpPacketBuffer, "\r\n\r\n");
+        uint8_t* content = (uint8_t*)strnstr((const char*)httpPacketBuffer,
+            "\r\n\r\n", PACKET_BUFFER_SIZE);
         if (content != 0)
         {
             *content = 0;
@@ -1634,7 +1615,7 @@ void httpStartServer()
         // Wait for WiFi NTP to complete
         if (wifiNtpEnabled)
         {
-            httpServerStatus = HTTP_STRINGS[HTTP_STR_WAIT_NTP];
+            strcpy(httpServerStatus, HTTP_STRINGS[HTTP_STR_WAIT_NTP]);
             return;
         }
 
@@ -1648,10 +1629,17 @@ void httpStartServer()
         Serial8.println(HTTP_STRINGS[HTTP_STR_AT_IP]);
         if (httpWaitFor(HTTP_STRINGS[HTTP_STR_AT_IP_REPLY]))
         {
-            String ipAddress = Serial8.readStringUntil('\"');
-            if (ipAddress != HTTP_STRINGS[HTTP_STR_NO_IP])
+            char ipAddress[MAX_PATH];
+            size_t length = Serial8.readBytesUntil('\"', ipAddress, (MAX_PATH - 1));
+            ipAddress[length] = 0;
+            if (strncmp(HTTP_STRINGS[HTTP_STR_NO_IP], ipAddress, 7) != 0)
             {
-                httpServerStatus = HTTP_STRINGS[HTTP_STR_ADDRESS] + ipAddress;
+                if (snprintf(httpServerStatus, (MENU_STR_LEN + 1), "%s%s",
+                    HTTP_STRINGS[HTTP_STR_ADDRESS], ipAddress) >=
+                        (MENU_STR_LEN + 1))
+                {
+                    httpServerStatus[MENU_STR_LEN] = 0;
+                }
                 httpWaitFor(HTTP_STRINGS[HTTP_STR_AT_OK]);
                 Serial8.println(HTTP_STRINGS[HTTP_STR_AT_MUX]);
                 httpWaitFor(HTTP_STRINGS[HTTP_STR_AT_OK]);
@@ -1661,10 +1649,10 @@ void httpStartServer()
                     httpEnabled = true;
                 }
             } else {
-                httpServerStatus = HTTP_STRINGS[HTTP_STR_WAIT_IP];
+                strcpy(httpServerStatus, HTTP_STRINGS[HTTP_STR_WAIT_IP]);
             }
         } else {
-            httpServerStatus = HTTP_STRINGS[HTTP_STR_WAIT_WIFI];
+            strcpy(httpServerStatus, HTTP_STRINGS[HTTP_STR_WAIT_WIFI]);
         }
         if (!httpEnabled)
         {
@@ -1688,7 +1676,7 @@ void httpStopServer()
     {
         httpUploadFile.close();
     }
-    httpServerStatus.remove(0);
+    httpServerStatus[0] = 0;
     httpEnabled = false;
     httpAction = HTTP_ACTION_UNKNOWN;
     httpPutBytesTransferred = 0;
