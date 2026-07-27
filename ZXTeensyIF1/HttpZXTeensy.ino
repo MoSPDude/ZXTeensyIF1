@@ -1482,7 +1482,7 @@ void httpProcessPacket()
     } else {
         // Find end of the HTTP header
         uint8_t* content = (uint8_t*)strnstr((const char*)httpPacketBuffer,
-            "\r\n\r\n", PACKET_BUFFER_SIZE);
+            "\r\n\r\n", httpPacketBufferIndex);
         if (content != 0)
         {
             *content = 0;

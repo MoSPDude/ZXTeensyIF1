@@ -3309,7 +3309,6 @@ void menuLoadConfiguration(const char* cfgCfgName)
     if (cfgFile)
     {
         // Read the configuration from file
-        String cfgStr;
         while (cfgFile.available())
         {
             char cfgPtr[MAX_PATH];
