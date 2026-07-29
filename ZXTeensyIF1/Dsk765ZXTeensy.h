@@ -193,7 +193,7 @@ class Dsk765ZXTeensy
             return motorOn;
         }
 
-        inline __attribute__((always_inline)) bool getCurCyl(bool driveB)
+        inline __attribute__((always_inline)) int getCurCyl(bool driveB)
         {
             return (driveB ? fd_getcurcyl(fdd_b) : fd_getcurcyl(fdd_a));
         }

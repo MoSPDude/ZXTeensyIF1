@@ -55,6 +55,7 @@ void update_firmware( Stream *in, uint32_t buffer_addr, uint32_t buffer_size )
 
     if (parse_hex_line( (const char*)line, hex.data, &hex.addr, &hex.num, &hex.code ) == 0) {
       //out->printf( "abort - bad hex line %s\n", line );
+      return;
     }
     else if (process_hex_record( &hex ) != 0) { // error on bad hex code
       //out->printf( "abort - invalid hex code %d\n", hex.code );
@@ -118,9 +119,14 @@ void read_ascii_line( Stream *serial, char *line, int maxbytes )
     if (serial->available()) {
       c = serial->read();
       line[nchar++] = c;
+    } else {
+      break;
     }
   }
-  line[nchar-1] = 0;	// null-terminate
+  if (nchar > 0)
+  {
+    line[nchar-1] = 0;	// null-terminate
+  }
 }
 
 //******************************************************************************

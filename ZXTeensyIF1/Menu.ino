@@ -489,6 +489,25 @@ char* menuInsertInGameStatus(char* ptr)
         ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_NO_OP,
             ptr, label, 0);
     }
+    if (dskPresent)
+    {
+        if (dskEnableDriveB)
+        {
+            if (snprintf(label, (MENU_STR_LEN + 1), " > \x17 A: %d B: %d %s",
+                dskController.getCurCyl(false), dskController.getCurCyl(true),
+                (dskController.isMotorOn() ? "RUN" : "")) >= (MENU_STR_LEN + 1))
+            {
+                label[MENU_STR_LEN] = 0;
+            }
+        } else if (snprintf(label, (MENU_STR_LEN + 1), " > \x17 A: %d %s",
+            dskController.getCurCyl(false), (dskController.isMotorOn() ? "RUN" : ""))
+                >= (MENU_STR_LEN + 1))
+        {
+            label[MENU_STR_LEN] = 0;
+        }
+        ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_NO_OP,
+            ptr, label, 0);
+    }
     return ptr;
 }
 

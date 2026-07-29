@@ -506,7 +506,12 @@ bool TzxPlayerZXTeensy::loadFromTape()
                     // Loop Start
                     if (hasTapeLength(2) && (tapeStackCount < TAPE_STACK_SIZE))
                     {
-                        tapeStack[tapeStackCount].argument = readTapeWord();
+                        uint16_t count = readTapeWord();
+                        if (count > 0)
+                        {
+                            --count;
+                        }
+                        tapeStack[tapeStackCount].argument = count;
                         tapeStack[tapeStackCount].position = tapePosition;
                         ++tapeStackCount;
                         return loadFromTape();
@@ -644,19 +649,20 @@ bool TzxPlayerZXTeensy::loadFromTape()
                     break;
                 case 0x35 :
                     // Custom Info
-                    if (hasTapeLength(14))
+                    if (hasTapeLength(20))
                     {
-                        ignoreTapeData(10);
+                        ignoreTapeData(16);
                         uint32_t length = readTapeWord();
                         length = truncateTapeLength(length | (readTapeWord() << 16));
                         ignoreTapeData(length);
+                        return loadFromTape();
                     }
                     break;
                 case 0x5A :
                     // Glue Block
-                    if (hasTapeLength(8))
+                    if (hasTapeLength(9))
                     {
-                        ignoreTapeData(8);
+                        ignoreTapeData(9);
                         return loadFromTape();
                     }
                     break;
@@ -1024,23 +1030,24 @@ uint32_t TzxPlayerZXTeensy::doScanTape(bool seekBlock, bool seekRelative,
                 break;
             case 0x35 :
                 // Custom Info
-                if (hasTapeLength(14))
+                if (hasTapeLength(20))
                 {
                     if (tapeMarkNames != 0)
                     {
-                        memcpy(tapeMarkNames[index], (void *)getTapeBufferPtr(), 10);
-                        tapeMarkNames[index][10] = 0;
+                        memcpy(tapeMarkNames[index], (void *)getTapeBufferPtr(), 16);
+                        tapeMarkNames[index][16] = 0;
                         tapeMarkPosition[index] = blockPosition;
                         ++index;
                     }
-                    ignoreTapeData(10);
+                    ignoreTapeData(16);
                     uint32_t length = readTapeWord();
                     length = truncateTapeLength(length | (readTapeWord() << 16));
                     ignoreTapeData(length);
                 }
+                break;
             case 0x5A :
                 // Glue Block
-                ignoreTapeData(8);
+                ignoreTapeData(9);
                 break;
             default :
                 menuPrintDebug(false, F_CSTR("tzxPlayer %d unknown ID %d"),
