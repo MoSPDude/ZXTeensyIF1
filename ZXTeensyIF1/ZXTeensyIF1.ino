@@ -343,19 +343,6 @@ volatile bool zxC2Lock = false;
 volatile bool zxC2ShadowRom = false;
 volatile uint8_t zxC2RomBank = 0x00;
 
-// ZXC3 flash cartridge
-static const uint16_t ZXC3_PAGE_COUNT = 16;
-volatile bool zxC3Present = false;
-volatile bool zxC3Write = false;
-volatile bool zxC3EraseBusy = false;
-volatile zxc3_flash_state_t zxC3FlashState = ZXC3_FLASH_IDLE;
-volatile bool zxC3FlashSetup = false;
-volatile trigger_state_t zxC3WriteTrigState = TRIGGER_READY;
-volatile uint32_t zxC3WriteTrigExitCount = 0;
-volatile trigger_state_t zxC3EraseTrigState = TRIGGER_READY;
-volatile uint32_t zxC3EraseTrigExitCount = 0;
-RingBuffer<EXT_RAM_PAGE_COUNT> zxC3EraseBuffer;
-
 // Dandanator Mini flash cartridge
 static const uint16_t MLD_HEADER_OFFSET = 0x3FEA;
 static const uint16_t MLD_SIGNATURE_OFFSET = 0x3FFC;
@@ -383,6 +370,21 @@ volatile uint8_t mldCmdData2 = 0x00;
 volatile uint8_t mldCmdRepeat = 0x00;
 volatile mld_pulse_state_t mldPulseState = MLD_PULSE_IDLE;
 volatile uint32_t mldPulseCycle = 0;
+
+// ZXC3 flash cartridge
+static const uint16_t ZXC3_PAGE_COUNT = 16;
+static const size_t ZXC3_ERASE_BUSY_SECTORS_SIZE = (MLD_SECTOR_COUNT + 7) / 8;
+volatile bool zxC3Present = false;
+volatile bool zxC3Write = false;
+volatile bool zxC3EraseBusy = false;
+volatile uint8_t zxC3EraseBusySectors[ZXC3_ERASE_BUSY_SECTORS_SIZE];
+volatile zxc3_flash_state_t zxC3FlashState = ZXC3_FLASH_IDLE;
+volatile bool zxC3FlashSetup = false;
+volatile trigger_state_t zxC3WriteTrigState = TRIGGER_READY;
+volatile uint32_t zxC3WriteTrigExitCount = 0;
+volatile trigger_state_t zxC3EraseTrigState = TRIGGER_READY;
+volatile uint32_t zxC3EraseTrigExitCount = 0;
+RingBuffer<EXT_RAM_PAGE_COUNT> zxC3EraseBuffer;
 
 // Microdrive emulator
 static const uint8_t MDR_MAX_SECTOR = 0xB4;
@@ -518,6 +520,12 @@ inline void updateRomIndex(bool pageNow) __attribute__((always_inline, hot, opti
 inline void writeRomData(uint16_t address) __attribute__((always_inline, hot, optimize("O3")));
 inline void writePagedRomData(uint16_t address) __attribute__((always_inline, hot, optimize("O3")));
 inline void writeDivMmcRomData(uint16_t address) __attribute__((always_inline, hot, optimize("O3")));
+inline void writeZXC2RomData(uint16_t address) __attribute__((always_inline, hot, optimize("O3")));
+inline uint8_t getZXC3EraseSector(uint16_t address) __attribute__((always_inline, hot, optimize("O3")));
+inline bool isZXC3EraseBusyAddress(uint16_t address) __attribute__((always_inline, hot, optimize("O3")));
+inline void setZXC3EraseBusySector(uint8_t sector) __attribute__((always_inline, hot, optimize("O3")));
+inline void clearZXC3EraseBusySector(uint8_t sector) __attribute__((always_inline, hot, optimize("O3")));
+inline void clearZXC3EraseBusySectors() __attribute__((always_inline, hot, optimize("O3")));
 
 #ifdef DEBUG_OUTPUT
 
@@ -527,7 +535,7 @@ RingBuffer<DEBUG_BUFFER_SIZE> debugBuffer;
 volatile bool debugTraceOn = false;
 volatile uint8_t debugTraceData = 0;
 
-inline __attribute__((always_inline)) bool writeDebugData(uint8_t data)
+inline __attribute__((always_inline, optimize("O3"))) bool writeDebugData(uint8_t data)
 {
     if (debugBuffer.canWrite())
     {
@@ -537,7 +545,7 @@ inline __attribute__((always_inline)) bool writeDebugData(uint8_t data)
     return false;
 }
 
-inline __attribute__((always_inline)) uint8_t readDebugData()
+inline __attribute__((always_inline, optimize("O3"))) uint8_t readDebugData()
 {
     uint8_t data;
     if (debugBuffer.read(&data))
@@ -547,12 +555,12 @@ inline __attribute__((always_inline)) uint8_t readDebugData()
     return 0xFF;
 }
 
-inline __attribute__((always_inline)) bool hasDebugData()
+inline __attribute__((always_inline, optimize("O3"))) bool hasDebugData()
 {
     return debugBuffer.canRead();
 }
 
-inline __attribute__((always_inline)) void traceDebug(uint16_t address)
+inline __attribute__((always_inline, optimize("O3"))) void traceDebug(uint16_t address)
 {
     if (debugTraceOn)
     {
@@ -572,7 +580,7 @@ inline __attribute__((always_inline)) void traceDebug(uint16_t address)
 
 #endif
 
-inline __attribute__((always_inline)) void writeData(uint8_t data)
+inline __attribute__((always_inline, optimize("O3"))) void writeData(uint8_t data)
 {
     // Output D[7:0] to GPIO2/7
     uint32_t gpioSeven = ((data & 0x07) | ((data & 0x38) << 7) | ((data & 0xc0) << 10));
@@ -585,7 +593,7 @@ inline __attribute__((always_inline)) void writeData(uint8_t data)
 #endif
 }
 
-inline __attribute__((always_inline)) uint8_t readData()
+inline __attribute__((always_inline, optimize("O3"))) uint8_t readData()
 {
     // Decode D[7:0] from GPIO2/7
     uint32_t gpioSeven = (*(volatile uint32_t *)IMXRT_GPIO7_ADDRESS);
@@ -594,52 +602,52 @@ inline __attribute__((always_inline)) uint8_t readData()
     return data;
 }
 
-inline __attribute__((always_inline)) void disableData()
+inline __attribute__((always_inline, optimize("O3"))) void disableData()
 {
     // Set data direction to input
     CORE_PIN10_DDRREG &= ~GPIO7_DATA_MASK;
     CORE_PIN34_PORTCLEAR = DATA_OUT_PIN_BITMASK;
 }
 
-inline __attribute__((always_inline)) uint16_t decodeAddress(uint32_t gpioSix)
+inline __attribute__((always_inline, optimize("O3"))) uint16_t decodeAddress(uint32_t gpioSix)
 {
     // Decode A[15:0] from GPIO1/6
     return (gpioSix >> 16);
 }
 
-inline __attribute__((always_inline)) uint16_t decodeRamAddress(uint32_t gpioSix)
+inline __attribute__((always_inline, optimize("O3"))) uint16_t decodeRamAddress(uint32_t gpioSix)
 {
     // Decode A[12:0] from GPIO1/6
     return ((gpioSix & 0x1fff0000) >> 16);
 }
 
-inline __attribute__((always_inline)) uint8_t decodeLowAddress(uint32_t gpioSix)
+inline __attribute__((always_inline, optimize("O3"))) uint8_t decodeLowAddress(uint32_t gpioSix)
 {
     // Decode A[7:0] from GPIO1/6
     return ((gpioSix & 0x00ff0000) >> 16);
 }
 
-inline __attribute__((always_inline)) uint8_t decodeHighAddress(uint32_t gpioSix)
+inline __attribute__((always_inline, optimize("O3"))) uint8_t decodeHighAddress(uint32_t gpioSix)
 {
     // Decode A[15:8] from GPIO1/6
     return ((gpioSix & 0xff000000) >> 24);
 }
 
-inline __attribute__((always_inline)) void writeSdSpiWriteBuffer(sd_spi_action_t spiAction,
+inline __attribute__((always_inline, optimize("O3"))) void writeSdSpiWriteBuffer(sd_spi_action_t spiAction,
     uint8_t data)
 {
     sdSpiFlagsBuffer.write((uint8_t)spiAction);
     sdSpiWriteBuffer.write(data);
 }
 
-inline __attribute__((always_inline)) sd_spi_action_t readSdSpiWriteBuffer(uint8_t* data)
+inline __attribute__((always_inline, optimize("O3"))) sd_spi_action_t readSdSpiWriteBuffer(uint8_t* data)
 {
     sd_spi_action_t spiAction = (sd_spi_action_t)sdSpiFlagsBuffer.readRaw();
     *data = sdSpiWriteBuffer.readRaw();
     return spiAction;
 }
 
-inline __attribute__((always_inline)) void resetSdSpi()
+inline __attribute__((always_inline, optimize("O3"))) void resetSdSpi()
 {
     sdSpiFlagsBuffer.clear();
     sdSpiWriteBuffer.clear();
@@ -765,13 +773,17 @@ inline void zxC3OnTick()
                                             0xFF, (ZXC3_PAGE_COUNT * RAM_PAGE_SIZE));
                                     }
                                 }
+                                if (sector < 0xFF)
+                                {
+                                    clearZXC3EraseBusySector(sector);
+                                }
                             }
                             if (zxC3EraseBuffer.canRead())
                             {
                                 zxC3EraseTrigExitCount = ZXC3_ERASE_DELAY_CNT;
                             } else {
                                 zxC3EraseTrigState = TRIGGER_READY;
-                                zxC3EraseBusy = false;
+                                clearZXC3EraseBusySectors();
                             }
                         }
                     } else {
@@ -829,17 +841,17 @@ inline void zxC3OnTick()
     }
 }
 
-inline __attribute__((always_inline)) bool isGlobalStateReset()
+inline __attribute__((always_inline, optimize("O3"))) bool isGlobalStateReset()
 {
     return ((globalState & 0x02) != 0);
 }
 
-inline __attribute__((always_inline)) bool isDivMmcSelected()
+inline __attribute__((always_inline, optimize("O3"))) bool isDivMmcSelected()
 {
     return (divMmcEnabled && ((romArraySelected & (BANK_MF128 | BANK_IF1)) == 0));
 }
 
-inline __attribute__((always_inline)) void divMmcUpdateInterfaceOne()
+inline __attribute__((always_inline, optimize("O3"))) void divMmcUpdateInterfaceOne()
 {
     if (!interface1Present || isDivMmcSelected())
     {
@@ -849,13 +861,13 @@ inline __attribute__((always_inline)) void divMmcUpdateInterfaceOne()
     }
 }
 
-inline __attribute__((always_inline)) void disableInternalRom()
+inline __attribute__((always_inline, optimize("O3"))) void disableInternalRom()
 {
     digitalWriteFast(ROMCS_PIN, 1);
     romEnabled = true;
 }
 
-inline __attribute__((always_inline)) void enableInternalRom()
+inline __attribute__((always_inline, optimize("O3"))) void enableInternalRom()
 {
     digitalWriteFast(ROMCS_PIN, 0);
     romEnabled = false;
@@ -1940,7 +1952,7 @@ void handleStateReset()
     zxC2RomBank = 0x00;
     zxC2ShadowRom = false;
     zxC3Write = false;
-    zxC3EraseBusy = false;
+    clearZXC3EraseBusySectors();
     zxC3FlashState = ZXC3_FLASH_IDLE;
     zxC3FlashSetup = false;
     zxC3WriteTrigState = TRIGGER_READY;
@@ -3052,12 +3064,73 @@ inline void writePagedRomData(uint16_t address)
     }
 }
 
+inline __attribute__((always_inline, optimize("O3"))) uint8_t getZXC3EraseSector(uint16_t address)
+{
+    return (mldPresent ? ((zxC2RomBank << 1) | (address >> 12)) : zxC2RomBank);
+}
+
+inline __attribute__((always_inline, optimize("O3"))) uint8_t getZXC3EraseBusySectorMask(uint8_t sector)
+{
+    return (uint8_t)(1U << (sector & 0x07));
+}
+
+inline __attribute__((always_inline, optimize("O3"))) bool isZXC3EraseBusySector(uint8_t sector)
+{
+    return ((zxC3EraseBusySectors[sector >> 3] & getZXC3EraseBusySectorMask(sector)) != 0);
+}
+
+inline __attribute__((always_inline, optimize("O3"))) bool isZXC3EraseBusyAddress(uint16_t address)
+{
+    return zxC3EraseBusy && isZXC3EraseBusySector(getZXC3EraseSector(address));
+}
+
+inline __attribute__((always_inline, optimize("O3"))) bool hasZXC3EraseBusySectors()
+{
+    for (size_t i = 0; i < ZXC3_ERASE_BUSY_SECTORS_SIZE; ++i)
+    {
+        if (zxC3EraseBusySectors[i] != 0)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+inline __attribute__((always_inline, optimize("O3"))) void setZXC3EraseBusySector(uint8_t sector)
+{
+    if (sector < 0xFF)
+    {
+        zxC3EraseBusySectors[sector >> 3] |= getZXC3EraseBusySectorMask(sector);
+    } else {
+        memset((void*)zxC3EraseBusySectors, 0xFF, sizeof(zxC3EraseBusySectors));
+    }
+    zxC3EraseBusy = true;
+}
+
+inline __attribute__((always_inline, optimize("O3"))) void clearZXC3EraseBusySector(uint8_t sector)
+{
+    if (sector < 0xFF)
+    {
+        zxC3EraseBusySectors[sector >> 3] &=
+            (uint8_t)~getZXC3EraseBusySectorMask(sector);
+        zxC3EraseBusy = hasZXC3EraseBusySectors();
+    } else {
+        clearZXC3EraseBusySectors();
+    }
+}
+
+inline __attribute__((always_inline, optimize("O3"))) void clearZXC3EraseBusySectors()
+{
+    memset((void*)zxC3EraseBusySectors, 0, sizeof(zxC3EraseBusySectors));
+    zxC3EraseBusy = false;
+}
+
 inline void writeZXC2RomData(uint16_t address)
 {
     if (romEnabled)
     {
         // Transfer soft ROM data to the bus
-        writeData(zxC3EraseBusy ? 0x08 : romPtr[address]);
+        writeData(isZXC3EraseBusyAddress(address) ? 0x08 : romPtr[address]);
     }
 }
 
@@ -3357,7 +3430,7 @@ FASTRUN void isrWrEvent()
                                         (address == 0x1555) && zxC3FlashSetup)
                                     {
                                         zxC3EraseBuffer.write(0xFF);
-                                        zxC3EraseBusy = true;
+                                        setZXC3EraseBusySector(0xFF);
                                         zxC3WriteTrigState = TRIGGER_ACTIVE;
                                     }
                                     zxC3FlashSetup = false;
@@ -3374,10 +3447,9 @@ FASTRUN void isrWrEvent()
                                     {
                                         // Dandandator 512KB flash uses 4KB sectors,
                                         // ZXC3 128KB flash uses 16KB sectors
-                                        zxC3EraseBuffer.write(mldPresent ?
-                                            ((zxC2RomBank << 1) | (address >> 12)) :
-                                            zxC2RomBank);
-                                        zxC3EraseBusy = true;
+                                        uint8_t sector = getZXC3EraseSector(address);
+                                        zxC3EraseBuffer.write(sector);
+                                        setZXC3EraseBusySector(sector);
                                         zxC3WriteTrigState = TRIGGER_ACTIVE;
                                         if (mldEepActive)
                                         {
