@@ -78,6 +78,8 @@ class TzxPlayerZXTeensy
         tape_stack_t tapeStack[TAPE_STACK_SIZE];
         uint8_t tapeStackCount;
 
+        bool stopOn48k;
+
     public :
         size_t tapeMarkPosition[255];
         uint8_t tapeMarkCount;
@@ -270,14 +272,14 @@ class TzxPlayerZXTeensy
             isTzxTapeFile(false), tapeBuffer(0), bufferPosition(0), tapeFillPosition(0),
             bufferFillPosition(0), tapePosition(0), tapeLength(0), dataBlockSize(0),
             pauseAfterBlock(0), tapeBufferStarted(false), tapeBufferEnded(false),
-            tapeBufferAutoPlay(false), tapeStack{}, tapeStackCount(0), tapeMarkPosition{},
-            tapeMarkCount(0)
+            tapeBufferAutoPlay(false), tapeStack{}, tapeStackCount(0), stopOn48k(false),
+            tapeMarkPosition{}, tapeMarkCount(0)
         {
         }
 
         void scanTape(char (*tapeMarkNames)[MENU_STR_LEN]);
         void seek(uint8_t index);
-        bool begin(char* fileName, volatile uint8_t* buffer, size_t length);
+        bool begin(char* fileName, volatile uint8_t* buffer, size_t length, bool is48k);
         bool reopen(char* fileName);
         void close();
         void end();

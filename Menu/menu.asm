@@ -52,6 +52,9 @@ FLAGS       EQU 0x5C3B ; FLAGS system variable
     ld bc, 0x4000
     ld (hl), 0x00
     ldir
+    ld d, 0
+    ld bc, 0x7FFD
+    jp _menuDetectMachine
 _nmiMenuStart:
     ld a, %00000111 ; white border
     out (0xfe), a
@@ -1054,6 +1057,7 @@ _nmiAySaveNext:
     ld e,2
     bit 5,d
     jr nz,_nmiMachineDetected
+_menuDetectMachine:
     ; read a byte, invert and write to different page
     ld a,(0xC000)
     ld h,a

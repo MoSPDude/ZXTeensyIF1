@@ -838,6 +838,12 @@ char* menuGeneratePokBrowser(char* ptr)
 char* menuGenerateInGameSettings(char* ptr)
 {
     ptr = menuInsertSetting(MENU_ACTION_TOP_MENU, 0, ptr, MENU_STRINGS[STRING_CANCEL], 0);
+    if (!menuMachineIs48k() && ((spectrumBankM & 0x20) == 0x00) &&
+        ((romArrayPresent & (BANK_ROM0 | BANK_ROM1)) == BANK_ROM0))
+    {
+        ptr = menuInsertSetting(MENU_ACTION_IN_GAME_EXIT_48K, 0, ptr,
+            MENU_STRINGS[STRING_IN_GAME_EXIT_48K], 0);
+    }
     if (interface1Present && divMmcPresent)
     {
         ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_IN_GAME_TOGGLE_IF1,
@@ -2334,6 +2340,9 @@ void menuBeginMain()
     // Reset the menu actions
     menuResetAction();
 
+    // Clear the machine type
+    menuRamArray[0][MEM_MODE] = Z80_MODE_UNKNOWN;
+
     // Generate the menu
     menuGenerate();
 }
@@ -2895,6 +2904,7 @@ bool menuPerformSelection(uint8_t index)
         case MENU_ACTION_IN_GAME_EXIT :
         case MENU_ACTION_IN_GAME_EXIT_TAPE :
         case MENU_ACTION_IN_GAME_EXIT_BASIC :
+        case MENU_ACTION_IN_GAME_EXIT_48K :
         case MENU_ACTION_IN_GAME_NMI :
         case MENU_ACTION_IN_GAME_MF128 :
         case MENU_ACTION_IN_GAME_DIVMMC :
@@ -3240,6 +3250,16 @@ File menuGetSpectrumRomFile()
     return menuGetMenuRomFile(cfgData.romName, &romType, false);
 }
 
+bool menuMachineIs48k()
+{
+    return (menuRamArray[0][MEM_MODE] == Z80_MODE_48);
+}
+
+bool menuMachineIs128k()
+{
+    return (menuRamArray[0][MEM_MODE] == Z80_MODE_128);
+}
+
 void menuInGameExitBasic()
 {
     // Return to REPORT-D in 48K ROM
@@ -3280,6 +3300,13 @@ void menuInGameExitBasic()
     } else {
         PAGE_IN_ROM(ROM_ROM0);
     }
+}
+
+void menuInGameExitDisable128k()
+{
+    // Return to 48K mode, with paging disabled
+    menuRamArray[0][MEM_MODE] = Z80_MODE_48;
+    menuRamArray[1][MEM_BANK1] |= 0x20;
 }
 
 void menuClearConfiguration()

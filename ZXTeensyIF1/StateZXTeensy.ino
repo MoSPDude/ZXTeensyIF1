@@ -481,8 +481,7 @@ bool stateBeginSave(uint8_t slot)
     {
         // The menu ROM probes whether 0x7FFD changes the RAM at 0xC000, to
         // determine if a 48K or 128K snapshot is needed
-        uint8_t stateMode = menuRamArray[0][MEM_MODE];
-        stateSave128 = (stateMode == Z80_MODE_128);
+        stateSave128 = menuMachineIs128k();
         if ((spectrumBank678 & 0x01) != 0)
         {
             // +3 All-Ram mode is not supported
@@ -739,7 +738,7 @@ void stateApplyDeviceData()
     if (stateRestoreDevice.tzxEnabled && (stateRestoreDevice.tapeLength > 0))
     {
         tzxEnabled = tzxPlayer.begin(menuGetTapeFileName(), divMmcExtRamArray[0],
-            stateRestoreDevice.tapeLength);
+            stateRestoreDevice.tapeLength, snaLoader48k);
         if (tzxEnabled)
         {
             tzxPlayer.restorePositionState(stateRestoreDevice.tapePosition,

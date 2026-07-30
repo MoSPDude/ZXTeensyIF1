@@ -59,6 +59,7 @@ typedef enum {
     MENU_ACTION_IN_GAME_EXIT,
     MENU_ACTION_IN_GAME_EXIT_TAPE,
     MENU_ACTION_IN_GAME_EXIT_BASIC,
+    MENU_ACTION_IN_GAME_EXIT_48K,
     MENU_ACTION_IN_GAME_SEEK_TAPE,
     MENU_ACTION_IN_GAME_SAVE_STATE,
     MENU_ACTION_IN_GAME_APPLY_POK,
@@ -396,6 +397,7 @@ static const uint32_t SNA_LOADER_BANK_5_SIZE =
     (ROM_PAGE_SIZE - (SNA_LOADER_FIRST_SIZE + SNA_LOADER_FINAL_SIZE + 1));
 volatile bool snaLoaderPresent = false;
 volatile uint8_t snaLoaderBanks = 0;
+volatile bool snaLoader48k = false;
 
 // Boot menu ROM
 static const uint16_t MENU_PAGE_COUNT = 4;
@@ -1291,6 +1293,7 @@ bool loadSnapshotFile(File RomFile, bool isSnaFile)
             (uint8_t*)divMmcExtRamArray[RAM_PAGE_COUNT], isSnaFile);
         if (snaLoaderBanks > 0)
         {
+            snaLoader48k = (snaLoaderBanks <= 3) ? true : false;
             snaLoaderBanks <<= 1;
             snaLoaderPresent = true;
             divMmcExtRamEnabled = false;
@@ -2027,7 +2030,8 @@ void handleStateReset()
         }
         if (tzxPresent && beginSdfsSd())
         {
-            if (tzxPlayer.begin(menuGetTapeFileName(), divMmcExtRamArray[0], 0))
+            if (tzxPlayer.begin(menuGetTapeFileName(), divMmcExtRamArray[0], 0,
+                menuMachineIs48k()))
             {
                 tzxEnabled = true;
                 divMmcExtRamEnabled = false;
@@ -2261,6 +2265,10 @@ FASTRUN void loop()
                         menuInGameExitBasic();
                         nmiRomTarget = ROM_ROM0;
                         break;
+                    case MENU_ACTION_IN_GAME_EXIT_48K :
+                        menuInGameExitDisable128k();
+                        nmiRomTarget = ROM_ROM0;
+                        break;
                     case MENU_ACTION_IN_GAME_EXIT_TAPE :
                         if (tzxEnabled)
                         {
@@ -2349,7 +2357,7 @@ FASTRUN void loop()
                         if (!divMmcExtRamEnabled && beginSdfsSd())
                         {
                             tzxEnabled = tzxPlayer.begin(menuGetTapeFileName(),
-                                divMmcExtRamArray[0], 0);
+                                divMmcExtRamArray[0], 0, menuMachineIs48k());
                             if (tzxEnabled && !tzxPlayer.isStreamingFile())
                             {
                                 menuClearTapeFileName();

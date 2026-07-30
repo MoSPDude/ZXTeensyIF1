@@ -619,7 +619,13 @@ bool TzxPlayerZXTeensy::loadFromTape()
                     if (hasTapeLength(4))
                     {
                         ignoreTapeData(4);
-                        return loadFromTape();
+                        if (stopOn48k)
+                        {
+                            sendStopCommand();
+                            return true;
+                        } else {
+                            return loadFromTape();
+                        }
                     }
                     break;
                 case 0x2B :
@@ -949,7 +955,7 @@ uint32_t TzxPlayerZXTeensy::doScanTape(bool seekBlock, bool seekRelative,
                         {
                             strcpy(tapeMarkNames[index], "Stop Tape");
                         } else if (snprintf(tapeMarkNames[index], MENU_STR_LEN,
-                            "Pause %d ms", durationMs) >= MENU_STR_LEN)
+                            "Pause %dms", durationMs) >= MENU_STR_LEN)
                         {
                             tapeMarkNames[index][(MENU_STR_LEN - 1)] = 0;
                         }
@@ -1205,7 +1211,8 @@ void TzxPlayerZXTeensy::seek(uint8_t index)
     }
 }
 
-bool TzxPlayerZXTeensy::begin(char* fileName, volatile uint8_t* buffer, size_t length)
+bool TzxPlayerZXTeensy::begin(char* fileName, volatile uint8_t* buffer, size_t length,
+    bool is48k)
 {
     // Ensure the player is reset
     end();
@@ -1259,6 +1266,7 @@ bool TzxPlayerZXTeensy::begin(char* fileName, volatile uint8_t* buffer, size_t l
 
         // Enable the player
         enabled = true;
+        stopOn48k = is48k;
     }
     return enabled;
 }
