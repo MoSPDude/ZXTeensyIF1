@@ -24,6 +24,8 @@ class TzxPlayerZXTeensy
             // NOTE: These blocks require special handling in runTape and getTapeByte
             BLOCK_STOP,
             BLOCK_PAUSE,
+            BLOCK_LOW,
+            BLOCK_HIGH,
             BLOCK_SAMPLES
         } block_type_t;
 
@@ -82,6 +84,7 @@ class TzxPlayerZXTeensy
 
     protected :
         void sendStopCommand();
+        void sendLevelCommand(uint8_t level);
         void sendPulseCommand(uint16_t length);
         void sendPulseSeqCommand(uint8_t numPulses, uint16_t firstLength);
         void sendPauseCommand(uint16_t durationMs);
@@ -151,9 +154,14 @@ class TzxPlayerZXTeensy
                     }
                     break;
                 case BLOCK_PAUSE :
-                    currentLevel = false;
                     pulseData = 0x00;
                     break;
+                case BLOCK_LOW :
+                    currentLevel = false;
+                    return runTapeNextBlock();
+                case BLOCK_HIGH :
+                    currentLevel = true;
+                    return runTapeNextBlock();
                 case BLOCK_STOP :
                     return false;
                 default :
@@ -173,7 +181,7 @@ class TzxPlayerZXTeensy
             return true;
         }
 
-        inline bool runTapeNextBlock() __attribute__((always_inline, optimize("O3")))
+        inline bool runTapeNextBlock() __attribute__((optimize("O3")))
         {
             if (dataBuffer.canRead())
             {
@@ -334,12 +342,15 @@ class TzxPlayerZXTeensy
 
         inline uint8_t getTapeByte() __attribute__((always_inline, hot, optimize("O3")))
         {
+            // Detect if an edge has been missed
             if ((currentBlock <= BLOCK_STOP) &&
                 ((ARM_DWT_CYCCNT - edgeCycleCount) >= pulseDuration))
             {
-                return (currentLevel ? 0xBF : 0xFF);
+                return (currentLevel ? 0xFF : 0xBF);
             }
-            return (currentLevel ? 0xFF : 0xBF);
+
+            // NOTE: TZX "low" means pull-ups active ie. bit high
+            return (currentLevel ? 0xBF : 0xFF);
         }
 
         inline size_t getPosition(size_t* position)

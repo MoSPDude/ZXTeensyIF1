@@ -20,6 +20,22 @@ void TzxPlayerZXTeensy::sendStopCommand()
     dataBuffer.writeBlock(command, 10);
 }
 
+void TzxPlayerZXTeensy::sendLevelCommand(uint8_t level)
+{
+    uint8_t command[10];
+    command[0] = ((level != 0) ? BLOCK_HIGH : BLOCK_LOW);
+    command[1] = 0;
+    command[2] = 0;
+    command[3] = 0;
+    command[4] = 0;
+    command[5] = 0;
+    command[6] = 0;
+    command[7] = 0;
+    command[8] = 0;
+    command[9] = 0;
+    dataBuffer.writeBlock(command, 10);
+}
+
 void TzxPlayerZXTeensy::sendPulseCommand(uint16_t length)
 {
     uint8_t command[10];
@@ -169,6 +185,7 @@ void TzxPlayerZXTeensy::insertPauseBlock(uint16_t durationMs)
         sendPulseCommand(0xDAC);
         if (durationMs > 1)
         {
+            sendLevelCommand(0);
             sendPauseCommand(durationMs - 1);
         }
     }
@@ -218,6 +235,10 @@ bool TzxPlayerZXTeensy::runTape()
 
 bool TzxPlayerZXTeensy::startTape()
 {
+    // Set current level to "low" when starting to play a TZX file
+    currentLevel = false;
+
+    // Start the tape
     if (runTapeNextBlock())
     {
         uint32_t newDuration = (((pulseData & 0x80) != 0) ?
@@ -603,9 +624,15 @@ bool TzxPlayerZXTeensy::loadFromTape()
                     break;
                 case 0x2B :
                     // Set Signal Level
-                    if (hasTapeLength(5))
+                    if (hasTapeLength(4))
                     {
-                        ignoreTapeData(5);
+                        uint32_t length = readTapeWord();
+                        length = truncateTapeLength(length | (readTapeWord() << 16));
+                        if (length >= 1)
+                        {
+                            sendLevelCommand(readTapeByte());
+                            ignoreTapeData(length - 1);
+                        }
                         return loadFromTape();
                     }
                     break;
@@ -811,7 +838,7 @@ uint32_t TzxPlayerZXTeensy::doScanTape(bool seekBlock, bool seekRelative,
                         } else {
                             // Subtract 2 for flag and checksum bytes
                             snprintf(tapeMarkNames[index], MENU_STR_LEN,
-                                "Standard Data %db", ((length > 2) ? (length - 2) : 0));
+                                "Standard Data %dB", ((length > 2) ? (length - 2) : 0));
                         }
                         tapeMarkPosition[index] = blockPosition;
                         ++index;
@@ -839,7 +866,7 @@ uint32_t TzxPlayerZXTeensy::doScanTape(bool seekBlock, bool seekRelative,
                             tapeMarkNames[index][(MENU_STR_LEN - 1)] = 0;
                         } else {
                             snprintf(tapeMarkNames[index], MENU_STR_LEN,
-                                "Turbo Data %db", (int)length);
+                                "Turbo Data %dB", (int)length);
                         }
                         tapeMarkPosition[index] = blockPosition;
                         ++index;
@@ -991,7 +1018,12 @@ uint32_t TzxPlayerZXTeensy::doScanTape(bool seekBlock, bool seekRelative,
                 break;
             case 0x2B :
                 // Set Signal Level
-                ignoreTapeData(5);
+                if (hasTapeLength(4))
+                {
+                    uint32_t length = readTapeWord();
+                    length = truncateTapeLength(length | (readTapeWord() << 16));
+                    ignoreTapeData(length);
+                }
                 break;
             case 0x31 :
                 // Message
