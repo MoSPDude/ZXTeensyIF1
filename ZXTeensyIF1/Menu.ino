@@ -3575,6 +3575,13 @@ void menuSaveConfiguration()
     }
 }
 
+void menuCancelStateLoad()
+{
+    stateActiveSlot = -1;
+    menuConfigChanged = true;
+    menuSaveConfiguration();
+}
+
 inline bool menuIsDebugging()
 {
     return (menuCurrent == MENU_TYPE_DEBUG);

@@ -658,6 +658,11 @@ inline __attribute__((always_inline, optimize("O3"))) void resetSdSpi()
     divMmcSecondHdf.reset(false);
 }
 
+inline bool isTzxRamAvailable()
+{
+    return !divMmcExtRamEnabled && ((romArrayPresent & BANK_RAM) == 0);
+}
+
 // NOTE: sdSpiOnTick is main loop, so optimize
 inline void sdSpiOnTick()
 {
@@ -1259,7 +1264,7 @@ bool mldRelocateToSlotZero(uint8_t headerSlot)
 
 bool loadMldRomFile(File RomFile)
 {
-    // The ZXC2 cartridge is loaded into the DivMMC RAM area
+    // The Dandanator cartridge is loaded into the DivMMC RAM area
     if (RomFile)
     {
         size_t count = RomFile.readBytes((char *)divMmcRamArray[0],
@@ -1818,7 +1823,7 @@ void handleStateResetEntry()
                 }
 
                 // Attempt to restore directly into any active saved state
-                if (!isButtonHeld && (stateActiveSlot >= 0) &&
+                if (!isButtonHeld && !menuEnterOnReset && (stateActiveSlot >= 0) &&
                     !digitalReadFast(ROMCS_IN_PIN))
                 {
                     stateStartLoad = stateLoadOnStartup();
@@ -2051,7 +2056,7 @@ void handleStateReset()
         {
             mdrEnabled = true;
         }
-        if (tzxPresent && beginSdfsSd())
+        if (tzxPresent && isTzxRamAvailable() && beginSdfsSd())
         {
             if (tzxPlayer.begin(menuGetTapeFileName(), divMmcExtRamArray[0], 0,
                 menuMachineIs48k()))
@@ -2146,7 +2151,7 @@ void handleStateReset()
         }
 
         // Indicate if TZX files can be loaded into DivMMC RAM
-        tzxPresent = !divMmcExtRamEnabled;
+        tzxPresent = isTzxRamAvailable();
 
         // Page in the ZXC2 cartridge, or snapshot loader ROM
         if (stateStartLoad)
@@ -2336,7 +2341,7 @@ FASTRUN void loop()
                         break;
                     case MENU_ACTION_IN_GAME_RESET :
                         // Hard reset into the main menu
-                        stateActiveSlot = -1;
+                        menuCancelStateLoad();
                         performHardReset();
                         break;
                     case MENU_ACTION_LOAD_STATE_SLOT :
@@ -2377,7 +2382,7 @@ FASTRUN void loop()
                         menuRedraw = false;
                         break;
                     case MENU_ACTION_BROWSER_LOAD_TZX :
-                        if (!divMmcExtRamEnabled && beginSdfsSd())
+                        if (isTzxRamAvailable() && beginSdfsSd())
                         {
                             tzxEnabled = tzxPlayer.begin(menuGetTapeFileName(),
                                 divMmcExtRamArray[0], 0, menuMachineIs48k());

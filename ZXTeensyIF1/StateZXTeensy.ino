@@ -737,8 +737,9 @@ inline __attribute__((always_inline, optimize("O3"))) void stateApplyDeviceData(
     mldCmdDisabled = stateRestoreDevice.mldCmdDisabled;
     mldCurrentSlot = stateRestoreDevice.mldCurrentSlot;
     mldPreviousSlot = stateRestoreDevice.mldPreviousSlot;
-    tzxPresent = stateRestoreDevice.tzxPresent;
-    if (stateRestoreDevice.tzxEnabled && (stateRestoreDevice.tapeLength > 0))
+    tzxPresent = stateRestoreDevice.tzxPresent && isTzxRamAvailable();
+    if (tzxPresent && stateRestoreDevice.tzxEnabled &&
+        (stateRestoreDevice.tapeLength > 0))
     {
         tzxEnabled = tzxPlayer.begin(menuGetTapeFileName(), divMmcExtRamArray[0],
             stateRestoreDevice.tapeLength, snaLoader48k);
