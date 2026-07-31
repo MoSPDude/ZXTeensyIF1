@@ -289,7 +289,7 @@ bool stateWriteFile(uint8_t slot, const char* filename,
         }
         file.close();
     } else {
-        menuPrintDebug(false, F_CSTR("stateWriteFile failed %d '%s'"), slot, path);
+        menuPrintDebug(false, F_CSTR("Failed to write state %d '%s'"), slot, path);
     }
     if (!success)
     {
@@ -377,7 +377,7 @@ void stateCaptureDeviceData(void* data)
     state->romPaged = romPaged & ~((1UL << ROM_MENU) | (1UL << ROM_SNA));
     state->romArrayPresent = romArrayPresent;
     state->spectrumBankM = spectrumBankM;
-    state->spectrumBank678 = spectrumBank678;
+    state->spectrumBank678 = spectrumBank678 & 0xFE;
     state->spectrumBorder = spectrumBorder;
     state->rom1Paged = rom1Paged;
     state->rom23Paged = rom23Paged;
@@ -482,11 +482,6 @@ bool stateBeginSave(uint8_t slot)
         // The menu ROM probes whether 0x7FFD changes the RAM at 0xC000, to
         // determine if a 48K or 128K snapshot is needed
         stateSave128 = menuMachineIs128k();
-        if ((spectrumBank678 & 0x01) != 0)
-        {
-            // +3 All-Ram mode is not supported
-            return false;
-        }
 
         // Prepare to apply pokes to the snapshot
         if ((slot == STATE_POKE_SLOT) &&
@@ -517,13 +512,15 @@ bool stateBeginSave(uint8_t slot)
                     return true;
                 } else {
                     // File header write failed
+                    menuPrintDebug(false, F_CSTR("Failed to create Z80 state %d"),
+                        stateSaveActiveSlot);
                     stateSaveFile.close();
                     stateSaveActive = false;
                     SD.remove(path);
                 }
             }
         }
-        menuPrintDebug(false, F_CSTR("stateBeginSave failed %d"), slot);
+        menuPrintDebug(false, F_CSTR("Failed to create save state %d"), slot);
     }
     stateResumeClosedDevices();
     return false;
@@ -607,14 +604,22 @@ void stateFinishSave(bool success)
     {
         // Save the DivMMC RAM, ROM banking and peripheral state
         stateCaptureDeviceData(&stateRestoreDevice);
-        success = (stateWriteFile(stateSaveActiveSlot, STATE_FILE_NAMES[STATE_FILE_DIVRAM],
+        if (!(stateWriteFile(stateSaveActiveSlot, STATE_FILE_NAMES[STATE_FILE_DIVRAM],
                 divMmcRamArray, (RAM_PAGE_COUNT * RAM_PAGE_SIZE)) &&
             stateWriteFile(stateSaveActiveSlot, STATE_FILE_NAMES[STATE_FILE_DIVEXT],
                 divMmcExtRamArray, (EXT_RAM_PAGE_COUNT * RAM_PAGE_SIZE)) &&
             stateWriteFile(stateSaveActiveSlot, STATE_FILE_NAMES[STATE_FILE_MFRAM],
                 &romArray[ROM_PAGE_MF128][RAM_PAGE_SIZE], RAM_PAGE_SIZE) &&
             stateWriteFile(stateSaveActiveSlot, STATE_FILE_NAMES[STATE_FILE_DEVICE],
-                &stateRestoreDevice, sizeof(stateRestoreDevice)));
+                &stateRestoreDevice, sizeof(stateRestoreDevice))))
+        {
+            success = false;
+            menuPrintDebug(false, F_CSTR("Failed to save Device state %d"),
+                stateSaveActiveSlot);
+        }
+    } else {
+        menuPrintDebug(false, F_CSTR("Failed to save Z80 state %d"),
+            stateSaveActiveSlot);
     }
     if (success)
     {
@@ -625,8 +630,6 @@ void stateFinishSave(bool success)
     } else {
         // Ensure the active slot is cleared on failure
         stateDeleteSlot(stateSaveActiveSlot);
-        menuPrintDebug(false, F_CSTR("stateFinishSave failed %d"),
-            stateSaveActiveSlot);
         stateActiveSlot = -1;
     }
 
@@ -646,7 +649,7 @@ void stateFinishSave(bool success)
     menuRedraw = true;
 }
 
-void stateApplyConfiguration()
+inline void stateApplyConfiguration()
 {
     // Restore the configuration
     divMmcPresent = stateRestoreDevice.divMmcPresent;
@@ -678,7 +681,7 @@ void stateApplyConfiguration()
     cfgData.cfgName[0] = 0;
 }
 
-void stateApplyDeviceData()
+inline __attribute__((always_inline, optimize("O3"))) void stateApplyDeviceData()
 {
     // Restore the enable flags
     dskEnabled = stateRestoreDevice.dskEnabled;
@@ -818,7 +821,7 @@ bool stateLoadOnStartup()
             stateLoadActive = true;
             restored = true;
         } else {
-            menuPrintDebug(false, F_CSTR("stateLoadOnStartup failed %d"),
+            menuPrintDebug(false, F_CSTR("Failed to load initial state %d"),
                 stateActiveSlot);
         }
     }
@@ -837,6 +840,9 @@ void stateOnTick()
         stateLoadFinalStage = false;
         uint8_t slot = stateActiveSlot;
 
+        // Restore the banking and peripheral state
+        stateApplyDeviceData();
+
         // Restore the DivMMC RAM used by the Z80 loader
         if (beginSdfsSd() &&
             stateReadFile(slot, STATE_FILE_NAMES[STATE_FILE_DIVEXT],
@@ -854,15 +860,12 @@ void stateOnTick()
         // Clear the restore saved state slot
         stateActiveSlot = -1;
         menuConfigChanged = true;
-
-        // Restore the banking and peripheral state
         if (restored)
         {
             menuSaveConfiguration();
-            stateApplyDeviceData();
         } else {
             // Return to menu on final stage failure
-            menuPrintDebug(false, F_CSTR("Failed to load state %d"), slot);
+            menuPrintDebug(false, F_CSTR("Failed to load final state %d"), slot);
             setState(STATE_RESET_MENU);
         }
     }
@@ -905,7 +908,7 @@ void stateOnTick()
                     (stateTestSimpleLz((uint8_t*)menuRamArray[2], ROM_PAGE_SIZE) >=
                         SNA_LOADER_BANK_5_SIZE))
                 {
-                    menuPrintDebug(false, F_CSTR("No loader space in state %d"),
+                    menuPrintDebug(false, F_CSTR("No loader space in Z80 state %d"),
                         stateSaveActiveSlot);
                     stateFinishSave(false);
                     return;

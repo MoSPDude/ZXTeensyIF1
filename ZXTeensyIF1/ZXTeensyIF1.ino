@@ -506,11 +506,12 @@ FASTRUN void loop() __attribute__((hot, optimize("O3")));
 inline void sdSpiOnTick() __attribute__((always_inline, hot, optimize("O3")));
 inline void zxC3OnTick() __attribute__((always_inline, hot, optimize("O3")));
 inline void mldPulseOnTick(uint32_t cycle) __attribute__((always_inline, hot, optimize("O3")));
+inline void stateOnTick() __attribute__((always_inline, optimize("O3")));
 
 // Optimised functions used by ISR
 void stateLoaderFinished(bool onPageOut) __attribute__((optimize("O3")));
-inline void mldClearCommand() __attribute__((always_inline, hot, optimize("O3")));
-inline void mldClearEepProgram() __attribute__((always_inline, hot, optimize("O3")));
+inline void mldClearCommand() __attribute__((always_inline, optimize("O3")));
+inline void mldClearEepProgram() __attribute__((always_inline, optimize("O3")));
 void mldRunCommand(uint8_t command) __attribute__((hot, optimize("O3")));
 void updateMldSlotPtr(uint8_t slot) __attribute__((hot, optimize("O3")));
 
@@ -526,6 +527,7 @@ inline bool isZXC3EraseBusyAddress(uint16_t address) __attribute__((always_inlin
 inline void setZXC3EraseBusySector(uint8_t sector) __attribute__((always_inline, hot, optimize("O3")));
 inline void clearZXC3EraseBusySector(uint8_t sector) __attribute__((always_inline, hot, optimize("O3")));
 inline void clearZXC3EraseBusySectors() __attribute__((always_inline, hot, optimize("O3")));
+inline void stateLoaderFinished(bool onPageOut) __attribute__((always_inline, optimize("O3")));
 
 #ifdef DEBUG_OUTPUT
 
@@ -1903,6 +1905,12 @@ void handleStateReset()
     nmiRomTarget = ROM_ROM0;
     digitalWriteFast(NMI_PIN, 0);
 
+    // Close any partially saved slots
+    if (isStateSaveActive())
+    {
+        stateFinishSave(false);
+    }
+
     // Handle actions before warm reset
     if (afterFirstReset)
     {
@@ -1992,6 +2000,7 @@ void handleStateReset()
     resetSdSpi();
 
     // Reset the menu and ZXC3 buffer
+    menuRedraw = false;
     menuBuffer.clear();
     zxC3EraseBuffer.clear();
 
@@ -2689,7 +2698,10 @@ void mldPulseOnTick(uint32_t cycle)
 {
     if (mldPresent && (mldPulseState != MLD_PULSE_IDLE))
     {
-        if (mldCmdDisabled || (mldEepProgram != MLD_EEP_IDLE))
+        // The menu stack and scratch RAM are in the lower 16K, so its writes
+        // must not complete a Dandanator pulse command left by the program.
+        if (IS_ROM_PAGED(ROM_MENU) || mldCmdDisabled ||
+            (mldEepProgram != MLD_EEP_IDLE))
         {
             mldClearCommand();
         } else {
@@ -3279,7 +3291,7 @@ FASTRUN void isrWrEvent()
         uint8_t data = readData();
 
         // Perform MLD, or ZXC2 address based paging
-        if (mldPresent)
+        if (mldPresent && !IS_ROM_PAGED(ROM_MENU))
         {
             // Handle Dandanator command modes, when not programming
             if ((mldEepProgram == MLD_EEP_IDLE) && !mldCmdDisabled &&
@@ -3620,6 +3632,10 @@ FASTRUN void isrWrEvent()
                     if (!IS_ROM_PAGED(ROM_MENU))
                     {
                         spectrumBank678 = data;
+                        if (!rom1Present || !rom23Present)
+                        {
+                            spectrumBank678 &= 0xF8;
+                        }
                     }
                     if (rom1Present && rom23Present)
                     {
@@ -3911,6 +3927,7 @@ FASTRUN void isrRdEvent()
                     {
                         // Send the NMI to the menu, and set scratch RAM
                         // to store existing Spectrum state
+                        mldClearCommand();
                         menuRamPtr = menuRamArray[1];
 
                         // Directly page in the menu from any ROM, as highest

@@ -536,6 +536,8 @@ _stateCapture128:
     ld a, 1
     out (0xBF), a
     ld a, (MEM_BANK1)
+    ; keep the menu screen selected while paging capture banks
+    res 3, a
     ld e, a
     ; restore menu RAM, and set MEM_MODE to 128k
     xor a
