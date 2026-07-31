@@ -384,7 +384,7 @@ volatile trigger_state_t zxC3WriteTrigState = TRIGGER_READY;
 volatile uint32_t zxC3WriteTrigExitCount = 0;
 volatile trigger_state_t zxC3EraseTrigState = TRIGGER_READY;
 volatile uint32_t zxC3EraseTrigExitCount = 0;
-RingBuffer<EXT_RAM_PAGE_COUNT> zxC3EraseBuffer;
+RingBuffer<MLD_SECTOR_COUNT> zxC3EraseBuffer;
 
 // Microdrive emulator
 static const uint8_t MDR_MAX_SECTOR = 0xB4;
@@ -738,7 +738,8 @@ inline void zxC3OnTick()
                         --zxC3EraseTrigExitCount;
                         if (zxC3EraseTrigExitCount == 0)
                         {
-                            if (zxC3EraseBuffer.canRead())
+                            uint8_t count = zxC3EraseBuffer.getSize();
+                            while ((count > 0) && zxC3EraseBuffer.canRead())
                             {
                                 uint8_t sector = zxC3EraseBuffer.readRaw();
                                 if (mldPresent)
@@ -777,6 +778,7 @@ inline void zxC3OnTick()
                                 {
                                     clearZXC3EraseBusySector(sector);
                                 }
+                                --count;
                             }
                             if (zxC3EraseBuffer.canRead())
                             {
