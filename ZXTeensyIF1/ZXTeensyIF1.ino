@@ -367,7 +367,7 @@ volatile uint16_t mldEepProgramRemaining = 0;
 volatile uint8_t mldCmdOpcode = 0x00;
 volatile uint8_t mldCmdData1 = 0x00;
 volatile uint8_t mldCmdData2 = 0x00;
-volatile uint8_t mldCmdRepeat = 0x00;
+volatile uint16_t mldCmdRepeat = 0x0000;
 volatile mld_pulse_state_t mldPulseState = MLD_PULSE_IDLE;
 volatile uint32_t mldPulseCycle = 0;
 
@@ -505,7 +505,6 @@ FASTRUN void isrWrEvent() __attribute__((hot, optimize("O3")));
 FASTRUN void loop() __attribute__((hot, optimize("O3")));
 inline void sdSpiOnTick() __attribute__((always_inline, hot, optimize("O3")));
 inline void zxC3OnTick() __attribute__((always_inline, hot, optimize("O3")));
-inline void mldPulseOnTick(uint32_t cycle) __attribute__((always_inline, hot, optimize("O3")));
 inline void stateOnTick() __attribute__((always_inline, optimize("O3")));
 
 // Optimised functions used by ISR
@@ -513,6 +512,7 @@ void stateLoaderFinished(bool onPageOut) __attribute__((optimize("O3")));
 inline void mldClearCommand() __attribute__((always_inline, optimize("O3")));
 inline void mldClearEepProgram() __attribute__((always_inline, optimize("O3")));
 void mldRunCommand(uint8_t command) __attribute__((hot, optimize("O3")));
+inline void mldPulseCommand(uint32_t cycle) __attribute__((always_inline, hot, optimize("O3")));
 void updateMldSlotPtr(uint8_t slot) __attribute__((hot, optimize("O3")));
 
 // Optimised read ISR ROM functions
@@ -736,7 +736,8 @@ inline void zxC3OnTick()
                     if (!zxC3Write)
                     {
                         zxC3EraseTrigState = TRIGGER_DELAY;
-                        zxC3EraseTrigExitCount = ZXC3_ERASE_DELAY_CNT;
+                        zxC3EraseTrigExitCount = (mldPresent ?
+                            MLD_ERASE_DELAY_CNT : ZXC3_ERASE_DELAY_CNT);
                     }
                     break;
                 case TRIGGER_DELAY :
@@ -789,14 +790,16 @@ inline void zxC3OnTick()
                             }
                             if (zxC3EraseBuffer.canRead())
                             {
-                                zxC3EraseTrigExitCount = ZXC3_ERASE_DELAY_CNT;
+                                zxC3EraseTrigExitCount = (mldPresent ?
+                                    MLD_ERASE_DELAY_CNT : ZXC3_ERASE_DELAY_CNT);
                             } else {
                                 zxC3EraseTrigState = TRIGGER_READY;
                                 clearZXC3EraseBusySectors();
                             }
                         }
                     } else {
-                        zxC3EraseTrigExitCount = ZXC3_ERASE_DELAY_CNT;
+                        zxC3EraseTrigExitCount = (mldPresent ?
+                            MLD_ERASE_DELAY_CNT : ZXC3_ERASE_DELAY_CNT);
                     }
                     break;
                 default :
@@ -2230,7 +2233,6 @@ FASTRUN void loop()
         sdSpiOnTick();
         espUart.onTick();
         tzxPlayer.onTick();
-        mldPulseOnTick(cycle_);
         zxC3OnTick();
         printerPort.onTick();
         if (wifiNtpEnabled && wifiNtp.onTick())
@@ -2699,7 +2701,7 @@ inline void mldClearEepProgram()
     zxC3Write = false;
 }
 
-void mldPulseOnTick(uint32_t cycle)
+void mldPulseCommand(const uint32_t cycle)
 {
     if (mldPresent && (mldPulseState != MLD_PULSE_IDLE))
     {
@@ -3238,6 +3240,11 @@ FASTRUN void isrFastGpios()
             isrPinReset();
         }
     }
+
+    // Run Dandanator pulse actions in ISR, as timing for these commands
+    // is very tight
+    mldPulseCommand(ARM_DWT_CYCCNT);
+
     asm volatile ("dsb":::"memory");
 }
 
@@ -3315,7 +3322,7 @@ FASTRUN void isrWrEvent()
                                 {
                                     mldCmdOpcode = data;
                                     mldCmdRepeat = 1;
-                                } else if (mldCmdRepeat < 0xFF)
+                                } else if (mldCmdRepeat < 0x100)
                                 {
                                     ++mldCmdRepeat;
                                 }
@@ -3364,7 +3371,7 @@ FASTRUN void isrWrEvent()
                                 case MLD_PULSE_COMMAND :
                                 case MLD_PULSE_DATA1 :
                                 case MLD_PULSE_DATA2 :
-                                    if (mldCmdRepeat < 0xFF)
+                                    if (mldCmdRepeat < 0x100)
                                     {
                                         ++mldCmdRepeat;
                                     }
