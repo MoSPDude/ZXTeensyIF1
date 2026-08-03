@@ -425,19 +425,19 @@ The following ROMs are provided by the Teensy, listed in priority order,
 
 | Peripheral / ROM | Pages in from | Pages out from | Banking notes |
 | ---------------- | ------------- | -------------- | ------------- |
-| Spectrum ROM 0 | On reset, or 0x7FFD bit 4 = 0 and 0x1FFD bit 2 = 0 | Replaced by another Spectrum ROM | 48K BASIC ROM, or 128K/+2 Editor ROM slot |
-| Spectrum ROM 1 | 0x7FFD bit 4 = 1 and 0x1FFD bit 2 = 0 | Replaced by another Spectrum ROM | 128K/+2 BASIC ROM, or +2A/+3 Syntax ROM slot |
-| Spectrum ROM 2 | 0x7FFD bit 4 = 0 and 0x1FFD bit 2 = 1 | Replaced by another Spectrum ROM | +2A/+3 +3DOS ROM slot |
-| Spectrum ROM 3 | 0x7FFD bit 4 = 1 and 0x1FFD bit 2 = 1 | Replaced by another Spectrum ROM | +2A/+3 BASIC ROM slot |
-| Interface 1 | Post-M1 access to 0x0008 or 0x1708 from Spectrum ROM 0, 1 or 3, when Interface 1 is enabled and DivMMC is not | Post-M1 access to 0x0700 | Emulates Interface 1 ROM paging while the Teensy inhibits the physical Interface 1 ULA I/O decode when DivMMC is active. |
-| Multiface 128 | Multiface NMI path at 0x0066/0x0067, or read from 0xXXBF | Read from 0xXX3F; write to 0xXX3F also disables Multiface mode | Higher priority than Interface 1, so Interface 1 may be marked paged underneath it and then become visible after Multiface pages out. |
-| DivMMC | M1 access to 0x3Dxx, post-M1 access to 0x0000, 0x0008, 0x0038, 0x04C6 or 0x0562 from Spectrum ROM 0, 1 or 3; DivMMC NMI at 0x0066; or 0xXXE3 with CONMEM/automap active | Post-M1 access to 0x1FF8-0x1FFF unless MAPRAM is active; or 0xXXE3 when CONMEM and automap are clear | 0xXXE3 also selects the DivMMC RAM bank. Bit 7 is CONMEM, bit 6 latches MAPRAM, and the low bits select internal or extended RAM. MAPRAM serves RAM bank 3 instead of the ROM when CONMEM is clear. |
-| LPRINT III | Read from 0xXXFB | Read from 0xXX7B | Printer data/strobe writes use 0xXX7B and 0xXXFB; ROM paging itself is read-port driven. |
-| VTX5000 modem | VTX5000 register write to 0xXXFF with bit 5 clear | VTX5000 register write to 0xXXFF with bit 5 set | The first register write after reset is ignored. |
-| ZXC2/ZXC3 cartridge | ZXC2/ZXC3 address-banking write in 0x3FC0-0x3FFF, or post-M1 access to 0x0008/0x1708 when used as Shadow ROM | ZXC2/ZXC3 address-banking write in 0x3FC0-0x3FFF, or post-M1 access to 0x0700 when used as Shadow ROM | For ZXC2, address bits 0-3 select the 16KB bank and bit 4 pages in/out. ZXC3 uses bits 0-2 for the bank and bit 3 to enter flash-write handling. Bit 5 locks further ZXC2/ZXC3 paging. |
+| Spectrum ROM 0 | On reset, or I/O port 0x7FFD bit 4 = 0, and I/O port 0x1FFD bit 2 = 0 | Replaced by another Spectrum ROM | 48K BASIC ROM, or 128K/+2 Editor ROM slot |
+| Spectrum ROM 1 | I/O port 0x7FFD bit 4 = 1, and I/O port 0x1FFD bit 2 = 0 | Replaced by another Spectrum ROM | 128K/+2 BASIC ROM, or +2A/+3 Syntax ROM slot |
+| Spectrum ROM 2 | I/O port 0x7FFD bit 4 = 0, and I/O port 0x1FFD bit 2 = 1 | Replaced by another Spectrum ROM | +2A/+3 +3DOS ROM slot |
+| Spectrum ROM 3 | I/O port 0x7FFD bit 4 = 1, and I/O port 0x1FFD bit 2 = 1 | Replaced by another Spectrum ROM | +2A/+3 BASIC ROM slot |
+| Interface 1 | Post-M1 access to address 0x0008 or 0x1708 from Spectrum ROM 0, 1 or 3, when Interface 1 is enabled and DivMMC is not | Post-M1 access to address 0x0700 | Emulates Interface 1 ROM paging while the Teensy inhibits the physical Interface 1 ULA I/O decode when DivMMC is active. |
+| Multiface 128 | Multiface NMI path at address 0x0066/0x0067, or read from I/O port 0xXXBF | Read from I/O port 0xXX3F; write to I/O port 0xXX3F also disables Multiface mode | Higher priority than Interface 1, so Interface 1 may be marked paged underneath it and then become visible after Multiface pages out. |
+| DivMMC | M1 access to addresses 0x3Dxx, post-M1 access to addresses 0x0000, 0x0008, 0x0038, 0x04C6 or 0x0562 from Spectrum ROM 0, 1 or 3; DivMMC NMI at address 0x0066; or I/O port 0xXXE3 with CONMEM/automap active | Post-M1 access to addresses 0x1FF8-0x1FFF unless MAPRAM is active; or I/O port 0xXXE3 when CONMEM and automap are clear | I/O port 0xXXE3 also selects the DivMMC RAM bank. Bit 7 is CONMEM, bit 6 latches MAPRAM, and the low bits select internal or extended RAM. MAPRAM serves RAM bank 3 instead of the ROM when CONMEM is clear. |
+| LPRINT III | Read from I/O port 0xXXFB | Read from I/O port 0xXX7B | Printer data/strobe writes use I/O ports 0xXX7B and 0xXXFB; ROM paging itself is read-port driven. |
+| VTX5000 modem | VTX5000 register write to I/O port 0xXXFF with bit 5 clear | VTX5000 register write to I/O port 0xXXFF with bit 5 set | The first register write after reset is ignored. |
+| ZXC2/ZXC3 cartridge | ZXC2/ZXC3 address-banking access in addresses 0x3FC0-0x3FFF, or post-M1 access to address 0x0008/0x1708 when used as Shadow ROM | ZXC2/ZXC3 address-banking access in addresses 0x3FC0-0x3FFF, or post-M1 access to address 0x0700 when used as Shadow ROM | For ZXC2, address bits 0-3 select the 16KB bank and bit 4 pages in/out. ZXC3 uses bits 0-2 for the bank and bit 3 to enter flash-write handling. Bit 5 locks further ZXC2/ZXC3 paging. |
 | Dandanator/MLD cartridge | Dandanator/MLD slow-pulse or fast command bank select | Dandanator/MLD page-out command | Commands 1-32 select slots, command 33 pages out, command 34 pages out and locks, and command 40 performs the fast bank/control command. |
-| Snapshot/state loader | Snapshot/state loader start | Access to 0x3FFF advances loader banks; the final access pages out | Used for generated snapshot/state loader ROMs. |
-| Menu ROM | Menu NMI target at 0x0066, from any current ROM | Post-M1 access to 0x003B | Highest priority ROM. 0xXXBF selects the active menu RAM page, and 0xXXEB is used for menu commands and selections. |
+| Snapshot/state loader | Snapshot/state loader start | Access to address 0x3FFF advances loader banks; the final access pages out | Used for generated snapshot/state loader ROMs. |
+| Menu ROM | Menu NMI target at address 0x0066, from any current ROM | Post-M1 access to address 0x003B | Highest priority ROM. I/O port 0xXXBF selects the active menu RAM page, and I/O port 0xXXEB is used for menu commands and selections. |
 
 ## I/O port mapping
 
