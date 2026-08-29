@@ -10,7 +10,7 @@ A Teensy 4.1 powered DivMMC and ZX Interface 1 clone for the ZX Spectrum 48K/128
     * Uses a MAX232 for the RS232 level shifting, so no +12V or -12V required
     * Supports 16KB shadow soft ROM
         * eg. Ian Collier's modified Interface 1 ROM from https://ftp.nvg.ntnu.no/pub/sinclair/roms/imc-i1rom.zip
-            * The [imc-i1.rom](Extras/imc-i1.rom] here contains a copy with the "Parallel Printer" modification disabled
+            * The [imc-i1.rom](Extras/imc-i1.rom) here contains a copy with the "Parallel Printer" modification disabled
 * DivMMC with 512KB RAM
     * Supports accessing the main SD card, HDF and IMG images
     * Large images over FAT32 file limit can be split into multiple files
