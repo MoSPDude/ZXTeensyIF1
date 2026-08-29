@@ -9,6 +9,8 @@ A Teensy 4.1 powered DivMMC and ZX Interface 1 clone for the ZX Spectrum 48K/128
     * Requires the 9V and 5V power rails
     * Uses a MAX232 for the RS232 level shifting, so no +12V or -12V required
     * Supports 16KB shadow soft ROM
+        * eg. Ian Collier's modified Interface 1 ROM from https://ftp.nvg.ntnu.no/pub/sinclair/roms/imc-i1rom.zip
+            * The [imc-i1.rom](Extras/imc-i1.rom] here contains a copy with the "Parallel Printer" modification disabled
 * DivMMC with 512KB RAM
     * Supports accessing the main SD card, HDF and IMG images
     * Large images over FAT32 file limit can be split into multiple files
@@ -143,26 +145,9 @@ It borrows content, ideas and inspiration from,
 
 Without the above projects, this would not have been possible!
 
-## Current Status
+## Construction
 
-Updated v0.7 PCBs have come back from PCBWay, and appear to be working. Now, spending time
-on implementing the firmware features...
-
-The first v0.2 PCBs had come back from PCBWay, and been tested with my 48K Spectrum, and my
-ZX Max 128 Issue 3. Some parts have come from a donor ZX Interface 1 that needed a new old-stock
-LA15-312 ULA from eBay.
-
-Removing the ZX Interface 1 edge connector that goes to the ZX Spectrum was an immense pain - so
-might have to find other ideas. Even with gentle heat, I managed to deform and melt the plastic
-riser block...
-
-Otherwise, the soft ROM functions correctly - banking the DivMMC, Multiface 128, Interface 1 or
-Spectrum soft ROMs as required. eg. when testing the external ROM support, the Retroleum SMART card
-(https://blog.retroleum.co.uk/smart-card-for-zx-spectrum/) diagnostics correctly sees the 128K soft
-ROM loaded on to my 48K Spectrum.
-
-When the DivMMC is enabled, restarting the machine with ".128" (even on 48K Spectrums) will disable
-the DivMMC and enable the Interface 1.
+[Construction details are here](PCB/README.md)
 
 ## SD Card Setup
 
@@ -179,7 +164,7 @@ the DivMMC and enable the Interface 1.
         * Genie 128K disassembler Multiface 128 RAM image
     * ESXMMC.BIN (MD5SUM: fa50b0258e52b8d72bd83cc2fb6e1013)
     * SPECTRA_IF1_ED2_ME_ROM_Formatted.bin (MD5SUM: 052ad91ee822604960e8ca8d32a3ddb9)
-    * IF1.ROM (Optional, MD5SUM: 31b704ae925305e74f50699271fddd9a)
+    * IF1.ROM (Optional)
     * VTX.ROM (MD5SUM: 12a62cb7ea7383f109c2711dfca99f5e)
     * LPRINT32.ROM (MD5SUM: e85f4ccb4cc80aaa81cceffb3e064bf7)
     * netman.z80 (WiFi Network Manager snapshot)
@@ -265,30 +250,6 @@ ESXDOS has trouble loading if it is not "early" on the SD card,
 * Create system "/ROMS" directory, and add other ROMs
 * Add any other files
 
-## Version History
-
-### Hardware
-
-* v0.7 PCB prototype
-    * PCBs have been returned from PCBWay
-    * Moved the ROMCS and DataDir output to pins 36 and 37, to free up pins 34 and 35
-    * Added an ESP-01S header, and header for 3.3V regulator (eg. Pololu D24V5F3)
-        * The ESP-01S can take over 300mA, so requires a separate regulator
-        * The Pololu D24V5F3 is a 3.3V 500mA regulator module, available from The Pi Hut
-        * I had to re-organise the left side of the board to make room
-    * Connected RX8 pin 34 and TX8 pin 35, to the ESP-01S header
-* v0.2 PCB prototype
-    * First PCBs made, and tested
-        * Microdrive, RS232, ZX Net and nROMCS on external edge connector working
-        * Firmware updated for new pin layout - soft ROM all working
-    * Need to revise some footprints
-    * The PCBs had silkscreen that stated v0.1
-* v0.1 veroboard prototype (not uploaded)
-    * Prototype to test the initial idea
-    * Teensy 4.1 and level shifters on Veroboard
-        * Soft ROM and Multiface 128 behaviour working
-    * Modded ZX Interface 1 to add "nIORQ inhibit" (see below)
-
 ## Building the firmware
 
 * Setup the Arduino IDE 2.3.6 for the Teensy 4.1
@@ -298,26 +259,6 @@ ESXDOS has trouble loading if it is not "early" on the SD card,
 * Set Optimize to "Smallest Code with LTO"
 * Set CPU Speed to "720 MHz (overclock)"
 * Verify and Upload
-
-## Loading the KiCad project
-
-The PCB folder contains a KiCad 9.0.2 project, based on liveboxandy "ZX Interface 1 Recreated" KiCad
-7 project. Without that project, I'd have had to spend considerable time getting the board outline
-correct, and aligning the sockets etc.
-
-It uses,
-
-* https://github.com/XenGi/teensy_library as teensy_library-master
-* https://github.com/XenGi/teensy.pretty as teensy.pretty-master
-    * Set XGENGI_TEENSY_LIBRARY path in Symbol Libraries etc.
-* https://github.com/sparkfun/SparkFun-KiCad-Libraries
-    * Set SPARKFUN_KICAD_LIBRARY path in Symbol Libraries etc.
-* https://github.com/nosuz/kicad-symbols-footprints
-    * Place as ./nosuz-kicad-symbols-footprints in the project directory
-
-Freerouting (https://github.com/freerouting/freerouting) was used to perform the initial routing,
-especially with getting the address and data lines out to the level shifters and the Interface 1
-ULA.
 
 ## Prism VTX5000 support
 
@@ -350,16 +291,6 @@ a single upload connection.
 
 OpenAI Codex helped to provide the additional WebDAV class 1 implementation over
 just the basic HTTP PUT and GET that I'd implemented.
-
-## DivMMC and ZX Interface 1 support
-
-Technically, the DivMMC and ZX Interface 1 cannot be active simultaneously. The DivMMC ports and
-ZX Interface 1 I/O ports clash directly. (More info at below)
-
-To overcome this, the Teensy drives the nIORQ of the Interface 1 ULA high when the DivMMC is
-active. Also, only A3 and A4 have been wired to the Interface 1 ULA, as required for the port
-decoding - which helped with the PCB routing. The Teensy provides all the ROM facilities for
-the Interface 1 behaviour.
 
 ## +2A/+3 soft ROM on Spectrum 128K/+2 (Grey) machines
 
