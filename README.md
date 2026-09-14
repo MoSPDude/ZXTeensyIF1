@@ -327,8 +327,11 @@ The modification is shown at
 https://github.com/DonSuperfo/ZX-Max-128/blob/main/Issue%203/Modify%20for%20%2B3%20ROM.pdf,
 
 * Replace R12 with a 1N4148 diode, with cathode to U9 pin 9
-* Add a 1N4148 diode from U6 pin 12 with cathode to U9 pin 9
-* Add a 10K resistor from U9 pin 9 to ground (eg. U8 pin 24)
+    * So it is the same orientation as D1 that is next to it
+* Add a 1N4148 diode from U6 pin 12 to the cathode of the new diode in place of R12
+    * This connects "nA14"
+* Add a 10K resistor from ground (eg. U9 pin 8) to the cathode of the new diode in place of R12
+    * This is the replacement position for R12
 
 ## 3rd party Xbox One USB gamepads
 
