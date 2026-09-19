@@ -3,6 +3,7 @@
 #include <SdFat.h>
 #include "USBHost_t36.h"
 #include "if1-2_rom.h"
+#include "WriteDataTable.h"
 #include "RingBuffer.h"
 #include "PrintableString.h"
 #include "SdHdfZXTeensy.h"
@@ -296,8 +297,8 @@ volatile uint8_t lprintRom[LPRINT_ROM_SIZE] __attribute__((aligned(16)));
 volatile uint8_t* romPtr = romArray[0];
 volatile uint16_t romArrayPresent = 0;
 volatile bool romEnabled = false;
+volatile bool romCsPending = false;
 volatile bool romCsEnable = false;
-volatile bool romCsDisable = false;
 
 // Spectrum 128k/+3 ROMs
 volatile bool rom1Present = false;
@@ -498,8 +499,8 @@ volatile uint32_t globalCycleCount;
 
 // Optimised ISR functions
 FASTRUN void isrFastGpios() __attribute__((hot, optimize("O3")));
-FASTRUN void isrRdEvent() __attribute__((hot, optimize("O3")));
-FASTRUN void isrWrEvent() __attribute__((hot, optimize("O3")));
+FASTRUN void isrRdEvent(uint32_t gpioSix) __attribute__((hot, optimize("O3")));
+FASTRUN void isrWrEvent(uint32_t gpioSix) __attribute__((hot, optimize("O3")));
 
 // Optimised task loop functions
 FASTRUN void loop() __attribute__((hot, optimize("O3")));
@@ -585,11 +586,10 @@ inline __attribute__((always_inline, optimize("O3"))) void traceDebug(uint16_t a
 inline __attribute__((always_inline, optimize("O3"))) void writeData(uint8_t data)
 {
     // Output D[7:0] to GPIO2/7
-    uint32_t gpioSeven = ((data & 0x07) | ((data & 0x38) << 7) | ((data & 0xc0) << 10));
-    CORE_PIN34_PORTSET = DATA_OUT_PIN_BITMASK;
+    uint32_t gpioSeven = writeDataTable[data];
+    CORE_PIN10_PORTCLEAR = (gpioSeven ^ GPIO7_DATA_MASK);
+    CORE_PIN10_PORTSET = gpioSeven | DATA_OUT_PIN_BITMASK;
     CORE_PIN10_DDRREG |= GPIO7_DATA_MASK;
-    CORE_PIN10_PORTSET = gpioSeven & GPIO7_DATA_MASK;
-    CORE_PIN10_PORTCLEAR = (~gpioSeven) & GPIO7_DATA_MASK;
 #ifdef DEBUG_OUTPUT
     debugTraceData = data;
 #endif
@@ -604,11 +604,23 @@ inline __attribute__((always_inline, optimize("O3"))) uint8_t readData()
     return data;
 }
 
-inline __attribute__((always_inline, optimize("O3"))) void disableData()
+inline __attribute__((always_inline, optimize("O3"))) void clearReadData()
 {
     // Set data direction to input
+    CORE_PIN29_PORTSET = CORE_PIN29_BITMASK;
     CORE_PIN10_DDRREG &= ~GPIO7_DATA_MASK;
     CORE_PIN34_PORTCLEAR = DATA_OUT_PIN_BITMASK;
+    CORE_PIN29_PORTCLEAR = CORE_PIN29_BITMASK;
+    busRdActive = false;
+}
+
+inline __attribute__((always_inline, optimize("O3"))) void disableData()
+{
+    // Set data direction to input, and high impedance
+    CORE_PIN29_PORTSET = CORE_PIN29_BITMASK;
+    CORE_PIN10_DDRREG &= ~GPIO7_DATA_MASK;
+    CORE_PIN34_PORTCLEAR = DATA_OUT_PIN_BITMASK;
+    busRdActive = false;
 }
 
 inline __attribute__((always_inline, optimize("O3"))) uint16_t decodeAddress(uint32_t gpioSix)
@@ -892,11 +904,10 @@ void setState(run_state_t state_)
         case STATE_RESET :
         case STATE_RESET_MENU :
             resetTrigState = TRIGGER_ACTIVE;
-            digitalWriteFast(DATA_DIS_PIN, 1);
+            disableData();
             digitalWriteFast(RESET_PIN, 1);
             digitalWriteFast(LED_PIN, 0);
             enableInternalRom();
-            disableData();
             break;
         case STATE_ROM_ENABLE :
             resetTrigState = TRIGGER_HOLD;
@@ -908,11 +919,10 @@ void setState(run_state_t state_)
         case STATE_ROM_DISABLE :
             resetTrigState = TRIGGER_HOLD;
             resetHardTrigCount = HARD_RESET_DELAY_CNT;
-            digitalWriteFast(DATA_DIS_PIN, 1);
+            disableData();
             digitalWriteFast(RESET_PIN, 0);
             digitalWriteFast(LED_PIN, 0);
             enableInternalRom();
-            disableData();
             break;
     }
     globalState = state_;
@@ -955,13 +965,14 @@ void setup()
     pinMode(RESET_PIN, OUTPUT);
     digitalWriteFast(RESET_PIN, 1);
 
-    // Set the data bus to high impedance
+    // Set the data bus to high speed and high impedance
     pinMode(DATA_DIS_PIN, OUTPUT);
+    CORE_PIN29_PADCONFIG |= IOMUXC_PAD_SRE | IOMUXC_PAD_SPEED(3);
     digitalWriteFast(DATA_DIS_PIN, 1);
 
     // Configure DIR pin to high speed
     pinMode(DATA_OUT_PIN, OUTPUT);
-    CORE_PIN23_PADCONFIG |= IOMUXC_PAD_SRE | IOMUXC_PAD_SPEED(3);
+    CORE_PIN36_PADCONFIG |= IOMUXC_PAD_SRE | IOMUXC_PAD_SPEED(3);
 
     // Configure spectrum I/Os
     for (uint8_t i_ = 0; i_ < sizeof(OUTPUT_PINS); i_++) pinMode(OUTPUT_PINS[i_], OUTPUT);
@@ -1002,9 +1013,11 @@ void setup()
 
     // Setup RD, WR, ROMCS, reset and button ISRs
     // NOTE: Set GPIO interrupt as high priority, to avoid misses
-    attachInterrupt(digitalPinToInterrupt(RD_PIN), isrRdEvent, CHANGE);
-    attachInterrupt(digitalPinToInterrupt(WR_PIN), isrWrEvent, FALLING);
-    attachInterrupt(digitalPinToInterrupt(ROMCS_IN_PIN), isrRdEvent, CHANGE);
+    // Interrupts on GPIO6 - isrFastGpios assumes only RD_PIN and WR_PIN
+    attachInterrupt(digitalPinToInterrupt(RD_PIN), isrFastGpios, CHANGE);
+    attachInterrupt(digitalPinToInterrupt(WR_PIN), isrFastGpios, FALLING);
+    // Interrupts on GPIO9
+    attachInterrupt(digitalPinToInterrupt(ROMCS_IN_PIN), isrFastGpios, CHANGE);
     attachInterrupt(digitalPinToInterrupt(RESET_IN_PIN), isrPinReset, FALLING);
     attachInterrupt(digitalPinToInterrupt(BUTTON_PIN), isrPinButton, FALLING);
     attachInterruptVector(IRQ_GPIO6789, &isrFastGpios);
@@ -2977,6 +2990,7 @@ inline void updateRomPtr(bool pageNow)
                 disableInternalRom();
             } else {
                 romCsEnable = true;
+                romCsPending = true;
             }
         }
     } else if (romEnabled)
@@ -2986,7 +3000,8 @@ inline void updateRomPtr(bool pageNow)
         {
             enableInternalRom();
         } else {
-            romCsDisable = true;
+            romCsEnable = false;
+            romCsPending = true;
         }
     }
     if (pageNow)
@@ -3209,28 +3224,48 @@ inline void writeRomData(uint16_t address)
 
 FASTRUN void isrFastGpios()
 {
-    uint32_t status = GPIO6_ISR & GPIO6_IMR;
-    if (status)
+    // Interrupts on GPIO6 - assumes only RD_PIN and WR_PIN
+    GPIO6_ISR = (RD_PIN_BITMASK | WR_PIN_BITMASK);
+    uint32_t gpioSix = (*(volatile uint32_t *)IMXRT_GPIO6_ADDRESS);
+
+    // Always perform RD and WR behaviour, including ROMCS behaviour
+    if ((gpioSix & RD_PIN_BITMASK) != 0)
     {
-        GPIO6_ISR = status;
-        if (status & WR_PIN_BITMASK)
+        if (busRdActive)
         {
-            isrWrEvent();
-        } else {
-            isrRdEvent();
+            // End of read access
+            clearReadData();
+
+            // Enable or disable the soft ROM
+            if (romCsPending)
+            {
+                romCsPending = false;
+                if (romCsEnable)
+                {
+                    // Soft ROM is being enabled
+                    disableInternalRom();
+                    divMmcUpdateInterfaceOne();
+                } else {
+                    // Internal ROM is being enabled
+                    enableInternalRom();
+                    divMmcUpdateInterfaceOne();
+                }
+            }
         }
 
-        // Re-sync regular ticks after ISR
-        globalCycleCount = (ARM_DWT_CYCCNT - TICK_CYCCNT);
+        if ((gpioSix & WR_PIN_BITMASK) == 0)
+        {
+            isrWrEvent(gpioSix);
+        }
+    } else {
+        isrRdEvent(gpioSix);
     }
-    status = GPIO9_ISR & GPIO9_IMR;
+
+    // Handle reset and button interrupts on GPIO9
+    uint32_t status = (GPIO9_ISR & GPIO9_IMR);
     if (status)
     {
         GPIO9_ISR = status;
-        if (status & ROMCS_IN_PIN_BITMASK)
-        {
-            isrRdEvent();
-        }
         if (status & CORE_PIN33_BITMASK)
         {
             isrPinButton();
@@ -3240,6 +3275,9 @@ FASTRUN void isrFastGpios()
             isrPinReset();
         }
     }
+
+    // Re-sync regular ticks after ISR
+    globalCycleCount = (ARM_DWT_CYCCNT - TICK_CYCCNT);
 
     // Run Dandanator pulse actions in ISR, as timing for these commands
     // is very tight
@@ -3293,12 +3331,18 @@ FASTRUN void isrPinButton()
     }
 }
 
-FASTRUN void isrWrEvent()
+FASTRUN void isrWrEvent(uint32_t gpioSix)
 {
-    // Start of write access
-    uint32_t gpioSix = (*(volatile uint32_t *)IMXRT_GPIO6_ADDRESS);
     if ((gpioSix & ROM_ADDRESS_MASK) == 0x00000000)
     {
+        // Perform "ROM" write access
+        uint32_t gpioNine = (*(volatile uint32_t *)IMXRT_GPIO9_ADDRESS);
+        if ((gpioNine & ROMCS_IN_PIN_BITMASK) != 0)
+        {
+            // External ROM is active
+            return;
+        }
+
         uint16_t address = decodeAddress(gpioSix);
         uint8_t data = readData();
 
@@ -3863,41 +3907,23 @@ FASTRUN void isrWrEvent()
     }
 }
 
-FASTRUN void isrRdEvent()
+FASTRUN void isrRdEvent(uint32_t gpioSix)
 {
-    uint32_t gpioSix = (*(volatile uint32_t *)IMXRT_GPIO6_ADDRESS);
-    if ((gpioSix & RD_PIN_BITMASK) != 0)
-    {
-        if (busRdActive)
-        {
-            // End of read access
-            disableData();
-            busRdActive = false;
-
-            // Enable or disable the soft ROM
-            if (romCsEnable)
-            {
-                // Soft ROM is being enabled
-                disableInternalRom();
-                divMmcUpdateInterfaceOne();
-                romCsEnable = false;
-            } else if (romCsDisable)
-            {
-                // Internal ROM is being enabled
-                enableInternalRom();
-                divMmcUpdateInterfaceOne();
-                romCsDisable = false;
-            }
-        }
-    } else if ((gpioSix & ROM_ADDRESS_MASK) == 0x00000000)
+    if ((gpioSix & ROM_ADDRESS_MASK) == 0x00000000)
     {
         // Perform ROM read access
         uint32_t gpioNine = (*(volatile uint32_t *)IMXRT_GPIO9_ADDRESS);
         if ((gpioNine & ROMCS_IN_PIN_BITMASK) != 0)
         {
             // External ROM is active
-            disableData();
-        } else if (!busRdActive)
+            if (busRdActive)
+            {
+                clearReadData();
+            }
+            return;
+        }
+
+        if (!busRdActive)
         {
             busRdActive = true;
             uint16_t address = decodeAddress(gpioSix);
