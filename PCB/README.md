@@ -25,15 +25,15 @@ ULA.
 
 | Reference | Qty | Value | Comments |
 | --- | --- | --- | --- |
-| C1, C2, C7, C8 | 4 | 1uF | Use 0.1uF if U8 is MAX232A |
+| C1, C2, C7, C8 | 4 | 1uF | Use 0.1uF if U8 is MAX232A or MAX3232 |
 | C3 | 1 | 100pF | |
 | C4 | 1 | 22pF | |
 | C5 | 1 | 47nF | |
 | C6, C13 | 2 | 47uF 16V | |
 | C9, C10, C11, C12 | 4 | 100nF | |
 | D1, D2, D3, D9, D11 | 5 | 1N4148 | |
-| D4 | 1 | 1N4004 | or 1N4001 etc. |
-| D8 | 1 | BZX79CV4V3 | |
+| D4 | 1 | 1N4001 | or 1N400X equivalent |
+| D8 | 1 | BZX79CV4V3 | or ZPD4V3 equivalent |
 | J1 | 1 | ESP-01S | Optional, for WiFi |
 | J3 | 1 | Polou D24V5F3 | Optional, fit if ESP-01S is fitted |
 | L1 | 1 | 22uH 0.41A | |
@@ -56,9 +56,9 @@ ULA.
 | SW1 | 1 | PTH_RA_h7.5mm | 6 x 6mm x 8mm Right Angle |
 | U1 | 1 | LA15-302 | ZX Interface 1 ULA |
 | U2 | 1 | Teensy4.1 | Teensy 4.1 No Ethernet |
-| U3, U5, U6, U7 | 4 | SN74LVC245APW | |
-| U4 | 1 | 74HC04 | |
-| U8 | 1 | MAX232 | Alternative is MAX232A |
+| U3, U5, U6, U7 | 4 | SN74LVC245AN | |
+| U4 | 1 | 74HCU04 | |
+| U8 | 1 | MAX232 | Alternative is MAX232A or MAX3232 |
 | X1 | 1 | 8Mhz crystal | |
 
 ## Notes
