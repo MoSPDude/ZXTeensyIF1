@@ -25,7 +25,7 @@ ULA.
 
 | Reference | Qty | Value | Comments |
 | --- | --- | --- | --- |
-| C1, C2, C7, C8 | 4 | 1uF | Use 0.1uF if U8 is MAX232A or MAX3232 |
+| C1, C2, C7, C8 | 4 | 1uF | Use 0.1uF if U8 is MAX232A, or 0.33uF if MAX3232 |
 | C3 | 1 | 100pF | |
 | C4 | 1 | 22pF | |
 | C5 | 1 | 47nF | |
@@ -51,8 +51,8 @@ ULA.
 | R30 | 1 | 270R | |
 | R35 | 1 | 47K | |
 | SK1 | 1 | DE9_Receptacle | |
-| SK2, SK3 | 2 | 3.5mm Mono Socket | |
-| SK5 | 1 | ZX Spectrum connector | Difficult - see notes |
+| SK2, SK3 | 2 | 3.5mm Mono Switched Socket | with break contact eg. Cliff CL1384 |
+| SK5 | 1 | ZX Spectrum edge connector | Difficult - see notes |
 | SW1 | 1 | PTH_RA_h7.5mm | 6 x 6mm x 8mm Right Angle |
 | U1 | 1 | LA15-302 | ZX Interface 1 ULA |
 | U2 | 1 | Teensy4.1 | Teensy 4.1 No Ethernet |
@@ -72,6 +72,13 @@ riser block...
 
 ## Hardware revisions
 
+* v0.7b PCB
+    * *NOT MANUFACTURED*
+    * Changed C13 to 47uF
+        * The Teensy was not always resetting correctly after power on, so increased this
+    * Moved C6 slightly
+        * The ZX Spectrum edge connector plastic riser block had a support that just caught the top of it!
+        * Hopefully, this slight adjustment will solve that
 * v0.7 PCB prototype
     * PCBs have been returned from PCBWay
     * Moved the ROMCS and DataDir output to pins 36 and 37, to free up pins 34 and 35
@@ -101,3 +108,29 @@ To overcome this, the Teensy drives the nIORQ of the Interface 1 ULA high when t
 active. Also, only A3 and A4 have been wired to the Interface 1 ULA, as required for the port
 decoding - which helped with the PCB routing. The Teensy provides all the ROM facilities for
 the Interface 1 behaviour.
+
+## Updating the ESP-01S
+
+The ESP-01S needs to be running the Non-OS AT firmware that can be downloaded from
+https://github.com/espressif/ESP8266_NONOS_SDK .
+
+The current version is SDK v3.0.6 with AT version 1.7.6.0,
+```
+AT version:1.7.6.0(Jan 24 2022 08:56:02)
+SDK version:3.0.6-dev(072755c)
+compile time:Jun 17 2024 07:38:00
+Bin version(Wroom 02):1.7.6
+```
+
+The ZXTeensyIF1 cannot update the firmware, so it needs to be done with a suitable
+connection to a computer - such as https://thepihut.com/products/esp-flasher and
+the VSCode Serial Monitor.
+
+To find your current version, issue the command "AT+GWR" at baud rate 115200,
+1 stop bit, no parity, DTR set, RTS set, with CRLF line endings.
+
+I used esptool-v4.8.1-win64 and the following command to flash, with my USB serial
+adapter on COM3,
+```
+./esptool.exe -p COM3 write_flash --flash_size 1MB 0x0 boot_v1.7.bin 0x01000 user1.1024.new.2.bin 0xfb000 blank.bin 0xfc000 esp_init_data_default_v08.bin 0xfe000 blank.bin 0x7e000 blank.bin
+```
