@@ -176,7 +176,7 @@ Without the above projects, this would not have been possible!
     * (Other ROM files)
 * (Other ESXDOS files)
 * SYS/
-    * RTC.SYS (Optional, for RTC access)
+    * [RTC.SYS](Extras/RTC.SYS) (Optional, for RTC access)
     * (Other ESXDOS files)
 * ZXTEENSY.HEX (Optional, firmware update)
 
