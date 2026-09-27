@@ -250,6 +250,25 @@ ESXDOS has trouble loading if it is not "early" on the SD card,
 * Create system "/ROMS" directory, and add other ROMs
 * Add any other files
 
+#### Fun stuff !!
+
+The https://esxdos.zxfiles.net/ site has a HDF image that can be split using the script
+in the tools folder, to use as an SD card image.
+
+ * You will just need to hex edit part of the image file to change the setting "DMA=1" to "DMA=0" !!
+ * You can browse the image with 7-Zip to extract the "GAMES.ROM" folder for access to the ROM games
+
+The [MOONR.zip](Extras/MOONR.zip) is a compiled version of Moon Rabbit v1.6 from
+https://github.com/nihirash/moon-rabbit-zx with MB03+ serial for the WiFi, but
+with the regular Spectrum screen and without the proxy ("-DMB03 -DZXSCR").
+
+The [imc-i1.rom](Extras/imc-i1.rom) is Ian Collier's modified Interface 1 ROM -
+place it as "ZXTEENSY/IF1.ROM" to use instead of the internal compiled v2 ROM.
+
+Z80 BBC BASIC for the ZX Spectrum can be downloaded from https://mdfs.net/Software/Spectrum/BBCBasic/ .
+Use the 32K combined BBC BASIC and ZX BASIC ROM - placing it in the ROMS folder, and
+selecting it as the system ROM.
+
 ## Building the firmware
 
 * Setup the Arduino IDE 2.3.6 for the Teensy 4.1
