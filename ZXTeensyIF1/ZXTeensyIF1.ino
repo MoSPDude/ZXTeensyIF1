@@ -877,7 +877,7 @@ inline __attribute__((always_inline, optimize("O3"))) bool isDivMmcSelected()
 
 inline __attribute__((always_inline, optimize("O3"))) void divMmcUpdateInterfaceOne()
 {
-    if (!interface1Present || isDivMmcSelected())
+    if (!interface1Present || isDivMmcSelected() || IS_ROM_PAGED(ROM_MENU))
     {
         digitalWriteFast(IF1_DIS_PIN, 1);
     } else {
@@ -3242,14 +3242,11 @@ FASTRUN void isrFastGpios()
                 romCsPending = false;
                 if (romCsEnable)
                 {
-                    // Soft ROM is being enabled
                     disableInternalRom();
-                    divMmcUpdateInterfaceOne();
                 } else {
-                    // Internal ROM is being enabled
                     enableInternalRom();
-                    divMmcUpdateInterfaceOne();
                 }
+                divMmcUpdateInterfaceOne();
             }
         }
 
@@ -3318,6 +3315,8 @@ FASTRUN void isrPinButton()
                 if (menuIsInGameMenu())
                 {
                     menuTriggerExitNMI = true;
+                } else {
+                    menuRedraw = true;
                 }
             } else if (menuEnableInGame)
             {
