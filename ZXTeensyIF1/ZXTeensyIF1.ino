@@ -282,6 +282,7 @@ volatile bool stateStartLoad = false;
 volatile trigger_state_t resetTrigState = TRIGGER_ACTIVE;
 volatile uint32_t resetTrigExitCount = TRIGGER_DELAY_CNT;
 volatile uint32_t resetHardTrigCount = HARD_RESET_DELAY_CNT;
+volatile bool resetHardTrigArmed = false;
 volatile trigger_state_t buttonTrigState = TRIGGER_READY;
 volatile uint32_t buttonTrigExitCount = 0;
 
@@ -952,7 +953,8 @@ FLASHMEM void startup_early_hook()
 
 FLASHMEM void startup_middle_hook()
 {
-    // force millis() to be 300 to skip startup delays
+    // Force millis() to be 300 to skip startup delays - see cores/teensy4/startup.c
+    // ResetHandler2
     systick_millis_count = 300;
 }
 
@@ -1630,9 +1632,15 @@ void initialiseRamBanks()
 
 void performHardReset()
 {
+    // Do not trigger another hard reset until reset has been released and re-armed
+    resetHardTrigArmed = false;
+
     // Disable the ESP-01S
     pinMode(ESP_ENABLE, OUTPUT);
     digitalWriteFast(ESP_ENABLE, 0);
+
+    // Delay to allow ESP-01S reset to take effect
+    delay(1);
 
     // Clear the UART
     wifiNtp.end();
@@ -1743,7 +1751,6 @@ void handleStateResetEntry()
     rtcTeensy.updateRtc();
 
     // Initialise the device soft ROMs
-    delay(250);
     if (loadRomSets)
     {
         // Reset the soft ROM state
@@ -1912,9 +1919,6 @@ void handleWarmStateReset()
 
 void handleStateReset()
 {
-    // Delay to allow reset to take effect
-    delay(250);
-
     // Enable the ESP-01S
     pinMode(ESP_ENABLE, INPUT_PULLUP);
 
@@ -2212,13 +2216,12 @@ void handleStateReset()
                 usbEnabled = true;
 
                 // Delay to allow USB devices to initialise
-                delay(250);
+                delay(100);
             }
         }
     }
 
     // Enable the soft ROM, if present
-    delay(250);
     if (romArrayPresent != 0)
     {
         updateRomIndex(true);
@@ -2457,7 +2460,7 @@ FASTRUN void loop()
                 {
                     resetTrigState = TRIGGER_DELAY;
                     resetTrigExitCount = TRIGGER_DELAY_CNT;
-                } else {
+                } else if (resetHardTrigArmed) {
                     --resetHardTrigCount;
                     if (resetHardTrigCount == 0)
                     {
@@ -2472,6 +2475,7 @@ FASTRUN void loop()
                     --resetTrigExitCount;
                     if (resetTrigExitCount == 0)
                     {
+                        resetHardTrigArmed = false;
                         resetTrigState = TRIGGER_READY;
                     }
                 } else {
@@ -3289,6 +3293,7 @@ FASTRUN void isrPinReset()
     if ((resetTrigState == TRIGGER_READY) && !digitalReadFast(RESET_IN_PIN))
     {
         setState(STATE_RESET);
+        resetHardTrigArmed = true;
     }
 }
 
