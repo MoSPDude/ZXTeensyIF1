@@ -348,11 +348,11 @@ class TzxPlayerZXTeensy
             if ((currentBlock <= BLOCK_STOP) &&
                 ((ARM_DWT_CYCCNT - edgeCycleCount) >= pulseDuration))
             {
-                return (currentLevel ? 0xFF : 0xBF);
+                return (currentLevel ? 0x40 : 0x00);
             }
 
             // NOTE: TZX "low" means pull-ups active ie. bit high
-            return (currentLevel ? 0xBF : 0xFF);
+            return (currentLevel ? 0x00 : 0x40);
         }
 
         inline size_t getPosition(size_t* position)

@@ -4376,7 +4376,8 @@ FASTRUN void isrRdEvent(uint32_t gpioSix)
             case 0xfe :
                 if (tzxEnabled && tzxPlayer.isTapePlaying())
                 {
-                    writeData(tzxPlayer.getTapeByte());
+                    uint8_t data = readData() & 0xBF;
+                    writeData(data | tzxPlayer.getTapeByte());
                 }
                 break;
             case 0xff :
