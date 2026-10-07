@@ -69,6 +69,7 @@ A Teensy 4.1 powered DivMMC and ZX Interface 1 clone for the ZX Spectrum 48K/128
     * http://www.fruitcake.plus.com/Sinclair/Interface2/Cartridges/Interface2_RC_New_Microdrive_Emulator.htm
     * Supports MDR images with up to 90KB of data
 * Small WebDAV class 1 HTTP server for WiFi file access over ESP-01S
+    * Accepts five clients, with SD card requests processed one at a time
     * Use WinSCP to send files, or HTTP PUT to send files eg. "curl -T FILENAME.ROM http://192.168.0.254/FILENAME.ROM"
         * Windows native support requires LOCK (and UNLOCK) which is Not Implemented
     * Use web browser to list files, and download
@@ -298,7 +299,8 @@ To navigate, either press numbers to select items, or enter pages in the form of
 
 ## WebDAV class 1 support
 
-The HTTP server only supports a single connection.
+The HTTP server accepts five connections. Requests are processed one at a time because the
+ESP-01S UART and SD card are shared; an inactive connection remains buffered by the ESP-01S.
 
 Windows 11 seems to still send a LOCK command when sending a file to the server,
 though it is not presented in the server Allow list or required by WebDAV class 1.

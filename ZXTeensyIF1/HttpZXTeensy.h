@@ -124,6 +124,12 @@ typedef enum {
     HTTP_STR_AT_ECHO_OFF,
     HTTP_STR_AT_IP,
     HTTP_STR_AT_MUX,
+    HTTP_STR_AT_SERVER_MAX,
+    HTTP_STR_AT_RECEIVE_MODE,
+    HTTP_STR_AT_RECEIVE,
+    HTTP_STR_AT_RECEIVE_LENGTH,
+    HTTP_STR_AT_RECEIVE_LENGTH_REPLY,
+    HTTP_STR_AT_TIMEOUT,
     HTTP_STR_AT_SERVER_START,
     HTTP_STR_AT_SERVER_STOP,
     HTTP_STR_AT_IP_REPLY,
@@ -253,6 +259,12 @@ static const char* const PROGMEM HTTP_STRINGS[] = {
     "ATE0",
     "AT+CIFSR",
     "AT+CIPMUX=1",
+    "AT+CIPSERVERMAXCONN=",
+    "AT+CIPRECVMODE=1",
+    "AT+CIPRECVDATA=",
+    "AT+CIPRECVLEN?",
+    "+CIPRECVLEN:",
+    "AT+CIPSTO=300",
     "AT+CIPSERVER=1,80",
     "AT+CIPSERVER=0",
     "+CIFSR:STAIP,\"",
@@ -261,5 +273,8 @@ static const char* const PROGMEM HTTP_STRINGS[] = {
     "0.0.0.0",
     "\">"
 };
+
+static_assert((sizeof(HTTP_STRINGS) / sizeof(HTTP_STRINGS[0])) ==
+    HTTP_STR_COUNT, "HTTP_STRINGS must match http_string_t");
 
 #endif

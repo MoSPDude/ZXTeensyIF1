@@ -32,8 +32,6 @@ static const uint16_t HTTP_DAV_ALL_PROPERTIES =
     HTTP_DAV_CONTENTLENGTH | HTTP_DAV_CONTENTTYPE |
     HTTP_DAV_LASTMODIFIED | HTTP_DAV_CREATIONDATE | HTTP_DAV_ETAG;
 
-void httpPerformPacket(http_action_t action, const char* path, size_t contentLength,
-    char* header, uint8_t* content, size_t size);
 void httpPerformDelete(const char* decodedPath, bool isChild);
 void httpUpdateServerStatus(http_action_t action, size_t bytes);
 
@@ -41,15 +39,35 @@ void httpUpdateServerStatus(http_action_t action, size_t bytes);
 static const size_t PACKET_BUFFER_SIZE = (RAM_PAGE_SIZE / 2);
 static const size_t CONTENT_BUFFER_SIZE = (EXT_RAM_PAGE_COUNT - 1) * RAM_PAGE_SIZE;
 static const size_t MAX_TX_PACKET_SIZE = 1500;
+static const size_t MAX_RX_PACKET_SIZE = 2048;
+static const uint32_t HTTP_REQUEST_TIMEOUT_MS = 30000;
+static const uint32_t HTTP_CLOSE_GRACE_MS = 500;
+
+// ESP-01S supports a maximum of 5 connections
+static const uint8_t HTTP_MAX_CONNECTIONS = 5;
+
+typedef struct {
+    bool connected;
+    bool closing;
+    size_t pendingBytes;
+    uint32_t pendingGeneration;
+    uint32_t lastProgress;
+    uint32_t closeStarted;
+} http_connection_t;
+
 uint8_t* const httpPacketBuffer = (uint8_t*)divMmcExtRamArray[0];
 char* const httpHeaderBuffer = (char*)&(divMmcExtRamArray[0][PACKET_BUFFER_SIZE]);
 uint8_t* const httpContentBuffer = (uint8_t*)divMmcExtRamArray[1];
+uint8_t httpDiscardBuffer[64];
 volatile bool httpEnabled = false;
-char httpConnectionId[8];
-bool httpReceivingPacket = false;
+http_connection_t httpConnections[HTTP_MAX_CONNECTIONS];
+int8_t httpActiveConnection = -1;
+uint8_t httpNextConnection = 0;
+bool httpRequestFinished = false;
+bool httpConnectionClosed = false;
 size_t httpPacketBufferIndex = 0;
-size_t httpPacketLength = 0;
-int httpPacketCount = 0;
+char httpAtLine[64];
+size_t httpAtLineIndex = 0;
 char httpServerStatus[(MENU_STR_LEN + 1)];
 http_action_t httpAction = HTTP_ACTION_UNKNOWN;
 char httpURLPath[MAX_PATH];
@@ -138,9 +156,114 @@ bool httpBodyContains(const uint8_t* content, size_t size, const char* token)
     return false;
 }
 
+void httpResetConnection(uint8_t connectionId)
+{
+    if (connectionId < HTTP_MAX_CONNECTIONS)
+    {
+        httpConnections[connectionId].connected = false;
+        httpConnections[connectionId].closing = false;
+        httpConnections[connectionId].pendingBytes = 0;
+        httpConnections[connectionId].pendingGeneration = 0;
+        httpConnections[connectionId].lastProgress = 0;
+        httpConnections[connectionId].closeStarted = 0;
+    }
+}
+
+void httpHandleAtLine(char* line)
+{
+    int connectionId;
+    unsigned long length;
+    if (sscanf(line, "+IPD,%d,%lu", &connectionId, &length) == 2)
+    {
+        if ((connectionId >= 0) &&
+            (connectionId < HTTP_MAX_CONNECTIONS))
+        {
+            httpConnections[connectionId].connected = true;
+            // In passive receive mode this is the total number of bytes
+            // currently buffered for the connection, not a delta.
+            httpConnections[connectionId].pendingBytes = length;
+            ++httpConnections[connectionId].pendingGeneration;
+            httpConnections[connectionId].lastProgress = millis();
+        }
+    } else {
+        char status[16];
+        if ((sscanf(line, "%d,%15s", &connectionId, status) == 2) &&
+            (connectionId >= 0) &&
+            (connectionId < HTTP_MAX_CONNECTIONS))
+        {
+            if (strcmp(status, "CONNECT") == 0)
+            {
+                httpResetConnection(connectionId);
+                httpConnections[connectionId].connected = true;
+                httpConnections[connectionId].lastProgress = millis();
+            } else if (strcmp(status, "CLOSED") == 0)
+            {
+                httpResetConnection(connectionId);
+                if (httpActiveConnection == connectionId)
+                {
+                    httpConnectionClosed = true;
+                }
+            }
+        }
+    }
+}
+
+void httpConsumeAtByte(uint8_t value)
+{
+    if (value == '\n')
+    {
+        httpAtLine[httpAtLineIndex] = 0;
+        httpHandleAtLine(httpAtLine);
+        httpAtLineIndex = 0;
+    } else if (value != '\r')
+    {
+        if (httpAtLineIndex < (sizeof(httpAtLine) - 1))
+        {
+            httpAtLine[httpAtLineIndex++] = value;
+        } else {
+            httpAtLineIndex = 0;
+        }
+    }
+}
+
 bool httpWaitFor(const char *token, uint32_t timeout = 3000)
 {
-    return UartZXTeensy::espWaitFor(token, timeout);
+    bool found = false;
+    size_t index = 0;
+    uint32_t start = millis();
+    while (!found && ((millis() - start) < timeout))
+    {
+        while (!found && Serial8.available())
+        {
+            uint8_t value = Serial8.read();
+            httpConsumeAtByte(value);
+            if (value != (uint8_t)token[index])
+            {
+                index = (value == (uint8_t)token[0]) ? 1 : 0;
+            } else {
+                ++index;
+            }
+            if (token[index] == 0)
+            {
+                // A prompt has no line ending. Do not let it prefix the next
+                // unsolicited status line.
+                if ((token[0] == '>') && (token[1] == 0))
+                {
+                    httpAtLineIndex = 0;
+                }
+                found = true;
+            }
+        }
+    }
+    return found;
+}
+
+void httpDrainAtInput()
+{
+    while (Serial8.available())
+    {
+        httpConsumeAtByte(Serial8.read());
+    }
 }
 
 size_t sendData(const uint8_t *data, size_t size)
@@ -151,13 +274,16 @@ size_t sendData(const uint8_t *data, size_t size)
         size_t bytesSent = ((size >= MAX_TX_PACKET_SIZE) ?
             MAX_TX_PACKET_SIZE : size);
         Serial8.print(HTTP_STRINGS[HTTP_STR_AT_SEND]);
-        Serial8.print(httpConnectionId);
+        Serial8.print(httpActiveConnection);
         Serial8.print(",");
         Serial8.println(bytesSent);
         if (httpWaitFor(">"))
         {
             Serial8.write(data, bytesSent);
-            httpWaitFor(HTTP_STRINGS[HTTP_STR_AT_SEND_OK]);
+            if (!httpWaitFor(HTTP_STRINGS[HTTP_STR_AT_SEND_OK]))
+            {
+                break;
+            }
             data += bytesSent;
             size -= bytesSent;
             totalBytesSent += bytesSent;
@@ -255,13 +381,18 @@ void httpSendNotImplemented()
 void httpFinishConnection()
 {
     httpAction = HTTP_ACTION_UNKNOWN;
+    httpRequestFinished = true;
 }
 
 void httpCloseConnection()
 {
-    Serial8.print(HTTP_STRINGS[HTTP_STR_AT_CLOSE]);
-    Serial8.println(httpConnectionId);
-    httpWaitFor(HTTP_STRINGS[HTTP_STR_AT_OK]);
+    if ((httpActiveConnection >= 0) && !httpConnectionClosed)
+    {
+        Serial8.print(HTTP_STRINGS[HTTP_STR_AT_CLOSE]);
+        Serial8.println(httpActiveConnection);
+        httpWaitFor(HTTP_STRINGS[HTTP_STR_AT_OK]);
+        httpConnectionClosed = true;
+    }
 }
 
 void urldecode2(char *dst, const char *src)
@@ -1468,7 +1599,7 @@ char* httpGetAction(void* action)
 
 void httpProcessPacket()
 {
-    if ((httpPacketCount > 0) || (httpAction != HTTP_ACTION_UNKNOWN))
+    if (httpAction != HTTP_ACTION_UNKNOWN)
     {
         switch (httpAction)
         {
@@ -1533,74 +1664,320 @@ void httpProcessPacket()
     }
 }
 
+bool httpReadByte(uint8_t* value, uint32_t timeout = 3000)
+{
+    bool result = false;
+    uint32_t start = millis();
+    while (!result && ((millis() - start) < timeout))
+    {
+        if (Serial8.available())
+        {
+            *value = Serial8.read();
+            result = true;
+        }
+    }
+    return result;
+}
+
+size_t httpReceiveData(uint8_t connectionId, uint8_t* data, size_t size)
+{
+    size_t received = 0;
+    if ((connectionId < HTTP_MAX_CONNECTIONS) && (size > 0))
+    {
+        if (size > MAX_RX_PACKET_SIZE)
+        {
+            size = MAX_RX_PACKET_SIZE;
+        }
+
+        http_connection_t* connection = &httpConnections[connectionId];
+        uint32_t pendingGeneration = connection->pendingGeneration;
+        Serial8.print(HTTP_STRINGS[HTTP_STR_AT_RECEIVE]);
+        Serial8.print(connectionId);
+        Serial8.print(',');
+        Serial8.println(size);
+        if (httpWaitFor("+CIPRECVDATA"))
+        {
+            // ESP-AT returns +CIPRECVDATA:<length>,<data>, while older
+            // NonOS AT firmware returns +CIPRECVDATA,<length>:<data>.
+            // Consume exactly <length> binary bytes for either format before
+            // parsing the trailing response.
+            uint8_t lengthSeparator;
+            if (httpReadByte(&lengthSeparator) &&
+                ((lengthSeparator == ':') || (lengthSeparator == ',')))
+            {
+                uint8_t dataSeparator = (lengthSeparator == ':') ? ',' : ':';
+                size_t actualLength = 0;
+                uint8_t value = 0;
+                bool hasLength = false;
+                bool validLength = true;
+                while (validLength && httpReadByte(&value) &&
+                    (value != dataSeparator))
+                {
+                    if ((value < '0') || (value > '9'))
+                    {
+                        validLength = false;
+                    } else {
+                        hasLength = true;
+                        actualLength = (actualLength * 10) + (value - '0');
+                        if (actualLength > size)
+                        {
+                            validLength = false;
+                        }
+                    }
+                }
+                if (validLength && hasLength && (value == dataSeparator))
+                {
+                    uint32_t start = millis();
+                    while ((received < actualLength) &&
+                        ((millis() - start) < HTTP_REQUEST_TIMEOUT_MS))
+                    {
+                        if (Serial8.available())
+                        {
+                            size_t count = Serial8.readBytes(data + received,
+                                actualLength - received);
+                            if (count > 0)
+                            {
+                                received += count;
+                                start = millis();
+                            }
+                        }
+                    }
+                    if ((received == actualLength) &&
+                        httpWaitFor(HTTP_STRINGS[HTTP_STR_AT_OK]))
+                    {
+                        // A fresh +IPD notification may have arrived while
+                        // waiting for OK. Its length supersedes the value from
+                        // before this read and must not be decremented again.
+                        if (connection->pendingGeneration == pendingGeneration)
+                        {
+                            if (received < connection->pendingBytes)
+                            {
+                                connection->pendingBytes -= received;
+                            } else {
+                                connection->pendingBytes = 0;
+                            }
+                        }
+                        connection->lastProgress = millis();
+                    } else {
+                        received = 0;
+                    }
+                }
+            }
+        }
+    }
+    return received;
+}
+
+bool httpRefreshPendingBytes(uint8_t connectionId)
+{
+    bool refreshed = false;
+    if (connectionId < HTTP_MAX_CONNECTIONS)
+    {
+        Serial8.println(HTTP_STRINGS[HTTP_STR_AT_RECEIVE_LENGTH]);
+        if (httpWaitFor(HTTP_STRINGS[HTTP_STR_AT_RECEIVE_LENGTH_REPLY]))
+        {
+            uint8_t currentConnection = 0;
+            size_t length = 0;
+            bool hasLength = false;
+            bool complete = false;
+            uint8_t value;
+            while (!complete && httpReadByte(&value))
+            {
+                if ((value >= '0') && (value <= '9'))
+                {
+                    hasLength = true;
+                    length = (length * 10) + (value - '0');
+                } else if ((value == ',') || (value == '\r') ||
+                    (value == '\n'))
+                {
+                    if (currentConnection == connectionId)
+                    {
+                        httpConnections[connectionId].pendingBytes =
+                            hasLength ? length : 0;
+                        refreshed = true;
+                    }
+                    if (value == ',')
+                    {
+                        ++currentConnection;
+                        length = 0;
+                        hasLength = false;
+                    } else {
+                        complete = true;
+                    }
+                } else {
+                    complete = true;
+                }
+            }
+            httpWaitFor(HTTP_STRINGS[HTTP_STR_AT_OK]);
+        }
+        if (!refreshed)
+        {
+            httpConnections[connectionId].pendingBytes = 0;
+        }
+    }
+    return refreshed;
+}
+
+void httpResetRequest()
+{
+    if (httpUploadFile)
+    {
+        httpUploadFile.close();
+    }
+    httpAction = HTTP_ACTION_UNKNOWN;
+    httpRequestFinished = false;
+    httpConnectionClosed = false;
+    httpPacketBufferIndex = 0;
+    httpUploadBytesWritten = 0;
+    httpUploadContentLength = 0;
+    httpUploadCreated = false;
+    httpResponseLength = 0;
+    httpResponseOverflow = false;
+    httpURLPath[0] = 0;
+}
+
+void httpFinishActiveRequest()
+{
+    int8_t connectionId = httpActiveConnection;
+    if (connectionId >= 0)
+    {
+        if (httpConnectionClosed)
+        {
+            httpResetConnection(connectionId);
+        } else {
+            httpConnections[connectionId].closing = true;
+            httpConnections[connectionId].closeStarted = millis();
+        }
+    }
+    httpActiveConnection = -1;
+    httpResetRequest();
+}
+
+void httpServiceClosingConnections()
+{
+    for (uint8_t connectionId = 0;
+        connectionId < HTTP_MAX_CONNECTIONS; ++connectionId)
+    {
+        http_connection_t* connection = &httpConnections[connectionId];
+        if (connection->closing)
+        {
+            if (connection->pendingBytes > 0)
+            {
+                size_t size = connection->pendingBytes;
+                if (size > sizeof(httpDiscardBuffer))
+                {
+                    size = sizeof(httpDiscardBuffer);
+                }
+                httpReceiveData(connectionId, httpDiscardBuffer, size);
+            }
+            if (connection->closing &&
+                ((millis() - connection->closeStarted) >=
+                    HTTP_CLOSE_GRACE_MS))
+            {
+                Serial8.print(HTTP_STRINGS[HTTP_STR_AT_CLOSE]);
+                Serial8.println(connectionId);
+                httpWaitFor(HTTP_STRINGS[HTTP_STR_AT_OK]);
+                httpResetConnection(connectionId);
+            }
+        }
+    }
+}
+
+void httpSelectConnection()
+{
+    if (httpActiveConnection < 0)
+    {
+        for (uint8_t offset = 0;
+            (offset < HTTP_MAX_CONNECTIONS) && (httpActiveConnection < 0);
+            ++offset)
+        {
+            uint8_t connectionId = (httpNextConnection + offset) %
+                HTTP_MAX_CONNECTIONS;
+            if (!httpConnections[connectionId].closing &&
+                (httpConnections[connectionId].pendingBytes > 0))
+            {
+                httpActiveConnection = connectionId;
+                httpNextConnection = (connectionId + 1) % HTTP_MAX_CONNECTIONS;
+                httpResetRequest();
+            }
+        }
+    }
+}
+
 void httpOnTick()
 {
     if (httpEnabled)
     {
-        while (Serial8.available())
+        // Passive receive mode only reports connection events and the number
+        // of bytes buffered by the ESP. Socket payload is pulled below for one
+        // connection at a time.
+        httpDrainAtInput();
+        httpServiceClosingConnections();
+        httpSelectConnection();
+        if (httpActiveConnection >= 0)
         {
-            if (httpReceivingPacket)
+            http_connection_t* connection =
+                &httpConnections[httpActiveConnection];
+            if (httpConnectionClosed ||
+                ((millis() - connection->lastProgress) >=
+                    HTTP_REQUEST_TIMEOUT_MS))
             {
-                // Fetch all available into the buffer
-                int size = ((httpPacketLength > PACKET_BUFFER_SIZE) ?
-                    PACKET_BUFFER_SIZE : httpPacketLength) - httpPacketBufferIndex;
-                if (size > Serial8.available())
+                httpFinishActiveRequest();
+            } else if (connection->pendingBytes > 0)
+            {
+                size_t capacity;
+                uint8_t* destination;
+                if (httpAction == HTTP_ACTION_UNKNOWN)
                 {
-                    size = Serial8.available();
+                    capacity = PACKET_BUFFER_SIZE - httpPacketBufferIndex;
+                    destination = httpPacketBuffer + httpPacketBufferIndex;
+                } else {
+                    capacity = PACKET_BUFFER_SIZE;
+                    destination = httpPacketBuffer;
                 }
-                size = Serial8.readBytes(&(httpPacketBuffer[httpPacketBufferIndex]), size);
-                if (size > 0)
+                size_t requested = connection->pendingBytes;
+                if (requested > capacity)
                 {
-                    httpPacketBufferIndex += size;
+                    requested = capacity;
                 }
-
-                // Decide if a packet has been received
-                if ((httpPacketBufferIndex >= httpPacketLength) ||
-                    (httpPacketBufferIndex >= PACKET_BUFFER_SIZE))
+                size_t received = httpReceiveData(httpActiveConnection,
+                    destination, requested);
+                if (received == 0)
                 {
-                    httpProcessPacket();
-                    httpPacketLength -= httpPacketBufferIndex;
-                    if (httpPacketLength == 0)
+                    // A passive +IPD length is a snapshot and can be stale by
+                    // the time the data command is handled. Resynchronise the
+                    // buffered length instead of aborting an active upload.
+                    httpRefreshPendingBytes(httpActiveConnection);
+                    if (httpConnectionClosed)
                     {
-                        httpReceivingPacket = false;
-                        httpPacketCount = 0;
-                    } else {
-                        ++httpPacketCount;
+                        httpFinishActiveRequest();
                     }
-
-                    // Clear the buffer
-                    httpPacketBufferIndex = 0;
-                }
-            } else {
-                // Fetch a byte into the buffer
-                uint8_t c = Serial8.read();
-                httpPacketBuffer[httpPacketBufferIndex] = c;
-                ++httpPacketBufferIndex;
-
-                // Decide if a line or packet has been received
-                if ((httpPacketBufferIndex >= (PACKET_BUFFER_SIZE - 1)) ||
-                    (c == ':') || (c == '\n'))
-                {
-                    // Parse for an incoming packet
-                    httpPacketBuffer[httpPacketBufferIndex] = 0;
-                    if (strncmp("+IPD,", (const char*)httpPacketBuffer, 5) == 0)
+                } else {
+                    if (httpAction == HTTP_ACTION_UNKNOWN)
                     {
-                        char* ptr = (char*)&(httpPacketBuffer[5]);
-                        char* lenPtr = strstr(ptr, ",");
-                        if (lenPtr != 0)
+                        httpPacketBufferIndex += received;
+                        uint8_t* headerEnd = (uint8_t*)strnstr(
+                            (const char*)httpPacketBuffer, "\r\n\r\n",
+                            httpPacketBufferIndex);
+                        if (headerEnd != 0)
                         {
-                            *lenPtr = 0;
-                            strncpy(httpConnectionId, ptr, 8);
-                            httpConnectionId[7] = 0;
-                            ptr = lenPtr + 1;
-                            httpPacketLength = atoi(ptr);
-                            httpReceivingPacket = true;
-                            httpPacketCount = 0;
+                            httpProcessPacket();
+                            httpPacketBufferIndex = 0;
+                        } else if (httpPacketBufferIndex >= PACKET_BUFFER_SIZE)
+                        {
+                            httpSendHeader(HTTP_STRINGS[HTTP_STR_HTTP_413],
+                                HTTP_STRINGS[HTTP_STR_TEXT_PLAIN], 0);
+                            httpFinishConnection();
                         }
+                    } else {
+                        httpPacketBufferIndex = received;
+                        httpProcessPacket();
+                        httpPacketBufferIndex = 0;
                     }
-
-                    // Clear the buffer
-                    httpPacketBufferIndex = 0;
+                    if (httpRequestFinished || httpConnectionClosed)
+                    {
+                        httpFinishActiveRequest();
+                    }
                 }
             }
         }
@@ -1641,11 +2018,37 @@ void httpStartServer()
                     httpServerStatus[MENU_STR_LEN] = 0;
                 }
                 httpWaitFor(HTTP_STRINGS[HTTP_STR_AT_OK]);
+                bool configured;
                 Serial8.println(HTTP_STRINGS[HTTP_STR_AT_MUX]);
-                httpWaitFor(HTTP_STRINGS[HTTP_STR_AT_OK]);
-                Serial8.println(HTTP_STRINGS[HTTP_STR_AT_SERVER_START]);
-                if (httpWaitFor(HTTP_STRINGS[HTTP_STR_AT_OK]))
+                configured = httpWaitFor(HTTP_STRINGS[HTTP_STR_AT_OK]);
+                if (configured)
                 {
+                    Serial8.print(HTTP_STRINGS[HTTP_STR_AT_SERVER_MAX]);
+                    Serial8.println(HTTP_MAX_CONNECTIONS);
+                    configured = httpWaitFor(HTTP_STRINGS[HTTP_STR_AT_OK]);
+                }
+                if (configured)
+                {
+                    Serial8.println(HTTP_STRINGS[HTTP_STR_AT_RECEIVE_MODE]);
+                    configured = httpWaitFor(HTTP_STRINGS[HTTP_STR_AT_OK]);
+                }
+                if (configured)
+                {
+                    Serial8.println(HTTP_STRINGS[HTTP_STR_AT_SERVER_START]);
+                    configured = httpWaitFor(HTTP_STRINGS[HTTP_STR_AT_OK]);
+                }
+                if (configured)
+                {
+                    // The local server must exist before its timeout can be set.
+                    Serial8.println(HTTP_STRINGS[HTTP_STR_AT_TIMEOUT]);
+                    httpWaitFor(HTTP_STRINGS[HTTP_STR_AT_OK]);
+                    for (uint8_t i = 0; i < HTTP_MAX_CONNECTIONS; ++i)
+                    {
+                        httpResetConnection(i);
+                    }
+                    httpActiveConnection = -1;
+                    httpNextConnection = 0;
+                    httpResetRequest();
                     httpEnabled = true;
                 }
             } else {
@@ -1681,8 +2084,12 @@ void httpStopServer()
     httpAction = HTTP_ACTION_UNKNOWN;
     httpPutBytesTransferred = 0;
     httpGetBytesTransferred = 0;
-    httpReceivingPacket = false;
-    httpPacketBufferIndex = 0;
-    httpPacketLength = 0;
-    httpPacketCount = 0;
+    httpActiveConnection = -1;
+    httpNextConnection = 0;
+    httpAtLineIndex = 0;
+    httpResetRequest();
+    for (uint8_t i = 0; i < HTTP_MAX_CONNECTIONS; ++i)
+    {
+        httpResetConnection(i);
+    }
 }
