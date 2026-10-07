@@ -53,7 +53,7 @@ class UartZXTeensy
         void begin(uint8_t baud, const char* modemUrl);
 
         // Flush and close the port
-        void end(void);
+        void end(bool hasReset);
 
         // Wait for response
         static bool espWaitFor(const char *token, uint32_t timeout = 3000)
@@ -138,7 +138,7 @@ class UartZXTeensy
                     switch (readWriteData(&data))
                     {
                         case UART_SET_BAUD :
-                            end();
+                            end(false);
                             begin(data, 0);
                             break;
                         case UART_WRITE :

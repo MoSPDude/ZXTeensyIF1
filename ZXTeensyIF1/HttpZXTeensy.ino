@@ -1620,7 +1620,7 @@ void httpStartServer()
         }
 
         // Close the UART, and open the port exclusively
-        espUart.end();
+        espUart.end(false);
 
         // Open the UART, and start the server
         Serial8.begin(115200);

@@ -92,7 +92,8 @@ typedef enum {
     STATE_ROM_DISABLE = 0x00,
     STATE_ROM_ENABLE  = 0x01,
     STATE_RESET       = 0x02,
-    STATE_RESET_MENU  = 0x03
+    STATE_RESET_MENU  = 0x03,
+    STATE_RESET_HARD  = 0x07
 } run_state_t;
 
 typedef enum {
@@ -902,12 +903,14 @@ void setState(run_state_t state_)
 {
     switch (state_)
     {
+        case STATE_RESET_HARD :
+            resetHardTrigArmed = false;
         case STATE_RESET :
         case STATE_RESET_MENU :
             resetTrigState = TRIGGER_ACTIVE;
             disableData();
             digitalWriteFast(RESET_PIN, 1);
-            digitalWriteFast(LED_PIN, 0);
+            digitalWriteFast(LED_PIN, 1);
             enableInternalRom();
             break;
         case STATE_ROM_ENABLE :
@@ -1630,11 +1633,8 @@ void initialiseRamBanks()
     memset((void*)menuRamArray, 0xFF, (MENU_PAGE_COUNT * RAM_PAGE_SIZE));
 }
 
-void performHardReset()
+void resetEspWifi()
 {
-    // Do not trigger another hard reset until reset has been released and re-armed
-    resetHardTrigArmed = false;
-
     // Disable the ESP-01S
     pinMode(ESP_ENABLE, OUTPUT);
     digitalWriteFast(ESP_ENABLE, 0);
@@ -1644,14 +1644,8 @@ void performHardReset()
 
     // Clear the UART
     wifiNtp.end();
-    espUart.end();
+    espUart.end(true);
     wifiNtpEnabled = false;
-
-    // Perform reset into menu
-    afterFirstReset = false;
-    isDeviceDisabled = false;
-    menuEnterOnReset = true;
-    setState(STATE_RESET);
 }
 
 void handleStateResetEntry()
@@ -1907,24 +1901,34 @@ void handleWarmStateReset()
             menuResetAction();
             setState(STATE_RESET_MENU);
         }
-    } else if ((romArrayPresent & BANK_RAM) != 0)
-    {
-        // Reload the menu after ZXC2 cartridge
-        menuEnterOnReset = true;
     } else {
-        // Preserve DivMMC RAM when present
-        divMmcPreserveRam = divMmcPresent;
+        if ((romArrayPresent & BANK_RAM) != 0)
+        {
+            // Reload the menu after ZXC2 cartridge
+            menuEnterOnReset = true;
+        } else {
+            // Preserve DivMMC RAM when present
+            divMmcPreserveRam = divMmcPresent;
+        }
+
+        // Reset the ESP-01S
+        resetEspWifi();
     }
+}
+
+void handleHardStateReset()
+{
+    // Reset the ESP-01S
+    resetEspWifi();
+
+    // Perform reset into menu
+    afterFirstReset = false;
+    isDeviceDisabled = false;
+    menuEnterOnReset = true;
 }
 
 void handleStateReset()
 {
-    // Enable the ESP-01S
-    pinMode(ESP_ENABLE, INPUT_PULLUP);
-
-    // Blink the LED
-    digitalWriteFast(LED_PIN, 1);
-
     // Clear any pending NMI
     nmiPending = false;
     nmiRomTarget = ROM_ROM0;
@@ -1937,17 +1941,23 @@ void handleStateReset()
     }
 
     // Handle actions before warm reset
-    if (afterFirstReset)
+    if (globalState == STATE_RESET_HARD)
+    {
+        handleHardStateReset();
+    } else if (afterFirstReset)
     {
         handleWarmStateReset();
     }
+
+    // Enable the ESP-01S
+    pinMode(ESP_ENABLE, INPUT_PULLUP);
 
     // Reset the UART state, and clear buffers
     httpStopServer();
     if (!wifiNtpEnabled)
     {
         // NOTE: wifiNtpEnabled persists UART across reset
-        espUart.end();
+        espUart.end(false);
     }
 
     // Stop the tape
@@ -2157,7 +2167,7 @@ void handleStateReset()
             // Wait for WiFi NTP before enabling UART
             if (!wifiNtpEnabled)
             {
-                espUart.end();
+                espUart.end(false);
                 if (modemPresent)
                 {
                     espUart.begin(0, menuGetModemUrl());
@@ -2263,7 +2273,7 @@ FASTRUN void loop()
             // Enable the UART when not in menu, now time is updated
             if (uartPresent && (IS_ROM_PAGED(ROM_MENU) == 0))
             {
-                espUart.end();
+                espUart.end(false);
                 if (modemPresent)
                 {
                     espUart.begin(0, menuGetModemUrl());
@@ -2360,7 +2370,7 @@ FASTRUN void loop()
                     case MENU_ACTION_IN_GAME_RESET :
                         // Hard reset into the main menu
                         menuCancelStateLoad();
-                        performHardReset();
+                        setState(STATE_RESET_HARD);
                         break;
                     case MENU_ACTION_LOAD_STATE_SLOT :
                         // Reset to load the active state slot
@@ -2464,7 +2474,7 @@ FASTRUN void loop()
                     --resetHardTrigCount;
                     if (resetHardTrigCount == 0)
                     {
-                        performHardReset();
+                        setState(STATE_RESET_HARD);
                         return;
                     }
                 }

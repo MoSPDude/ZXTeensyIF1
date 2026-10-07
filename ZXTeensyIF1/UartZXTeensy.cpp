@@ -63,11 +63,11 @@ void UartZXTeensy::begin(uint8_t baudRate, const char* modemUrl)
     }
 };
 
-void UartZXTeensy::end(void)
+void UartZXTeensy::end(bool hasReset)
 {
     if (enabled)
     {
-        if (isModemPassthrough)
+        if (!hasReset && isModemPassthrough)
         {
             Serial8.print("+++");
             delay(1000);
