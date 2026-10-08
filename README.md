@@ -71,7 +71,7 @@ A Teensy 4.1 powered DivMMC and ZX Interface 1 clone for the ZX Spectrum 48K/128
 * Small WebDAV class 1 HTTP server for WiFi file access over ESP-01S
     * Accepts five clients, with SD card requests processed one at a time
     * Use WinSCP to send files, or HTTP PUT to send files eg. "curl -T FILENAME.ROM http://192.168.0.254/FILENAME.ROM"
-        * Windows native support requires LOCK (and UNLOCK) which is Not Implemented
+        * Includes a simple LOCK/UNLOCK compatibility shim for Windows 11 support
     * Use web browser to list files, and download
 * Nihirash's Network Manager for WiFi configuration
     * Small bugfix to clear the BASIC keypress on load
@@ -302,10 +302,10 @@ To navigate, either press numbers to select items, or enter pages in the form of
 The HTTP server accepts five connections. Requests are processed one at a time because the
 ESP-01S UART and SD card are shared; an inactive connection remains buffered by the ESP-01S.
 
-Windows 11 seems to still send a LOCK command when sending a file to the server,
-though it is not presented in the server Allow list or required by WebDAV class 1.
-It then ignores the "501 Not Implemented" or the "405 Method Not Allowed", and
-fails to send the file.
+Windows 11 sends LOCK and UNLOCK commands when copying files to the server, though not
+supported in WebDAV class 1. The server just acknowledges the exclusive file locks, creates
+the empty target required by a LOCK on a new path, and accepts refresh and unlock requests -
+purely as a compatibility shim. An interrupted transfer can leave its empty target file behind.
 
 WinSCP seems to work fine - you may need to change the preferences to ensure only
 a single upload connection.

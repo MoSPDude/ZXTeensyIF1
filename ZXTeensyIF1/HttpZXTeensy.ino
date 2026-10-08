@@ -8,6 +8,8 @@ typedef enum {
     HTTP_ACTION_GET,
     HTTP_ACTION_HEAD,
     HTTP_ACTION_PUT,
+    HTTP_ACTION_LOCK,
+    HTTP_ACTION_UNLOCK,
     HTTP_ACTION_PROPFIND,
     HTTP_ACTION_PROPPATCH,
     HTTP_ACTION_MKCOL,
@@ -80,6 +82,7 @@ size_t httpResponseLength = 0;
 bool httpResponseOverflow = false;
 size_t httpPutBytesTransferred = 0;
 size_t httpGetBytesTransferred = 0;
+uint32_t httpLockTokenCounter = 0;
 
 void httpUpdateServerStatus(http_action_t action, size_t bytes)
 {
@@ -1112,6 +1115,262 @@ bool httpDestinationParentExists(const char* destination)
     return exists;
 }
 
+bool httpExtractLockToken(const char* value, char* token, size_t tokenSize)
+{
+    if ((value == 0) || (tokenSize == 0))
+    {
+        return false;
+    }
+
+    while ((*value != 0) && (*value != '\r') && (*value != '\n'))
+    {
+        if (*value == '<')
+        {
+            const char* begin = ++value;
+            while ((*value != 0) && (*value != '\r') &&
+                (*value != '\n') && (*value != '>'))
+            {
+                ++value;
+            }
+            if (*value != '>')
+            {
+                return false;
+            }
+
+            size_t length = value - begin;
+            bool supportedScheme =
+                ((length > 16) &&
+                 (strncmp(begin, "opaquelocktoken:", 16) == 0)) ||
+                ((length > 9) && (strncmp(begin, "urn:uuid:", 9) == 0));
+            if (supportedScheme && (length < tokenSize))
+            {
+                for (size_t i = 0; i < length; ++i)
+                {
+                    if (isspace((unsigned char)begin[i]))
+                    {
+                        return false;
+                    }
+                }
+                memcpy(token, begin, length);
+                token[length] = 0;
+                return true;
+            }
+        }
+        ++value;
+    }
+    return false;
+}
+
+bool httpLockDepthSupported()
+{
+    const char* depth = httpFindHeaderValue(httpHeaderBuffer,
+        HTTP_STRINGS[HTTP_STR_DEPTH]);
+    if (depth == 0)
+    {
+        return true;
+    }
+    if (*depth++ != '0')
+    {
+        return false;
+    }
+    while ((*depth == ' ') || (*depth == '\t'))
+    {
+        ++depth;
+    }
+    return (*depth == 0) || (*depth == '\r') || (*depth == '\n');
+}
+
+uint32_t httpLockPathHash(const char* path)
+{
+    uint32_t hash = 2166136261u;
+    while (*path != 0)
+    {
+        hash ^= (uint8_t)*path++;
+        hash *= 16777619u;
+    }
+    return hash;
+}
+
+void httpCreateLockToken(char* token, size_t tokenSize)
+{
+    uint32_t seconds = (uint32_t)now();
+    uint32_t ticks = millis();
+    uint32_t counter = ++httpLockTokenCounter;
+    uint32_t hash = httpLockPathHash(httpURLPath);
+    snprintf(token, tokenSize,
+        "opaquelocktoken:%08lX-%04lX-%04lX-%04lX-%04lX%08lX",
+        (unsigned long)seconds,
+        (unsigned long)(ticks >> 16),
+        (unsigned long)(0x4000u | (hash & 0x0FFFu)),
+        (unsigned long)(0x8000u | ((hash >> 12) & 0x3FFFu)),
+        (unsigned long)(ticks & 0xFFFFu),
+        (unsigned long)counter);
+}
+
+void httpSendLockResponse(const char* code, const char* token,
+    bool includeLockToken)
+{
+    httpResponseBegin();
+    httpResponseAppend(HTTP_STRINGS[HTTP_STR_XML_DECL]);
+    httpResponseAppend(HTTP_STRINGS[HTTP_STR_XML_LOCK_BEGIN]);
+    httpAppendXmlEscaped(token);
+    httpResponseAppend(HTTP_STRINGS[HTTP_STR_XML_LOCK_ROOT]);
+    httpAppendEncodedHref(httpURLPath, false);
+    httpResponseAppend(HTTP_STRINGS[HTTP_STR_XML_LOCK_END]);
+
+    if (httpResponseOverflow)
+    {
+        httpSendHeader(HTTP_STRINGS[HTTP_STR_HTTP_507],
+            HTTP_STRINGS[HTTP_STR_TEXT_PLAIN], 0);
+        return;
+    }
+
+    int headerSize;
+    if (includeLockToken)
+    {
+        headerSize = snprintf(httpHeaderBuffer, PACKET_BUFFER_SIZE,
+            "%s%s\r\nLock-Token: <%s>\r\nTimeout: Infinite\r\n"
+            "Cache-Control: no-store\r\n%s%d\r\n%s%s%s",
+            HTTP_STRINGS[HTTP_STR_HTTP_PREFIX], code, token,
+            HTTP_STRINGS[HTTP_STR_CONTENT_LENGTH], httpResponseLength,
+            HTTP_STRINGS[HTTP_STR_CONTENT_TYPE],
+            HTTP_STRINGS[HTTP_STR_XML_CONTENT_TYPE],
+            HTTP_STRINGS[HTTP_STR_CONNECTION_CLOSE]);
+    } else {
+        headerSize = snprintf(httpHeaderBuffer, PACKET_BUFFER_SIZE,
+            "%s%s\r\nTimeout: Infinite\r\nCache-Control: no-store\r\n"
+            "%s%d\r\n%s%s%s",
+            HTTP_STRINGS[HTTP_STR_HTTP_PREFIX], code,
+            HTTP_STRINGS[HTTP_STR_CONTENT_LENGTH], httpResponseLength,
+            HTTP_STRINGS[HTTP_STR_CONTENT_TYPE],
+            HTTP_STRINGS[HTTP_STR_XML_CONTENT_TYPE],
+            HTTP_STRINGS[HTTP_STR_CONNECTION_CLOSE]);
+    }
+    if ((headerSize > 0) && (headerSize < (int)PACKET_BUFFER_SIZE))
+    {
+        sendData((const uint8_t*)httpHeaderBuffer, headerSize);
+        httpSendResponse();
+    }
+}
+
+int httpLockTargetType()
+{
+    File file = SD.open(httpURLPath, FILE_READ);
+    if (!file)
+    {
+        return -1;
+    }
+    int type = file.isDirectory() ? 0 : 1;
+    file.close();
+    return type;
+}
+
+void httpPerformLock(uint8_t* content, size_t size)
+{
+    if (!httpPathIsCanonical(httpURLPath) ||
+        (strcmp(httpURLPath, "/") == 0))
+    {
+        httpSendHeader(HTTP_STRINGS[HTTP_STR_HTTP_403],
+            HTTP_STRINGS[HTTP_STR_TEXT_PLAIN], 0);
+    } else if (httpUploadBytesWritten >= CONTENT_BUFFER_SIZE)
+    {
+        httpSendHeader(HTTP_STRINGS[HTTP_STR_HTTP_413],
+            HTTP_STRINGS[HTTP_STR_TEXT_PLAIN], 0);
+    } else if (httpUploadBytesWritten == 0)
+    {
+        char token[64];
+        const char* ifValue = httpFindHeaderValue(httpHeaderBuffer,
+            HTTP_STRINGS[HTTP_STR_IF]);
+        if (!httpExtractLockToken(ifValue, token, sizeof(token)))
+        {
+            httpSendHeader(HTTP_STRINGS[HTTP_STR_HTTP_400],
+                HTTP_STRINGS[HTTP_STR_TEXT_PLAIN], 0);
+        } else if (!SD.exists(httpURLPath))
+        {
+            httpSend404();
+        } else {
+            int targetType = httpLockTargetType();
+            if (targetType < 0)
+            {
+                httpSendHeader(HTTP_STRINGS[HTTP_STR_HTTP_507],
+                    HTTP_STRINGS[HTTP_STR_TEXT_PLAIN], 0);
+            } else if (targetType == 0)
+            {
+                httpSendHeader(HTTP_STRINGS[HTTP_STR_HTTP_405],
+                    HTTP_STRINGS[HTTP_STR_TEXT_PLAIN], 0);
+            } else {
+                // This compatibility shim accepts any syntactically valid token.
+                httpSendLockResponse(HTTP_STRINGS[HTTP_STR_HTTP_200], token, false);
+            }
+        }
+    } else if (!httpLockDepthSupported() ||
+        !httpBodyContains(content, size, HTTP_STRINGS[HTTP_STR_LOCKINFO]) ||
+        !httpBodyContains(content, size, HTTP_STRINGS[HTTP_STR_EXCLUSIVE]) ||
+        !httpBodyContains(content, size, HTTP_STRINGS[HTTP_STR_WRITE]))
+    {
+        httpSendHeader(HTTP_STRINGS[HTTP_STR_HTTP_400],
+            HTTP_STRINGS[HTTP_STR_TEXT_PLAIN], 0);
+    } else {
+        bool created = !SD.exists(httpURLPath);
+        int targetType = created ? 1 : httpLockTargetType();
+        if (!created && (targetType < 0))
+        {
+            httpSendHeader(HTTP_STRINGS[HTTP_STR_HTTP_507],
+                HTTP_STRINGS[HTTP_STR_TEXT_PLAIN], 0);
+        } else if (!created && (targetType == 0))
+        {
+            httpSendHeader(HTTP_STRINGS[HTTP_STR_HTTP_405],
+                HTTP_STRINGS[HTTP_STR_TEXT_PLAIN], 0);
+        } else if (created && !httpDestinationParentExists(httpURLPath))
+        {
+            httpSendHeader(HTTP_STRINGS[HTTP_STR_HTTP_409],
+                HTTP_STRINGS[HTTP_STR_TEXT_PLAIN], 0);
+        } else {
+            bool ready = true;
+            if (created)
+            {
+                File placeholder = SD.open(httpURLPath, FILE_WRITE_BEGIN);
+                ready = placeholder;
+                placeholder.close();
+            }
+            if (!ready)
+            {
+                httpSendHeader(HTTP_STRINGS[HTTP_STR_HTTP_507],
+                    HTTP_STRINGS[HTTP_STR_TEXT_PLAIN], 0);
+            } else {
+                char token[64];
+                httpCreateLockToken(token, sizeof(token));
+                httpSendLockResponse(created ?
+                    HTTP_STRINGS[HTTP_STR_HTTP_201] :
+                    HTTP_STRINGS[HTTP_STR_HTTP_200], token, true);
+            }
+        }
+    }
+
+    httpFinishConnection();
+}
+
+void httpPerformUnlock()
+{
+    char token[64];
+    const char* value = httpFindHeaderValue(httpHeaderBuffer,
+        HTTP_STRINGS[HTTP_STR_LOCK_TOKEN]);
+    if (!httpPathIsCanonical(httpURLPath) ||
+        (strcmp(httpURLPath, "/") == 0))
+    {
+        httpSendHeader(HTTP_STRINGS[HTTP_STR_HTTP_403],
+            HTTP_STRINGS[HTTP_STR_TEXT_PLAIN], 0);
+    } else if (!httpExtractLockToken(value, token, sizeof(token)))
+    {
+        httpSendHeader(HTTP_STRINGS[HTTP_STR_HTTP_400],
+            HTTP_STRINGS[HTTP_STR_TEXT_PLAIN], 0);
+    } else {
+        // Tokens are advisory: no lock table is maintained or enforced.
+        httpSendText(HTTP_STRINGS[HTTP_STR_HTTP_204]);
+    }
+    httpFinishConnection();
+}
+
 bool httpCopyPath(const char* sourcePath, const char* destinationPath,
     int depth)
 {
@@ -1458,6 +1717,12 @@ void httpFinishAction()
         case HTTP_ACTION_HEAD :
             httpPerformGet(false);
             break;
+        case HTTP_ACTION_LOCK :
+            httpPerformLock(httpContentBuffer, httpUploadBytesWritten);
+            break;
+        case HTTP_ACTION_UNLOCK :
+            httpPerformUnlock();
+            break;
         case HTTP_ACTION_PROPFIND :
             httpPerformPropfind(httpContentBuffer, httpUploadBytesWritten);
             break;
@@ -1518,6 +1783,14 @@ void httpPerformAction(size_t contentLength, uint8_t* data, size_t size)
     httpUploadBytesWritten = 0;
     httpUploadContentLength = contentLength;
 
+    // Windows WebClient may wait for this response before sending LOCK XML.
+    if ((httpAction == HTTP_ACTION_LOCK) && (contentLength > size) &&
+        (httpFindHeaderValue(httpHeaderBuffer,
+            HTTP_STRINGS[HTTP_STR_EXPECT]) != 0))
+    {
+        httpSendText(HTTP_STRINGS[HTTP_STR_HTTP_100]);
+    }
+
     // Write any existing content
     httpContinueAction(data, size);
 }
@@ -1556,6 +1829,14 @@ char* httpGetAction(void* action)
                 return request + 5;
             }
             break;
+        case 'L' :
+            if (strncmp(HTTP_STRINGS[HTTP_STR_LOCK],
+                (const char*)httpPacketBuffer, 5) == 0)
+            {
+                *httpAction = HTTP_ACTION_LOCK;
+                return request + 5;
+            }
+            break;
         case 'M' :
             if (strncmp(HTTP_STRINGS[HTTP_STR_MOVE], (const char*)httpPacketBuffer, 5) == 0)
             {
@@ -1587,6 +1868,14 @@ char* httpGetAction(void* action)
             {
                 *httpAction = HTTP_ACTION_PROPPATCH;
                 return request + 10;
+            }
+            break;
+        case 'U' :
+            if (strncmp(HTTP_STRINGS[HTTP_STR_UNLOCK],
+                (const char*)httpPacketBuffer, 7) == 0)
+            {
+                *httpAction = HTTP_ACTION_UNLOCK;
+                return request + 7;
             }
             break;
         default :
