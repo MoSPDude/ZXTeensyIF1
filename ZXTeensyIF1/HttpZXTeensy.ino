@@ -181,9 +181,9 @@ void httpHandleAtLine(char* line)
         if ((connectionId >= 0) &&
             (connectionId < HTTP_MAX_CONNECTIONS))
         {
-            httpConnections[connectionId].connected = true;
             // In passive receive mode this is the total number of bytes
             // currently buffered for the connection, not a delta.
+            httpConnections[connectionId].connected = true;
             httpConnections[connectionId].pendingBytes = length;
             ++httpConnections[connectionId].pendingGeneration;
             httpConnections[connectionId].lastProgress = millis();
@@ -269,7 +269,7 @@ void httpDrainAtInput()
     }
 }
 
-size_t sendData(const uint8_t *data, size_t size)
+size_t httpSendData(const uint8_t *data, size_t size)
 {
     size_t totalBytesSent = 0;
     while (size > 0)
@@ -299,7 +299,7 @@ size_t sendData(const uint8_t *data, size_t size)
 
 void httpSendText(const char* text)
 {
-    sendData((const uint8_t*)text, strlen(text));
+    httpSendData((const uint8_t*)text, strlen(text));
 }
 
 void httpResponseBegin()
@@ -352,7 +352,7 @@ bool httpSendResponse()
     {
         return false;
     }
-    return sendData(httpContentBuffer, httpResponseLength) == httpResponseLength;
+    return httpSendData(httpContentBuffer, httpResponseLength) == httpResponseLength;
 }
 
 void httpSendHeader(const char *code, const char *type, size_t length)
@@ -365,7 +365,7 @@ void httpSendHeader(const char *code, const char *type, size_t length)
         HTTP_STRINGS[HTTP_STR_CONNECTION_CLOSE]);
     if ((size > 0) && (size < (int)PACKET_BUFFER_SIZE))
     {
-        sendData((const uint8_t*)httpHeaderBuffer, size);
+        httpSendData((const uint8_t*)httpHeaderBuffer, size);
     }
 }
 
@@ -456,7 +456,7 @@ void httpPerformOptions()
         HTTP_STRINGS[HTTP_STR_CONNECTION_CLOSE]);
     if ((size > 0) && (size < (int)PACKET_BUFFER_SIZE))
     {
-        sendData((const uint8_t*)httpHeaderBuffer, size);
+        httpSendData((const uint8_t*)httpHeaderBuffer, size);
     }
 
     // Close
@@ -503,7 +503,7 @@ void httpPerformGet(bool sendBody)
                     HTTP_STRINGS[HTTP_STR_TEXT_HTML], httpResponseLength);
                 if (sendBody)
                 {
-                    bytesSent = sendData(httpContentBuffer, httpResponseLength);
+                    bytesSent = httpSendData(httpContentBuffer, httpResponseLength);
                 }
             }
         } else {
@@ -518,7 +518,7 @@ void httpPerformGet(bool sendBody)
                     size_t size = file.read(httpContentBuffer,
                         ((CONTENT_BUFFER_SIZE / MAX_TX_PACKET_SIZE) *
                             MAX_TX_PACKET_SIZE));
-                    size_t sent = sendData(httpContentBuffer, size);
+                    size_t sent = httpSendData(httpContentBuffer, size);
                     bytesSent += sent;
                     if (sent != size)
                     {
@@ -875,7 +875,7 @@ void httpPerformPropfind(uint8_t* content, size_t size)
                 if ((headerSize > 0) &&
                     (headerSize < (int)PACKET_BUFFER_SIZE))
                 {
-                    sendData((const uint8_t*)httpHeaderBuffer, headerSize);
+                    httpSendData((const uint8_t*)httpHeaderBuffer, headerSize);
                     httpSendResponse();
                     if (directory)
                     {
@@ -966,7 +966,7 @@ void httpPerformProppatch(uint8_t* content, size_t size)
                 if ((headerSize > 0) &&
                     (headerSize < (int)PACKET_BUFFER_SIZE))
                 {
-                    sendData((const uint8_t*)httpHeaderBuffer, headerSize);
+                    httpSendData((const uint8_t*)httpHeaderBuffer, headerSize);
                     httpSendResponse();
                 }
             }
@@ -1248,7 +1248,7 @@ void httpSendLockResponse(const char* code, const char* token,
     }
     if ((headerSize > 0) && (headerSize < (int)PACKET_BUFFER_SIZE))
     {
-        sendData((const uint8_t*)httpHeaderBuffer, headerSize);
+        httpSendData((const uint8_t*)httpHeaderBuffer, headerSize);
         httpSendResponse();
     }
 }
@@ -2300,6 +2300,7 @@ void httpStartServer()
             ipAddress[length] = 0;
             if (strncmp(HTTP_STRINGS[HTTP_STR_NO_IP], ipAddress, 7) != 0)
             {
+                // WiFi has an IP address
                 if (snprintf(httpServerStatus, (MENU_STR_LEN + 1), "%s%s",
                     HTTP_STRINGS[HTTP_STR_ADDRESS], ipAddress) >=
                         (MENU_STR_LEN + 1))
@@ -2307,30 +2308,41 @@ void httpStartServer()
                     httpServerStatus[MENU_STR_LEN] = 0;
                 }
                 httpWaitFor(HTTP_STRINGS[HTTP_STR_AT_OK]);
+
+                // Configure the server
+                // Accept multiple connections
                 bool configured;
                 Serial8.println(HTTP_STRINGS[HTTP_STR_AT_MUX]);
                 configured = httpWaitFor(HTTP_STRINGS[HTTP_STR_AT_OK]);
                 if (configured)
                 {
+                    // Accept up to 5 connections (the ESP8266 maximum)
                     Serial8.print(HTTP_STRINGS[HTTP_STR_AT_SERVER_MAX]);
                     Serial8.println(HTTP_MAX_CONNECTIONS);
                     configured = httpWaitFor(HTTP_STRINGS[HTTP_STR_AT_OK]);
                 }
                 if (configured)
                 {
+                    // Set passive receive mode
                     Serial8.println(HTTP_STRINGS[HTTP_STR_AT_RECEIVE_MODE]);
                     configured = httpWaitFor(HTTP_STRINGS[HTTP_STR_AT_OK]);
                 }
                 if (configured)
                 {
+                    // Start the server on port 80
                     Serial8.println(HTTP_STRINGS[HTTP_STR_AT_SERVER_START]);
                     configured = httpWaitFor(HTTP_STRINGS[HTTP_STR_AT_OK]);
                 }
                 if (configured)
                 {
-                    // The local server must exist before its timeout can be set.
+                    // Set the TCP timeout
                     Serial8.println(HTTP_STRINGS[HTTP_STR_AT_TIMEOUT]);
-                    httpWaitFor(HTTP_STRINGS[HTTP_STR_AT_OK]);
+                    configured = httpWaitFor(HTTP_STRINGS[HTTP_STR_AT_OK]);
+                }
+
+                // Configuration finished
+                if (configured)
+                {
                     for (uint8_t i = 0; i < HTTP_MAX_CONNECTIONS; ++i)
                     {
                         httpResetConnection(i);
@@ -2339,6 +2351,8 @@ void httpStartServer()
                     httpNextConnection = 0;
                     httpResetRequest();
                     httpEnabled = true;
+                } else {
+                    strcpy(httpServerStatus, HTTP_STRINGS[HTTP_STR_SERVER_ERR]);
                 }
             } else {
                 strcpy(httpServerStatus, HTTP_STRINGS[HTTP_STR_WAIT_IP]);

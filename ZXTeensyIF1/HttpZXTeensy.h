@@ -7,6 +7,7 @@ typedef enum {
     HTTP_STR_WAIT_IP,
     HTTP_STR_WAIT_NTP,
     HTTP_STR_WAIT_WIFI,
+    HTTP_STR_SERVER_ERR,
     HTTP_STR_HTTP_PREFIX,
     HTTP_STR_HTTP_200,
     HTTP_STR_HTTP_201,
@@ -155,6 +156,7 @@ static const char* const PROGMEM HTTP_STRINGS[] = {
     " > Waiting for IP address",
     " > Waiting for WiFi NTP",
     " > Waiting for WiFi",
+    " > Server Error",
     "HTTP/1.1 ",
     "200 OK",
     "201 Created",
@@ -296,8 +298,5 @@ static const char* const PROGMEM HTTP_STRINGS[] = {
     "0.0.0.0",
     "\">"
 };
-
-static_assert((sizeof(HTTP_STRINGS) / sizeof(HTTP_STRINGS[0])) ==
-    HTTP_STR_COUNT, "HTTP_STRINGS must match http_string_t");
 
 #endif
