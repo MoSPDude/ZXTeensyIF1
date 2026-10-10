@@ -3339,7 +3339,10 @@ FASTRUN void isrFastGpios()
     uint32_t gpioSix = (*(volatile uint32_t *)IMXRT_GPIO6_ADDRESS);
 
     // Always perform RD and WR behaviour, including ROMCS behaviour
-    if ((gpioSix & RD_PIN_BITMASK) != 0)
+    if (isGlobalStateReset())
+    {
+        disableData();
+    } else if ((gpioSix & RD_PIN_BITMASK) != 0)
     {
         if (busRdActive)
         {
