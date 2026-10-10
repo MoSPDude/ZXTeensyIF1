@@ -3349,6 +3349,8 @@ void menuLoadBuiltinConfiguration()
     menuClearConfiguration();
 
     // Load the built-in non-SD card configuration
+    bootIntoMenu = false;
+    menuEnableInGame = false;
 #ifdef ENABLE_BUILTIN_ROM_IF1
     interface1Present = ((romArrayPresent & BANK_IF1) != 0);
 #endif
