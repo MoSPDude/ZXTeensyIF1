@@ -3336,6 +3336,22 @@ void menuClearConfiguration()
     strcpy(cfgData.modemUrl, MODEM_URL_PATH);
 }
 
+void menuLoadBuiltinConfiguration()
+{
+    menuClearConfiguration();
+
+    // Load the built-in non-SD card configuration
+#ifdef ENABLE_BUILTIN_ROM_IF1
+    interface1Present = ((romArrayPresent & BANK_IF1) != 0);
+#endif
+#ifdef ENABLE_BUILTIN_ROM_MF128
+    mf128Present = ((romArrayPresent & BANK_MF128) != 0);
+#endif
+#ifdef ENABLE_BUILTIN_USB
+    usbPresent = true;
+#endif
+}
+
 void menuLoadConfiguration(const char* cfgCfgName)
 {
     // Load the configuration from the SD card

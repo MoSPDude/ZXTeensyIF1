@@ -2,7 +2,6 @@
 #include <SD.h>
 #include <SdFat.h>
 #include "USBHost_t36.h"
-#include "if1-2_rom.h"
 #include "WriteDataTable.h"
 #include "RingBuffer.h"
 #include "PrintableString.h"
@@ -15,6 +14,13 @@
 #include "Dsk765ZXTeensy.h"
 #include "PrinterZXTeensy.h"
 #include "DefinesZXTeensy.h"
+
+#ifdef ENABLE_BUILTIN_ROM_IF1
+#include "if1-2_rom.h"
+#endif
+#ifdef ENABLE_BUILTIN_ROM_MF128
+#include "mf128_rom.h"
+#endif
 
 extern "C" volatile uint32_t systick_millis_count;
 extern "C" uint32_t set_arm_clock(uint32_t frequency);
@@ -1768,6 +1774,10 @@ void handleStateResetEntry()
             memcpy((void *)romArray[ROM_PAGE_IF1], BUILTIN_ROM_IF1, BUILTIN_ROM_IF1_SIZE);
             romArrayPresent |= BANK_IF1;
 #endif
+#ifdef ENABLE_BUILTIN_ROM_MF128
+            memcpy((void *)romArray[ROM_PAGE_MF128], BUILTIN_ROM_MF128, BUILTIN_ROM_MF128_SIZE);
+            romArrayPresent |= BANK_MF128;
+#endif
 
             // Detect the SD card
             if (!sdCardPresent)
@@ -1870,10 +1880,12 @@ void handleStateResetEntry()
                         menuRamPtr = menuRamArray[0];
                     }
                 }
-            } else if (!isButtonHeld)
+            } else if (isButtonHeld)
             {
-                // Button without SD card disables the built-in Interface 1 soft ROM
-                interface1Present = ((romArrayPresent & BANK_IF1) != 0);
+                isDeviceDisabled = true;
+            } else {
+                // Load non-SD-card configuration
+                menuLoadBuiltinConfiguration();
             }
         }
     } else {
