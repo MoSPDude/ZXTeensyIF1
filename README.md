@@ -13,6 +13,8 @@ A Teensy 4.1 powered DivMMC and ZX Interface 1 clone for the ZX Spectrum 48K/128
             * The [imc-i1.rom](Extras/imc-i1.rom) here contains a copy with the "Parallel Printer" modification disabled
 * DivMMC with 512KB RAM
     * Supports accessing the main SD card, HDF and IMG images
+    * Supports DivMMC AllRAM extension with write lock, automap disable and alternate MAPRAM page
+        * https://github.com/mprato/DivMMC/blob/master/docs/Divmmc_allram_manual.txt
     * Large images over FAT32 file limit can be split into multiple files
         * eg. esximage.hdf, esximage.001, up to esximage.999
         * The maximum SD card image size is ~2TB
@@ -386,7 +388,7 @@ The following ROMs are provided by the Teensy, listed in priority order,
 | Spectrum ROM 3 | I/O port 0x7FFD bit 4 = 1, and I/O port 0x1FFD bit 2 = 1 | Replaced by another Spectrum ROM | +2A/+3 BASIC ROM slot |
 | Interface 1 | Post-M1 access to address 0x0008 or 0x1708 from Spectrum ROM 0, 1 or 3, when Interface 1 is enabled and DivMMC is not | Post-M1 access to address 0x0700 | Emulates Interface 1 ROM paging while the Teensy inhibits the physical Interface 1 ULA I/O decode when DivMMC is active. |
 | Multiface 128 | Multiface NMI path at address 0x0066/0x0067, or read from I/O port 0xXXBF | Read from I/O port 0xXX3F; write to I/O port 0xXX3F also disables Multiface mode | Higher priority than Interface 1, so Interface 1 may be marked paged underneath it and then become visible after Multiface pages out. |
-| DivMMC | M1 access to addresses 0x3Dxx, post-M1 access to addresses 0x0000, 0x0008, 0x0038, 0x04C6 or 0x0562 from Spectrum ROM 0, 1 or 3; DivMMC NMI at address 0x0066; or I/O port 0xXXE3 with CONMEM/automap active | Post-M1 access to addresses 0x1FF8-0x1FFF unless MAPRAM is active; or I/O port 0xXXE3 when CONMEM and automap are clear | I/O port 0xXXE3 also selects the DivMMC RAM bank. Bit 7 is CONMEM, bit 6 latches MAPRAM, and the low bits select internal or extended RAM. MAPRAM serves RAM bank 3 instead of the ROM when CONMEM is clear. |
+| DivMMC | M1 access to addresses 0x3Dxx, post-M1 access to addresses 0x0000, 0x0008, 0x0038, 0x04C6 or 0x0562 from Spectrum ROM 0, 1 or 3; DivMMC NMI at address 0x0066; I/O port 0xXXE3 with CONMEM/automap active; or AllRAM enabled | Post-M1 access to addresses 0x1FF8-0x1FFF unless MAPRAM or AllRAM is active; or I/O port 0xXXE3 when CONMEM, automap and AllRAM are clear | I/O port 0xXXE3 also selects the DivMMC RAM bank. Bit 7 is CONMEM, bit 6 latches MAPRAM, and the low bits select internal or extended RAM. MAPRAM serves RAM bank 3 (or the alternate AllRAM page) instead of the ROM when CONMEM is clear. |
 | LPRINT III | Read from I/O port 0xXXFB | Read from I/O port 0xXX7B | Printer data/strobe writes use I/O ports 0xXX7B and 0xXXFB; ROM paging itself is read-port driven. |
 | VTX5000 modem | VTX5000 register write to I/O port 0xXXFF with bit 5 clear | VTX5000 register write to I/O port 0xXXFF with bit 5 set | The first register write after reset is ignored. |
 | ZXC2/ZXC3 cartridge | ZXC2/ZXC3 address-banking access in addresses 0x3FC0-0x3FFF, or post-M1 access to address 0x0008/0x1708 when used as Shadow ROM | ZXC2/ZXC3 address-banking access in addresses 0x3FC0-0x3FFF, or post-M1 access to address 0x0700 when used as Shadow ROM | For ZXC2, address bits 0-3 select the 16KB bank and bit 4 pages in/out. ZXC3 uses bits 0-2 for the bank and bit 3 to enter flash-write handling. Bit 5 locks further ZXC2/ZXC3 paging. |
@@ -405,6 +407,7 @@ The following ports are decoded by the Teensy,
 | 0x133B | W | UART TX data | |
 | 0x143B | R | UART RX data | |
 | 0x143B | W | UART baud register | |
+| 0x0F3B | W | DivMMC AllRAM control register | |
 | 0x7N3B | R/W | DivMMC RTC registers 0 - 15 | N is the register address |
 | 0xXX3F | R | Multiface 128 page out | Returns bit 7 as the Current Screen |
 | 0xXX3F | W | Multiface 128 disable | |

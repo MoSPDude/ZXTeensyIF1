@@ -329,11 +329,25 @@ volatile bool divMmcToggle = false;
 volatile bool divMmcAutoMap = false;
 volatile bool divMmcConMem = false;
 volatile bool divMmcMapRam = false;
+volatile bool divMmcAllRamPresent = false;
+typedef struct {
+    bool enabled;
+    bool allRam;
+    bool active;
+    bool writeLock;
+    bool mapDisable;
+    bool mapRamPage;
+    bool bankRom23;
+    bool bankRom01;
+    bool bankRom01Locked;
+} div_mmc_all_ram_state_t;
+volatile div_mmc_all_ram_state_t divMmcAllRamState = {};
 volatile uint8_t divMmcRamBank = 0;
-volatile bool divMmcRamBankThree = false;
+volatile bool divMmcRamBankMapRam = false;
 volatile bool divMmcPreserveRam = false;
 volatile bool divMmcExtRamEnabled = false;
-volatile uint8_t* divMmcRamPtr;
+volatile uint8_t* divMmcRomPtr = romArray[ROM_PAGE_DIVMMC];
+volatile uint8_t* divMmcRamPtr = divMmcRamArray[0];
 
 // Multiface 128
 volatile bool mf128Present = false;
@@ -517,7 +531,7 @@ inline void zxC3OnTick() __attribute__((always_inline, hot, optimize("O3")));
 inline void stateOnTick() __attribute__((always_inline, optimize("O3")));
 
 // Optimised functions used by ISR
-void stateLoaderFinished(bool onPageOut) __attribute__((optimize("O3")));
+void updateDivMmcRamPtrs() __attribute__((noinline, optimize("O3")));
 inline void mldClearCommand() __attribute__((always_inline, optimize("O3")));
 inline void mldClearEepProgram() __attribute__((always_inline, optimize("O3")));
 void mldRunCommand(uint8_t command) __attribute__((hot, optimize("O3")));
@@ -881,6 +895,44 @@ inline __attribute__((always_inline, optimize("O3"))) bool isGlobalStateReset()
 inline __attribute__((always_inline, optimize("O3"))) bool isDivMmcSelected()
 {
     return (divMmcEnabled && ((romArraySelected & (BANK_MF128 | BANK_IF1)) == 0));
+}
+
+void updateDivMmcRamPtrs()
+{
+    uint8_t ramBank = divMmcRamBank;
+    uint8_t mapRamBank = (divMmcAllRamState.enabled &&
+        divMmcAllRamState.mapRamPage) ?
+        (divMmcExtRamEnabled ? 59 : 11) : 3;
+    divMmcRamBankMapRam = (divMmcRamBank == mapRamBank);
+    if (divMmcAllRamState.enabled && divMmcAllRamState.allRam)
+    {
+        uint8_t page;
+        if (!divMmcAllRamState.mapDisable)
+        {
+            // Automapping restricts AllRAM to the top two 16KB pages.
+            page = divMmcExtRamEnabled ? 0x1E : 0x06;
+        } else {
+            // E3 bits 5-3, 1FFD bit 2 and 7FFD bit 4 select the 16KB page.
+            page = ((divMmcRamBank >> 1) & 0x1C) |
+                (divMmcAllRamState.bankRom23 ? 0x02 : 0x00);
+        }
+        page |= (divMmcAllRamState.bankRom01 ? 0x01 : 0x00);
+        uint8_t romBank = page << 1;
+        divMmcRomPtr = (divMmcExtRamEnabled && (romBank >= RAM_PAGE_COUNT)) ?
+            divMmcExtRamArray[romBank - RAM_PAGE_COUNT] :
+            divMmcRamArray[romBank & (RAM_PAGE_COUNT - 1)];
+        ramBank = romBank + 1;
+    } else if (divMmcMapRam && !divMmcConMem)
+    {
+        divMmcRomPtr = (divMmcExtRamEnabled && (mapRamBank >= RAM_PAGE_COUNT)) ?
+            divMmcExtRamArray[mapRamBank - RAM_PAGE_COUNT] :
+            divMmcRamArray[mapRamBank & (RAM_PAGE_COUNT - 1)];
+    } else {
+        divMmcRomPtr = romArray[ROM_PAGE_DIVMMC];
+    }
+    divMmcRamPtr = (divMmcExtRamEnabled && (ramBank >= RAM_PAGE_COUNT)) ?
+        divMmcExtRamArray[ramBank - RAM_PAGE_COUNT] :
+        divMmcRamArray[ramBank & (RAM_PAGE_COUNT - 1)];
 }
 
 inline __attribute__((always_inline, optimize("O3"))) void divMmcUpdateInterfaceOne()
@@ -1994,6 +2046,7 @@ void handleStateReset()
     romPaged = 0x01;
     interface1Enabled = false;
     divMmcEnabled = false;
+    divMmcAllRamState.active = false;
     divMmcRomEnabled = false;
     divMmcToggle = false;
     divMmcConMem = false;
@@ -2001,7 +2054,7 @@ void handleStateReset()
     divMmcMapRam = false;
     divMmcRamBank = 0;
     divMmcRamPtr = divMmcRamArray[0];
-    divMmcRamBankThree = false;
+    divMmcRamBankMapRam = false;
     mf128Enabled = false;
     mf128ActiveNMI = false;
     menuTriggerNMI = false;
@@ -2036,6 +2089,9 @@ void handleStateReset()
     spectrumBorder = 0x00;
     spectrumBankM = 0x00;
     spectrumBank678 = 0x00;
+    divMmcAllRamState.bankRom23 = false;
+    divMmcAllRamState.bankRom01 = false;
+    divMmcAllRamState.bankRom01Locked = false;
     spectrumAyReg = 0x00;
     stateStartLoad = false;
 
@@ -2243,8 +2299,19 @@ void handleStateReset()
         }
     }
 
+    // The AllRAM control register survives reset, but the Spectrum paging
+    // registers do not, so refresh its selected page after reset handling.
+    divMmcAllRamState.enabled = divMmcPresent && divMmcAllRamPresent;
+    divMmcAllRamState.active = divMmcEnabled &&
+        divMmcAllRamState.enabled && divMmcAllRamState.allRam;
+    updateDivMmcRamPtrs();
+    if (divMmcAllRamState.active)
+    {
+        PAGE_IN_ROM(ROM_DIVMMC);
+    }
+
     // Enable the soft ROM, if present
-    if (romArrayPresent != 0)
+    if ((romArrayPresent != 0) || divMmcAllRamState.active)
     {
         updateRomIndex(true);
         setState(STATE_ROM_ENABLE);
@@ -2963,18 +3030,13 @@ void updateMldSlotPtr(uint8_t slot)
 inline void updateRomPtr(bool pageNow)
 {
     // Enable soft ROM when page is present
-    if ((romArrayPresent & romArraySelected) != 0)
+    if (((romArrayPresent & romArraySelected) != 0) ||
+        divMmcAllRamState.active)
     {
         switch (romSelected)
         {
             case ROM_DIVMMC :
-                if (divMmcMapRam && !divMmcConMem)
-                {
-                    romPtr = divMmcRamArray[3];
-                } else {
-                    //romPtr = romArray[ROM_PAGE_DIVMMC + (romSelected - ROM_DIVMMC)];
-                    romPtr = romArray[ROM_PAGE_DIVMMC];
-                }
+                romPtr = divMmcRomPtr;
                 break;
             case ROM_LPRINT :
                 // Special handling for 2KB ROM
@@ -3339,7 +3401,8 @@ FASTRUN void isrPinButton()
         {
             if (IS_ROM_PAGED(ROM_MENU))
             {
-                if (menuIsInGameMenu())
+                if (menuIsInGameMenu() &&
+                    (!divMmcConMem || !divMmcAllRamState.enabled))
                 {
                     menuTriggerExitNMI = true;
                 } else {
@@ -3348,7 +3411,8 @@ FASTRUN void isrPinButton()
             } else if (menuEnableInGame)
             {
                 menuTriggerNMI = true;
-            } else if (!wasTapePlaying)
+            } else if (!wasTapePlaying &&
+                (!divMmcConMem || !divMmcAllRamState.enabled))
             {
                 nmiPending = true;
                 digitalWriteFast(NMI_PIN, 1);
@@ -3493,10 +3557,13 @@ FASTRUN void isrWrEvent(uint32_t gpioSix)
                 break;
             case ROM_DIVMMC :
                 // Perform DivMMC RAM write
-                if ((address >= RAM_PAGE_SIZE) &&
-                    (!divMmcMapRam || divMmcConMem || !divMmcRamBankThree))
+                if ((!divMmcAllRamState.enabled || !divMmcAllRamState.writeLock) &&
+                    (divMmcAllRamState.active || ((address >= RAM_PAGE_SIZE) &&
+                      (!divMmcMapRam || divMmcConMem || !divMmcRamBankMapRam))))
                 {
-                    divMmcRamPtr[address & (RAM_PAGE_SIZE - 1)] = data;
+                    volatile uint8_t* ptr = (address >= RAM_PAGE_SIZE) ?
+                        divMmcRamPtr : romPtr;
+                    ptr[address & (RAM_PAGE_SIZE - 1)] = data;
                 }
                 break;
             case ROM_ZXC2 :
@@ -3694,8 +3761,19 @@ FASTRUN void isrWrEvent(uint32_t gpioSix)
                 }
                 if (isPort7F)
                 {
+                    if (divMmcAllRamState.enabled &&
+                        !divMmcAllRamState.bankRom01Locked &&
+                        !IS_ROM_PAGED(ROM_MENU))
+                    {
+                        // Detect 0x7ffd write access for DivMMC AllRAM
+                        divMmcAllRamState.bankRom01 = ((data & 0x10) != 0);
+                        divMmcAllRamState.bankRom01Locked = ((data & 0x20) != 0);
+                        updateDivMmcRamPtrs();
+                    }
                     if (divMmcEnabled && IS_ROM_PAGED(ROM_DIVMMC) &&
-                        ((data & 0x10) == 0x0))
+                        !divMmcAllRamState.active &&
+                        (divMmcAllRamState.enabled ? !divMmcAllRamState.bankRom01 :
+                            ((data & 0x10) == 0x0)))
                     {
                         // Detect 0x7ffd write access to disable DivMMC
                         divMmcToggle = true;
@@ -3713,11 +3791,20 @@ FASTRUN void isrWrEvent(uint32_t gpioSix)
                     // Detect 0x1ffd write access for +3 ROMs
                     if (!IS_ROM_PAGED(ROM_MENU))
                     {
+                        if (divMmcAllRamState.enabled)
+                        {
+                            // Detect 0x1ffd write access for DivMMC AllRAM
+                            divMmcAllRamState.bankRom23 = ((data & 0x04) != 0);
+                        }
                         spectrumBank678 = data;
                         if (!rom1Present || !rom23Present)
                         {
                             spectrumBank678 &= 0xF8;
                         }
+                    }
+                    if (divMmcAllRamState.enabled)
+                    {
+                        updateDivMmcRamPtrs();
                     }
                     if (rom1Present && rom23Present)
                     {
@@ -3765,7 +3852,35 @@ FASTRUN void isrWrEvent(uint32_t gpioSix)
                 case 0x3b :
                     {
                         uint8_t highPort = decodeHighAddress(gpioSix);
-                        if (divMmcEnabled && ((highPort & 0xf0) == 0x70))
+                        if (divMmcAllRamState.enabled && divMmcEnabled &&
+                            (highPort == 0x0F))
+                        {
+                            // DivMMC AllRAM extension control: ALLRAM, WRLOCK,
+                            // MAPDISABLE and MAPRAM_PAGE in bits 7-4.
+                            uint8_t data = readData();
+                            divMmcAllRamState.allRam = ((data & 0x80) != 0);
+                            divMmcAllRamState.active = divMmcAllRamState.allRam;
+                            divMmcAllRamState.writeLock = ((data & 0x40) != 0);
+                            divMmcAllRamState.mapDisable = ((data & 0x20) != 0);
+                            divMmcAllRamState.mapRamPage = ((data & 0x10) != 0);
+                            if (divMmcAllRamState.mapDisable)
+                            {
+                                divMmcAutoMap = false;
+                            }
+                            if (divMmcAllRamState.allRam)
+                            {
+                                divMmcToggle = false;
+                            }
+                            updateDivMmcRamPtrs();
+                            if (divMmcAllRamState.allRam ||
+                                divMmcConMem || divMmcAutoMap)
+                            {
+                                PAGE_IN_ROM(ROM_DIVMMC);
+                            } else {
+                                PAGE_OUT_ROM(ROM_DIVMMC);
+                            }
+                            updateRomIndex(true);
+                        } else if (divMmcEnabled && ((highPort & 0xf0) == 0x70))
                         {
                             rtcTeensy.write((highPort & 0x0f), readData());
                         } else if (uartEnabled)
@@ -3788,6 +3903,8 @@ FASTRUN void isrWrEvent(uint32_t gpioSix)
                     {
                         mf128Enabled = false;
                         divMmcEnabled = divMmcPresent;
+                        divMmcAllRamState.active = divMmcEnabled &&
+                            divMmcAllRamState.enabled && divMmcAllRamState.allRam;
                         divMmcRomEnabled = (divMmcEnabled && divMmcRomPresent);
                         interface1Enabled = (interface1Present && !divMmcEnabled);
                     }
@@ -3838,29 +3955,29 @@ FASTRUN void isrWrEvent(uint32_t gpioSix)
                         // DivMMC control
                         uint8_t data = readData();
                         divMmcConMem = ((data & 0x80) != 0);
-                        if ((data & 0x40) != 0)
+                        if (divMmcAllRamState.enabled && divMmcMapRam &&
+                            ((data & 0xC0) == 0xC0))
+                        {
+                            // The AllRAM extension permits MAPRAM to be cleared.
+                            divMmcMapRam = false;
+                        } else if ((data & 0x40) != 0)
                         {
                             divMmcMapRam = true;
                         }
-                        if (divMmcConMem || divMmcAutoMap)
+                        if (divMmcAllRamState.active ||
+                            divMmcConMem || divMmcAutoMap)
                         {
                             PAGE_IN_ROM(ROM_DIVMMC);
                         } else {
                             PAGE_OUT_ROM(ROM_DIVMMC);
                         }
 
-                        // DivMMC RAM banking
+                        // DivMMC RAM banking. The effective pointers also
+                        // account for AllRAM and the alternate MAPRAM page.
                         data &= (EXT_RAM_PAGE_COUNT + RAM_PAGE_COUNT - 1);
-                        if (divMmcExtRamEnabled && (data >= RAM_PAGE_COUNT))
-                        {
-                            divMmcRamBank = data;
-                            divMmcRamPtr = divMmcExtRamArray[(data - RAM_PAGE_COUNT)];
-                            divMmcRamBankThree = false;
-                        } else {
-                            divMmcRamBank = data & (RAM_PAGE_COUNT - 1);
-                            divMmcRamPtr = divMmcRamArray[divMmcRamBank];
-                            divMmcRamBankThree = ((divMmcRamBank == 0x03) ? true : false);
-                        }
+                        divMmcRamBank = divMmcExtRamEnabled ?
+                            data : (data & (RAM_PAGE_COUNT - 1));
+                        updateDivMmcRamPtrs();
                         updateRomIndex(true);
                     }
                     break;
@@ -4011,6 +4128,7 @@ FASTRUN void isrRdEvent(uint32_t gpioSix)
                         mf128Enabled = true;
                         mf128ActiveNMI = true;
                         divMmcEnabled = false;
+                        divMmcAllRamState.active = false;
                         divMmcRomEnabled = false;
                         interface1Enabled = interface1Present;
 
@@ -4026,7 +4144,10 @@ FASTRUN void isrRdEvent(uint32_t gpioSix)
                 writeRomData(0x66);
 
                 // Send the NMI to the DivMMC, if not Multiface 128
-                if (divMmcRomEnabled && !mf128ActiveNMI && (nmiRomTarget != ROM_ROM3) &&
+                if (divMmcRomEnabled && !divMmcConMem &&
+                    !mf128ActiveNMI && (nmiRomTarget != ROM_ROM3) &&
+                    (!divMmcAllRamState.enabled ||
+                        !divMmcAllRamState.mapDisable) &&
                     ((romArraySelected & (BANK_ROM0 | BANK_ROM1 | BANK_ROM3)) != 0))
                 {
                     divMmcAutoMap = true;
@@ -4058,7 +4179,9 @@ FASTRUN void isrRdEvent(uint32_t gpioSix)
                             updateRomPtr(true);
                         }
 
-                        if (divMmcRomEnabled)
+                        if (divMmcRomEnabled &&
+                            (!divMmcAllRamState.enabled ||
+                                !divMmcAllRamState.mapDisable))
                         {
                             // Detect M1 cycle for DivMMC paging
                             if ((address & 0xff00) == 0x3d00)
@@ -4148,7 +4271,10 @@ FASTRUN void isrRdEvent(uint32_t gpioSix)
                         break;
                     case ROM_DIVMMC :
                         // Detect M1 cycle for DivMMC paging
-                        if (divMmcRomEnabled && ((address & 0xff00) == 0x3d00))
+                        if (divMmcRomEnabled &&
+                            (!divMmcAllRamState.enabled ||
+                                !divMmcAllRamState.mapDisable) &&
+                            ((address & 0xff00) == 0x3d00))
                         {
                             divMmcAutoMap = true;
                         }
@@ -4162,17 +4288,18 @@ FASTRUN void isrRdEvent(uint32_t gpioSix)
                         if (!divMmcMapRam && ((address & 0xfff8) == 0x1ff8))
                         {
                             divMmcAutoMap = false;
-                            if (!divMmcConMem)
+                            if (!divMmcConMem && !divMmcAllRamState.active)
                             {
                                 PAGE_OUT_ROM(ROM_DIVMMC);
                             }
                             updateRomIndex(false);
 
                             // Disable the DivMMC, and enable the Interface 1
-                            if (divMmcToggle)
+                            if (divMmcToggle && !divMmcAllRamState.active)
                             {
                                 divMmcToggle = false;
                                 divMmcEnabled = false;
+                                divMmcAllRamState.active = false;
                                 divMmcRomEnabled = false;
                                 interface1Enabled = interface1Present;
                             }

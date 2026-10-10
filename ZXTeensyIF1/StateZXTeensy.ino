@@ -8,7 +8,7 @@ static const uint32_t STATE_48_FILE_SIZE = 49248;
 static const uint32_t STATE_128_FILE_SIZE = 131183;
 static const size_t STATE_SCREEN_SIZE = 0x1B00;
 static const uint8_t STATE_SIGNAL_FINISH = 0xC0;
-static const uint16_t STATE_DEVICE_VERSION = 2;
+static const uint16_t STATE_DEVICE_VERSION = 1;
 
 typedef enum {
     STATE_FILE_STATE,
@@ -69,6 +69,14 @@ typedef struct __attribute__((packed)) {
     uint8_t divMmcMapRam;
     uint8_t divMmcRamBank;
     uint8_t divMmcExtRamEnabled;
+    uint8_t divMmcAllRamPresent;
+    uint8_t divMmcAllRam;
+    uint8_t divMmcWriteLock;
+    uint8_t divMmcMapDisable;
+    uint8_t divMmcMapRamPage;
+    uint8_t divMmcAllRamBankRom23;
+    uint8_t divMmcAllRamBankRom01;
+    uint8_t divMmcAllRamBankRom01Locked;
     uint8_t mf128Enabled;
     uint8_t mf128ActiveNMI;
     uint8_t mf128LoadGenie;
@@ -388,6 +396,13 @@ void stateCaptureDeviceData(void* data)
     state->divMmcAutoMap = divMmcAutoMap;
     state->divMmcConMem = divMmcConMem;
     state->divMmcMapRam = divMmcMapRam;
+    state->divMmcAllRam = divMmcAllRamState.allRam;
+    state->divMmcWriteLock = divMmcAllRamState.writeLock;
+    state->divMmcMapDisable = divMmcAllRamState.mapDisable;
+    state->divMmcMapRamPage = divMmcAllRamState.mapRamPage;
+    state->divMmcAllRamBankRom23 = divMmcAllRamState.bankRom23;
+    state->divMmcAllRamBankRom01 = divMmcAllRamState.bankRom01;
+    state->divMmcAllRamBankRom01Locked = divMmcAllRamState.bankRom01Locked;
     state->divMmcRamBank = divMmcRamBank;
     state->divMmcExtRamEnabled = divMmcExtRamEnabled;
     state->mf128Enabled = mf128Enabled;
@@ -432,6 +447,7 @@ void stateCaptureDeviceData(void* data)
     state->tapeBufferFillPosition = tapeBufferFillPosition;
     state->divMmcPresent = divMmcPresent;
     state->divMmcExtRamPresent = divMmcExtRamPresent;
+    state->divMmcAllRamPresent = divMmcAllRamPresent;
     state->divMmcRomPresent = divMmcRomPresent;
     state->divMmcSdReadOnly = divMmcSdReadOnly;
     state->interface1Present = interface1Present;
@@ -654,6 +670,8 @@ inline void stateApplyConfiguration()
     // Restore the configuration
     divMmcPresent = stateRestoreDevice.divMmcPresent;
     divMmcExtRamPresent = stateRestoreDevice.divMmcExtRamPresent;
+    divMmcAllRamPresent = stateRestoreDevice.divMmcAllRamPresent;
+    divMmcAllRamState.enabled = divMmcPresent && divMmcAllRamPresent;
     divMmcRomPresent = stateRestoreDevice.divMmcRomPresent;
     divMmcSdReadOnly = stateRestoreDevice.divMmcSdReadOnly;
     interface1Present = stateRestoreDevice.interface1Present;
@@ -713,6 +731,16 @@ inline __attribute__((always_inline, optimize("O3"))) void stateApplyDeviceData(
     divMmcConMem = stateRestoreDevice.divMmcConMem;
     divMmcAutoMap = stateRestoreDevice.divMmcAutoMap;
     divMmcMapRam = stateRestoreDevice.divMmcMapRam;
+    divMmcAllRamState.allRam = stateRestoreDevice.divMmcAllRam;
+    divMmcAllRamState.writeLock = stateRestoreDevice.divMmcWriteLock;
+    divMmcAllRamState.mapDisable = stateRestoreDevice.divMmcMapDisable;
+    divMmcAllRamState.mapRamPage = stateRestoreDevice.divMmcMapRamPage;
+    divMmcAllRamState.bankRom23 = stateRestoreDevice.divMmcAllRamBankRom23;
+    divMmcAllRamState.bankRom01 = stateRestoreDevice.divMmcAllRamBankRom01;
+    divMmcAllRamState.bankRom01Locked =
+        stateRestoreDevice.divMmcAllRamBankRom01Locked;
+    divMmcAllRamState.active = divMmcEnabled &&
+        divMmcAllRamState.enabled && divMmcAllRamState.allRam;
     divMmcExtRamEnabled = stateRestoreDevice.divMmcExtRamEnabled;
     mf128Enabled = stateRestoreDevice.mf128Enabled;
     spectrumBankM = stateRestoreDevice.spectrumBankM;
@@ -756,21 +784,14 @@ inline __attribute__((always_inline, optimize("O3"))) void stateApplyDeviceData(
 
     // Restore the DivMMC RAM pointer
     divMmcRamBank = stateRestoreDevice.divMmcRamBank;
-    if (divMmcExtRamEnabled && (divMmcRamBank >= RAM_PAGE_COUNT))
-    {
-        divMmcRamPtr = divMmcExtRamArray[(divMmcRamBank - RAM_PAGE_COUNT)];
-        divMmcRamBankThree = false;
-    } else {
-        divMmcRamPtr = divMmcRamArray[divMmcRamBank & (RAM_PAGE_COUNT - 1)];
-        divMmcRamBankThree = ((divMmcRamBank == 0x03) ? true : false);
-    }
+    updateDivMmcRamPtrs();
 }
 
 bool stateReadDeviceData(uint8_t slot)
 {
     // Validate the header of the saved device-state image
-    if (stateReadFile(slot, STATE_FILE_NAMES[STATE_FILE_DEVICE], &stateRestoreDevice,
-        sizeof(stateRestoreDevice)))
+    if (stateReadFile(slot, STATE_FILE_NAMES[STATE_FILE_DEVICE],
+        &stateRestoreDevice, sizeof(stateRestoreDevice)))
     {
         return (memcmp(stateRestoreDevice.magic, "ZXST", 4) == 0) &&
             (stateRestoreDevice.version == STATE_DEVICE_VERSION) &&
