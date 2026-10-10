@@ -415,7 +415,7 @@ char* menuInsertInGameStatus(char* ptr)
     if (IS_ROM_PAGED(ROM_DIVMMC))
     {
         label[10] = 'D';
-    } else if (divMmcRomEnabled)
+    } else if (divMmcState.romEnabled)
     {
         label[11] = 'd';
     }
@@ -458,7 +458,7 @@ char* menuInsertInGameStatus(char* ptr)
         ptr, label, 0);
 
     // Show current RAM
-    if (zxC2Present || divMmcPresent)
+    if (zxC2Present || divMmcState.present)
     {
         char zxc2Label[(MENU_STR_LEN + 1)], divMmcLabel[(MENU_STR_LEN + 1)];
         if (zxC2Present)
@@ -472,10 +472,10 @@ char* menuInsertInGameStatus(char* ptr)
         } else {
             zxc2Label[0] = 0;
         }
-        if (divMmcPresent)
+        if (divMmcState.present)
         {
-            if (snprintf(divMmcLabel, (MENU_STR_LEN + 1), " DivMMC: %d%s", divMmcRamBank,
-                (divMmcMapRam ? " MAPRAM" : "")) >= (MENU_STR_LEN + 1))
+            if (snprintf(divMmcLabel, (MENU_STR_LEN + 1), " DivMMC: %d%s", divMmcState.ramBank,
+                (divMmcState.mapRam ? " MAPRAM" : "")) >= (MENU_STR_LEN + 1))
             {
                 divMmcLabel[MENU_STR_LEN] = 0;
             }
@@ -845,7 +845,7 @@ char* menuGenerateInGameSettings(char* ptr)
         ptr = menuInsertSetting(MENU_ACTION_IN_GAME_EXIT_48K, 0, ptr,
             MENU_STRINGS[STRING_IN_GAME_EXIT_48K], 0);
     }
-    if (interface1Present && divMmcPresent)
+    if (interface1Present && divMmcState.present)
     {
         ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_IN_GAME_TOGGLE_IF1,
             ptr, MENU_STRINGS[STRING_ENABLE_IF1], interface1Enabled);
@@ -958,7 +958,7 @@ char* menuGenerateInGame(char* ptr)
         ptr = menuInsertSetting(MENU_ACTION_IN_GAME_MF128, 0, ptr,
             MENU_STRINGS[STRING_IN_GAME_MF128], 0);
     }
-    if (divMmcRomEnabled && ((romArrayPresent & BANK_DIVMMC) != 0) &&
+    if (divMmcState.romEnabled && ((romArrayPresent & BANK_DIVMMC) != 0) &&
         (menuPrevRomSelected <= ROM_DIVMMC))
     {
         ptr = menuInsertSetting(MENU_ACTION_IN_GAME_DIVMMC, 0, ptr,
@@ -1935,17 +1935,17 @@ char* menuGenerateSettings(char* ptr)
     ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_MENU_IN_GAME,
         ptr, MENU_STRINGS[STRING_ENABLE_MENU_IN_GAME], menuEnableInGame);
     ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_DIVMMC,
-        ptr, MENU_STRINGS[STRING_ENABLE_DIVMMC], divMmcPresent);
-    if (divMmcPresent)
+        ptr, MENU_STRINGS[STRING_ENABLE_DIVMMC], divMmcState.present);
+    if (divMmcState.present)
     {
         ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_DIVMMC_RAM,
-            ptr, MENU_STRINGS[STRING_ENABLE_DIVMMC_RAM], divMmcExtRamPresent);
+            ptr, MENU_STRINGS[STRING_ENABLE_DIVMMC_RAM], divMmcState.extRamPresent);
         ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_DIVMMC_ALLRAM,
-            ptr, MENU_STRINGS[STRING_ENABLE_DIVMMC_ALLRAM], divMmcAllRamPresent);
+            ptr, MENU_STRINGS[STRING_ENABLE_DIVMMC_ALLRAM], divMmcState.allRamPresent);
         if ((romArrayPresent & BANK_DIVMMC) != 0)
         {
             ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_DIVMMC_ROM,
-                ptr, MENU_STRINGS[STRING_ENABLE_DIVMMC_ROM], divMmcRomPresent);
+                ptr, MENU_STRINGS[STRING_ENABLE_DIVMMC_ROM], divMmcState.romPresent);
         }
         bool isSdSda = false;
         char* tmpPath = menuGetDivMmcSdaPath();
@@ -1964,7 +1964,7 @@ char* menuGenerateSettings(char* ptr)
                 }
             } else {
                 ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_DIVMMC_LOCK_SD,
-                    ptr, MENU_STRINGS[STRING_DIVMMC_LOCK_SD], divMmcSdReadOnly);
+                    ptr, MENU_STRINGS[STRING_DIVMMC_LOCK_SD], divMmcState.sdReadOnly);
                 ptr = menuInsertEject(MENU_ACTION_SETTING, SETTING_ACTION_UNMOUNT_SDA,
                     ptr, "sda", MENU_STRINGS[STRING_SD_CARD]);
                 isSdSda = true;
@@ -1994,7 +1994,7 @@ char* menuGenerateSettings(char* ptr)
                 cfgData.divMmcSdbPath[0] = 0;
             } else {
                 ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_DIVMMC_LOCK_SD,
-                    ptr, MENU_STRINGS[STRING_DIVMMC_LOCK_SD], divMmcSdReadOnly);
+                    ptr, MENU_STRINGS[STRING_DIVMMC_LOCK_SD], divMmcState.sdReadOnly);
                 ptr = menuInsertEject(MENU_ACTION_SETTING, SETTING_ACTION_UNMOUNT_SDB,
                     ptr, "sdb", MENU_STRINGS[STRING_SD_CARD]);
             }
@@ -2432,26 +2432,26 @@ bool menuPerformSelection(uint8_t index)
                     menuConfigChanged = true;
                     break;
                 case SETTING_ACTION_TOGGLE_DIVMMC :
-                    divMmcPresent = !divMmcPresent;
+                    divMmcState.present = !divMmcState.present;
                     menuConfigChanged = true;
                     break;
                 case SETTING_ACTION_TOGGLE_DIVMMC_RAM :
-                    divMmcExtRamPresent = !divMmcExtRamPresent;
+                    divMmcState.extRamPresent = !divMmcState.extRamPresent;
                     menuConfigChanged = true;
                     break;
                 case SETTING_ACTION_TOGGLE_DIVMMC_ALLRAM :
-                    divMmcAllRamPresent = !divMmcAllRamPresent;
+                    divMmcState.allRamPresent = !divMmcState.allRamPresent;
                     menuConfigChanged = true;
                     break;
                 case SETTING_ACTION_TOGGLE_DIVMMC_ROM :
                     if ((romArrayPresent & BANK_DIVMMC) != 0)
                     {
-                        divMmcRomPresent = !divMmcRomPresent;
+                        divMmcState.romPresent = !divMmcState.romPresent;
                         menuConfigChanged = true;
                     }
                     break;
                 case SETTING_ACTION_TOGGLE_DIVMMC_LOCK_SD :
-                    divMmcSdReadOnly = !divMmcSdReadOnly;
+                    divMmcState.sdReadOnly = !divMmcState.sdReadOnly;
                     menuConfigChanged = true;
                     break;
                 case SETTING_ACTION_TOGGLE_IF1 :
@@ -2542,13 +2542,13 @@ bool menuPerformSelection(uint8_t index)
                     // Toggle between DivMMC and Interface 1
                     if (interface1Enabled)
                     {
-                        divMmcEnabled = divMmcPresent;
-                        interface1Enabled = (interface1Present && !divMmcEnabled);
+                        divMmcState.enabled = divMmcState.present;
+                        interface1Enabled = (interface1Present && !divMmcState.enabled);
                     } else {
                         interface1Enabled = interface1Present;
-                        divMmcEnabled = (divMmcPresent && !interface1Enabled);
+                        divMmcState.enabled = (divMmcState.present && !interface1Enabled);
                     }
-                    divMmcRomEnabled = (divMmcEnabled && divMmcRomPresent);
+                    divMmcState.romEnabled = (divMmcState.enabled && divMmcState.romPresent);
                     break;
                 case SETTING_ACTION_IN_GAME_TOGGLE_PRINTER :
                     // Toggle active Centronics printer
@@ -2828,7 +2828,7 @@ bool menuPerformSelection(uint8_t index)
                 strncpy(((menuAction == MENU_ACTION_BROWSER_MOUNT_SDB) ?
                     cfgData.divMmcSdbPath : cfgData.divMmcSdaPath),
                     menuBrowserPath, MAX_PATH);
-                divMmcPresent = true;
+                divMmcState.present = true;
                 menuConfigChanged = true;
             }
             menuCurrent = menuTopMenu;
@@ -2975,7 +2975,7 @@ void menuPerformAction()
         case MENU_ACTION_BROWSER_LOAD_MLD :
         case MENU_ACTION_BROWSER_LOAD_Z80 :
             // Load new cartridge - with DivMMC, modem and LPRINT III disabled
-            divMmcPresent = false;
+            divMmcState.present = false;
             modemPresent = false;
             lprintPresent = false;
             break;
@@ -2985,14 +2985,14 @@ void menuPerformAction()
         case MENU_ACTION_BROWSER_LOAD_MDR :
             // Load new MDR image - with DivMMC and Interface 1 disabled
             mdrPresent = true;
-            divMmcPresent = false;
+            divMmcState.present = false;
             interface1Present = false;
             break;
         case MENU_ACTION_LOAD_NETMAN :
         case MENU_ACTION_LOAD_RTC_SETUP :
             // Load tools - with DivMMC and UART enabled
             uartPresent = true;
-            divMmcPresent = true;
+            divMmcState.present = true;
             modemPresent = false;
             lprintPresent = false;
             break;
@@ -3319,11 +3319,11 @@ void menuInGameExitDisable128k()
 void menuClearConfiguration()
 {
     stateActiveSlot = -1;
-    divMmcPresent = false;
-    divMmcExtRamPresent = true;
-    divMmcAllRamPresent = false;
-    divMmcSdReadOnly = true;
-    divMmcRomPresent = false;
+    divMmcState.present = false;
+    divMmcState.extRamPresent = true;
+    divMmcState.allRamPresent = false;
+    divMmcState.sdReadOnly = true;
+    divMmcState.romPresent = false;
     interface1Present = false;
     mf128Present = false;
     mf128LoadGenie = false;
@@ -3392,23 +3392,23 @@ void menuLoadConfiguration(const char* cfgCfgName)
                 case 'd' :
                     if (strncmp("divMmcPresent = ", cfgPtr, 16) == 0)
                     {
-                        divMmcPresent = ((cfgPtr[16] == '1') ? true : false);
+                        divMmcState.present = ((cfgPtr[16] == '1') ? true : false);
                         ++count;
                     } else if (strncmp("divMmcExtRamPresent = ", cfgPtr, 22) == 0)
                     {
-                        divMmcExtRamPresent = ((cfgPtr[22] == '1') ? true : false);
+                        divMmcState.extRamPresent = ((cfgPtr[22] == '1') ? true : false);
                         ++count;
                     } else if (strncmp("divMmcAllRamPresent = ", cfgPtr, 22) == 0)
                     {
-                        divMmcAllRamPresent = ((cfgPtr[22] == '1') ? true : false);
+                        divMmcState.allRamPresent = ((cfgPtr[22] == '1') ? true : false);
                         ++count;
                     } else if (strncmp("divMmcRomPresent = ", cfgPtr, 19) == 0)
                     {
-                        divMmcRomPresent = ((cfgPtr[19] == '1') ? true : false);
+                        divMmcState.romPresent = ((cfgPtr[19] == '1') ? true : false);
                         ++count;
                     } else if (strncmp("divMmcSdReadOnly = ", cfgPtr, 19) == 0)
                     {
-                        divMmcSdReadOnly = ((cfgPtr[19] == '1') ? true : false);
+                        divMmcState.sdReadOnly = ((cfgPtr[19] == '1') ? true : false);
                         ++count;
                     } else if (strncmp("divMmcSdaPath = ", cfgPtr, 16) == 0)
                     {
@@ -3572,11 +3572,11 @@ void menuSaveConfiguration()
             cfgFile.truncate();
             cfgFile.printf("stateActiveSlot = %0d\n", stateActiveSlot);
             cfgFile.printf("stateSaveSlot = %0d\n", stateSaveSlot);
-            cfgFile.printf("divMmcPresent = %0d\n", divMmcPresent);
-            cfgFile.printf("divMmcExtRamPresent = %0d\n", divMmcExtRamPresent);
-            cfgFile.printf("divMmcAllRamPresent = %0d\n", divMmcAllRamPresent);
-            cfgFile.printf("divMmcSdReadOnly = %0d\n", divMmcSdReadOnly);
-            cfgFile.printf("divMmcRomPresent = %0d\n", divMmcRomPresent);
+            cfgFile.printf("divMmcPresent = %0d\n", divMmcState.present);
+            cfgFile.printf("divMmcExtRamPresent = %0d\n", divMmcState.extRamPresent);
+            cfgFile.printf("divMmcAllRamPresent = %0d\n", divMmcState.allRamPresent);
+            cfgFile.printf("divMmcSdReadOnly = %0d\n", divMmcState.sdReadOnly);
+            cfgFile.printf("divMmcRomPresent = %0d\n", divMmcState.romPresent);
             cfgFile.printf("interface1Present = %0d\n", interface1Present);
             cfgFile.printf("mf128Present = %0d\n", mf128Present);
             cfgFile.printf("mf128LoadGenie = %0d\n", mf128LoadGenie);

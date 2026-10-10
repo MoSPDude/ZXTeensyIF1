@@ -390,21 +390,21 @@ void stateCaptureDeviceData(void* data)
     state->rom1Paged = rom1Paged;
     state->rom23Paged = rom23Paged;
     state->interface1Enabled = interface1Enabled;
-    state->divMmcEnabled = divMmcEnabled;
-    state->divMmcRomEnabled = divMmcRomEnabled;
-    state->divMmcToggle = divMmcToggle;
-    state->divMmcAutoMap = divMmcAutoMap;
-    state->divMmcConMem = divMmcConMem;
-    state->divMmcMapRam = divMmcMapRam;
-    state->divMmcAllRam = divMmcAllRamState.allRam;
-    state->divMmcWriteLock = divMmcAllRamState.writeLock;
-    state->divMmcMapDisable = divMmcAllRamState.mapDisable;
-    state->divMmcMapRamPage = divMmcAllRamState.mapRamPage;
-    state->divMmcAllRamBankRom23 = divMmcAllRamState.bankRom23;
-    state->divMmcAllRamBankRom01 = divMmcAllRamState.bankRom01;
-    state->divMmcAllRamBankRom01Locked = divMmcAllRamState.bankRom01Locked;
-    state->divMmcRamBank = divMmcRamBank;
-    state->divMmcExtRamEnabled = divMmcExtRamEnabled;
+    state->divMmcEnabled = divMmcState.enabled;
+    state->divMmcRomEnabled = divMmcState.romEnabled;
+    state->divMmcToggle = divMmcState.toggle;
+    state->divMmcAutoMap = divMmcState.autoMap;
+    state->divMmcConMem = divMmcState.conMem;
+    state->divMmcMapRam = divMmcState.mapRam;
+    state->divMmcAllRam = divMmcState.allRam;
+    state->divMmcWriteLock = divMmcState.writeLock;
+    state->divMmcMapDisable = divMmcState.mapDisable;
+    state->divMmcMapRamPage = divMmcState.mapRamPage;
+    state->divMmcAllRamBankRom23 = divMmcState.bankRom23;
+    state->divMmcAllRamBankRom01 = divMmcState.bankRom01;
+    state->divMmcAllRamBankRom01Locked = divMmcState.bankRom01Locked;
+    state->divMmcRamBank = divMmcState.ramBank;
+    state->divMmcExtRamEnabled = divMmcState.extRamEnabled;
     state->mf128Enabled = mf128Enabled;
     state->mf128ActiveNMI = mf128ActiveNMI;
     state->mf128LoadGenie = mf128LoadGenie;
@@ -445,11 +445,11 @@ void stateCaptureDeviceData(void* data)
     state->tapeBufferPosition = tapeBufferPosition;
     state->tapeFillPosition = tapeFillPosition;
     state->tapeBufferFillPosition = tapeBufferFillPosition;
-    state->divMmcPresent = divMmcPresent;
-    state->divMmcExtRamPresent = divMmcExtRamPresent;
-    state->divMmcAllRamPresent = divMmcAllRamPresent;
-    state->divMmcRomPresent = divMmcRomPresent;
-    state->divMmcSdReadOnly = divMmcSdReadOnly;
+    state->divMmcPresent = divMmcState.present;
+    state->divMmcExtRamPresent = divMmcState.extRamPresent;
+    state->divMmcAllRamPresent = divMmcState.allRamPresent;
+    state->divMmcRomPresent = divMmcState.romPresent;
+    state->divMmcSdReadOnly = divMmcState.sdReadOnly;
     state->interface1Present = interface1Present;
     state->mf128Present = mf128Present;
     state->uartPresent = uartPresent;
@@ -668,12 +668,12 @@ void stateFinishSave(bool success)
 inline void stateApplyConfiguration()
 {
     // Restore the configuration
-    divMmcPresent = stateRestoreDevice.divMmcPresent;
-    divMmcExtRamPresent = stateRestoreDevice.divMmcExtRamPresent;
-    divMmcAllRamPresent = stateRestoreDevice.divMmcAllRamPresent;
-    divMmcAllRamState.enabled = divMmcPresent && divMmcAllRamPresent;
-    divMmcRomPresent = stateRestoreDevice.divMmcRomPresent;
-    divMmcSdReadOnly = stateRestoreDevice.divMmcSdReadOnly;
+    divMmcState.present = stateRestoreDevice.divMmcPresent;
+    divMmcState.extRamPresent = stateRestoreDevice.divMmcExtRamPresent;
+    divMmcState.allRamPresent = stateRestoreDevice.divMmcAllRamPresent;
+    divMmcState.allRamEnabled = divMmcState.present && divMmcState.allRamPresent;
+    divMmcState.romPresent = stateRestoreDevice.divMmcRomPresent;
+    divMmcState.sdReadOnly = stateRestoreDevice.divMmcSdReadOnly;
     interface1Present = stateRestoreDevice.interface1Present;
     mf128Present = stateRestoreDevice.mf128Present;
     uartPresent = stateRestoreDevice.uartPresent;
@@ -725,23 +725,23 @@ inline __attribute__((always_inline, optimize("O3"))) void stateApplyDeviceData(
     spectrumBank678 = stateRestoreDevice.spectrumBank678;
     spectrumBorder = stateRestoreDevice.spectrumBorder;
     interface1Enabled = stateRestoreDevice.interface1Enabled;
-    divMmcEnabled = stateRestoreDevice.divMmcEnabled;
-    divMmcRomEnabled = stateRestoreDevice.divMmcRomEnabled;
-    divMmcToggle = stateRestoreDevice.divMmcToggle;
-    divMmcConMem = stateRestoreDevice.divMmcConMem;
-    divMmcAutoMap = stateRestoreDevice.divMmcAutoMap;
-    divMmcMapRam = stateRestoreDevice.divMmcMapRam;
-    divMmcAllRamState.allRam = stateRestoreDevice.divMmcAllRam;
-    divMmcAllRamState.writeLock = stateRestoreDevice.divMmcWriteLock;
-    divMmcAllRamState.mapDisable = stateRestoreDevice.divMmcMapDisable;
-    divMmcAllRamState.mapRamPage = stateRestoreDevice.divMmcMapRamPage;
-    divMmcAllRamState.bankRom23 = stateRestoreDevice.divMmcAllRamBankRom23;
-    divMmcAllRamState.bankRom01 = stateRestoreDevice.divMmcAllRamBankRom01;
-    divMmcAllRamState.bankRom01Locked =
+    divMmcState.enabled = stateRestoreDevice.divMmcEnabled;
+    divMmcState.romEnabled = stateRestoreDevice.divMmcRomEnabled;
+    divMmcState.toggle = stateRestoreDevice.divMmcToggle;
+    divMmcState.conMem = stateRestoreDevice.divMmcConMem;
+    divMmcState.autoMap = stateRestoreDevice.divMmcAutoMap;
+    divMmcState.mapRam = stateRestoreDevice.divMmcMapRam;
+    divMmcState.allRam = stateRestoreDevice.divMmcAllRam;
+    divMmcState.writeLock = stateRestoreDevice.divMmcWriteLock;
+    divMmcState.mapDisable = stateRestoreDevice.divMmcMapDisable;
+    divMmcState.mapRamPage = stateRestoreDevice.divMmcMapRamPage;
+    divMmcState.bankRom23 = stateRestoreDevice.divMmcAllRamBankRom23;
+    divMmcState.bankRom01 = stateRestoreDevice.divMmcAllRamBankRom01;
+    divMmcState.bankRom01Locked =
         stateRestoreDevice.divMmcAllRamBankRom01Locked;
-    divMmcAllRamState.active = divMmcEnabled &&
-        divMmcAllRamState.enabled && divMmcAllRamState.allRam;
-    divMmcExtRamEnabled = stateRestoreDevice.divMmcExtRamEnabled;
+    divMmcState.allRamActive = divMmcState.enabled &&
+        divMmcState.allRamEnabled && divMmcState.allRam;
+    divMmcState.extRamEnabled = stateRestoreDevice.divMmcExtRamEnabled;
     mf128Enabled = stateRestoreDevice.mf128Enabled;
     spectrumBankM = stateRestoreDevice.spectrumBankM;
     mf128ActiveNMI = stateRestoreDevice.mf128ActiveNMI;
@@ -783,7 +783,7 @@ inline __attribute__((always_inline, optimize("O3"))) void stateApplyDeviceData(
     }
 
     // Restore the DivMMC RAM pointer
-    divMmcRamBank = stateRestoreDevice.divMmcRamBank;
+    divMmcState.ramBank = stateRestoreDevice.divMmcRamBank;
     updateDivMmcRamPtrs();
 }
 
