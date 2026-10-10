@@ -15,13 +15,6 @@
 #include "PrinterZXTeensy.h"
 #include "DefinesZXTeensy.h"
 
-#ifdef ENABLE_BUILTIN_ROM_IF1
-#include "if1-2_rom.h"
-#endif
-#ifdef ENABLE_BUILTIN_ROM_MF128
-#include "mf128_rom.h"
-#endif
-
 extern "C" volatile uint32_t systick_millis_count;
 extern "C" uint32_t set_arm_clock(uint32_t frequency);
 
@@ -293,15 +286,46 @@ volatile bool resetHardTrigArmed = false;
 volatile trigger_state_t buttonTrigState = TRIGGER_READY;
 volatile uint32_t buttonTrigExitCount = 0;
 
-// ROM banking
+// Soft ROM storage
+// NOTE: Workaround for LTO optimisation placing PROGMEM/FLASHMEM into RAM1.
+// The built-in ROMs had been constant arrays marked for Flash memory, but the
+// LTO optimisation places them back into RAM1 - so, given RAM1 is already
+// initialised, move to doing a direct initialisation with the built-in ROMs
 static const uint16_t RAM_PAGE_SIZE = 0x2000;
 static const uint16_t ROM_PAGE_SIZE = (RAM_PAGE_SIZE * 2);
 static const uint16_t LPRINT_ROM_SIZE = 0x800;
+volatile uint8_t lprintRom[LPRINT_ROM_SIZE] __attribute__((aligned(16)));
+volatile uint8_t romArray[ROM_PAGE_COUNT][RAM_PAGE_SIZE] __attribute__((aligned(16))) = {
+    {}, // ROM_PAGE_ROM0
+    {},
+    {}, // ROM_PAGE_ROM1
+    {},
+    {}, // ROM_PAGE_ROM2
+    {},
+    {}, // ROM_PAGE_ROM3
+    {},
+    // ROM_PAGE_IF1
+#ifdef ENABLE_BUILTIN_ROM_IF1
+#include "if1-2_rom.h"
+#else
+    {},
+#endif
+    {},
+    // ROM_PAGE_MF128
+#ifdef ENABLE_BUILTIN_ROM_MF128
+#include "mf128_rom.h"
+#else
+    {},
+#endif
+    {}, // (Multiface 128 RAM)
+    {}, // ROM_PAGE_DIVMMC
+    {}  // ROM_PAGE_MENU
+};
+
+// Soft ROM banking
 volatile rom_select_t romSelected = ROM_ROM0;
 volatile bank_select_t romArraySelected = BANK_ROM0;
 volatile uint32_t romPaged = 0x01;
-volatile uint8_t romArray[ROM_PAGE_COUNT][RAM_PAGE_SIZE] __attribute__((aligned(16)));
-volatile uint8_t lprintRom[LPRINT_ROM_SIZE] __attribute__((aligned(16)));
 volatile uint8_t* romPtr = romArray[0];
 volatile uint16_t romArrayPresent = 0;
 volatile bool romEnabled = false;
@@ -1823,11 +1847,9 @@ void handleStateResetEntry()
         {
             // Load the built-in Interface 1 soft ROM
 #ifdef ENABLE_BUILTIN_ROM_IF1
-            memcpy((void *)romArray[ROM_PAGE_IF1], BUILTIN_ROM_IF1, BUILTIN_ROM_IF1_SIZE);
             romArrayPresent |= BANK_IF1;
 #endif
 #ifdef ENABLE_BUILTIN_ROM_MF128
-            memcpy((void *)romArray[ROM_PAGE_MF128], BUILTIN_ROM_MF128, BUILTIN_ROM_MF128_SIZE);
             romArrayPresent |= BANK_MF128;
 #endif
 
