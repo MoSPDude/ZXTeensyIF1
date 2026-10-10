@@ -60,7 +60,7 @@ A Teensy 4.1 powered DivMMC and ZX Interface 1 clone for the ZX Spectrum 48K/128
     * Override the internal Spectrum ROM with ROMs from SD card
     * Supports 16KB (Spectrum 48K), 32KB (Spectrum 128K/+2 (Grey)) and 64KB (Spectrum +2A/+3) ROMs
         * The +2A/+3 soft ROM support requires port decoding changes (see below)
-    * Provides the Interface 1 ROM, Multiface 128 ROM and DivMMC ROM
+    * Provides the peripheral ROMs
 * Menu ROM derived from TomDDGs ZXPicoIF2Lite ROMExplorer
 * Z80 snapshot loading from TomDDGs ZXPicoIF2Lite
     * Integrated "z80torom" for loading 'z80' and 'sna' files
@@ -403,11 +403,11 @@ The following ports are decoded by the Teensy,
 | Port | R/W | Function | Comments |
 | ---- | --- | -------- | -------- |
 | 0xXX1F | R | Kempston joystick | |
+| 0x0F3B | W | DivMMC AllRAM control register | |
 | 0x133B | R | UART status | |
 | 0x133B | W | UART TX data | |
 | 0x143B | R | UART RX data | |
 | 0x143B | W | UART baud register | |
-| 0x0F3B | W | DivMMC AllRAM control register | |
 | 0x7N3B | R/W | DivMMC RTC registers 0 - 15 | N is the register address |
 | 0xXX3F | R | Multiface 128 page out | Returns bit 7 as the Current Screen |
 | 0xXX3F | W | Multiface 128 disable | |

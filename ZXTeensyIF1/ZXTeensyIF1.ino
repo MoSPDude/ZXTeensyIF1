@@ -3417,13 +3417,14 @@ FASTRUN void isrPinButton()
             tzxPlayer.pause();
         }
 
-        // Perform NMI when not already handling previous NMI
+        // Perform NMI when not already handling a previous NMI. Re-entering
+        // the Multiface menu overwrites its saved return state.
         if (!isGlobalStateReset() && !nmiPending &&
             !menuTriggerNMI && !menuTriggerExitNMI)
         {
             if (IS_ROM_PAGED(ROM_MENU))
             {
-                if (menuIsInGameMenu() &&
+                if (menuIsInGameMenu() && !mf128ActiveNMI &&
                     (!divMmcState.conMem || !divMmcState.allRamEnabled))
                 {
                     menuTriggerExitNMI = true;
@@ -3433,7 +3434,7 @@ FASTRUN void isrPinButton()
             } else if (menuEnableInGame)
             {
                 menuTriggerNMI = true;
-            } else if (!wasTapePlaying &&
+            } else if (!wasTapePlaying && !mf128ActiveNMI &&
                 (!divMmcState.conMem || !divMmcState.allRamEnabled))
             {
                 nmiPending = true;

@@ -52,9 +52,9 @@ ULA.
 | R35 | 1 | 47K | |
 | SK1 | 1 | DE9_Receptacle | |
 | SK2, SK3 | 2 | 3.5mm Mono Switched Socket | with break contact eg. Cliff CL1384 |
-| SK5 | 1 | ZX Spectrum edge connector | Difficult - see notes |
+| SK5 | 1 | ZX Spectrum edge connector | Can be difficult - see notes |
 | SW1 | 1 | PTH_RA_h7.5mm | 6 x 6mm x 8mm Right Angle |
-| U1 | 1 | LA15-302 | ZX Interface 1 ULA |
+| U1 | 1 | LA15-302 | ZX Interface 1 ULA - can be LA15-312 or vLA1 |
 | U2 | 1 | Teensy4.1 | Teensy 4.1 No Ethernet |
 | U3, U5, U6, U7 | 4 | SN74LVC245AN | |
 | U4 | 1 | 74HCU04 | |
@@ -63,12 +63,18 @@ ULA.
 
 ## Notes
 
-In my build, the ULA, 74HC04, BZX79CV4V3, 8 MHz crystal, 3K9 resistors, inductor
-and all connectors came from a donor ZX Interface 1 board.
+In my build, the 74HCU04, BZX79CV4V3, 8 MHz crystal, 3K9 resistors, inductor
+and all connectors came from a donor ZX Interface 1 board. The ULA was a LA15-312
+that I had bought to fix the donor originally, before I had the idea to create
+this. Removing the ZX Interface 1 edge connector that goes to the ZX Spectrum was
+an immense pain - even with gentle heat, I managed to deform and melt the plastic
+riser block... it was as though it was glued to the board as well as screwed.
 
-Removing the ZX Interface 1 edge connector that goes to the ZX Spectrum was an immense pain - so
-might have to find other ideas. Even with gentle heat, I managed to deform and melt the plastic
-riser block...
+But for my second board, having found another donor that had a ULA that melted the
+case, simply removing the screws holding the edge connector riser and de-soldering
+was enough - it was removed very easily! The ULA for this board is a replacement
+vLA1, that worked after some firmware fixes. Only the connectors and BZX79CV4V3
+had been re-used from this donor board.
 
 ## Hardware revisions
 
