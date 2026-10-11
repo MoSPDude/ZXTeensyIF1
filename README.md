@@ -34,6 +34,9 @@ A Teensy 4.1 powered DivMMC and ZX Interface 1 clone for the ZX Spectrum 48K/128
 * ESP-01S module via TX8/RX8
     * Requires the 9V power rail for the 3.3V regulator
     * Available on ports 0x143B (5179) for RX and 0x133B (4923) for TX
+    * Optional eLeMeNt ZX ZXi register compatibility for WiFi BIOS 2.0 software
+        * Replaces the RTC ports while enabled with the normal UART
+        * Supports https://hood.speccy.cz/dwnld/ZXDBdownloader_info.htm
     * https://www.specnext.com/the-next-on-the-network/
 * USB mouse and gamepad Kempston interface
     * Not wired to the board - use a small lead that exits the case
@@ -407,8 +410,12 @@ The following ports are decoded by the Teensy,
 | 0x133B | R | UART status | |
 | 0x133B | W | UART TX data | |
 | 0x143B | R | UART RX data | |
-| 0x143B | W | UART baud register | |
-| 0x7N3B | R/W | DivMMC RTC registers 0 - 15 | N is the register address |
+| 0x143B | W | UART baud register | Uses ZXNext/MB03+/eLeMeNt ZX values |
+| 0x7N3B | R/W | DivMMC RTC registers 0 - 15 | When eLeMeNt ZX registers are disabled, N is the register address |
+| 0x783B | W | eLeMeNt ZX register select | When eLeMeNt ZX registers are enabled |
+| 0x793B | R/W | eLeMeNt ZX register data | When eLeMeNt ZX registers are enabled - CPU speed shadow and identity registers |
+| 0x7C3B | W | General ZXi register select | When eLeMeNt ZX registers are enabled |
+| 0x7D3B | R/W | General ZXi register data | When eLeMeNt ZX registers are enabled - UART speed read and receive FIFO clear |
 | 0xXX3F | R | Multiface 128 page out | Returns bit 7 as the Current Screen |
 | 0xXX3F | W | Multiface 128 disable | |
 | 0xXX7B | R | LPRINT III page out | Returns status |

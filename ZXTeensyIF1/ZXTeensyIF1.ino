@@ -482,6 +482,13 @@ volatile bool uartPresent = false;
 volatile bool uartEnabled = false;
 UartZXTeensy espUart;
 
+// eLeMeNt ZXi registers
+volatile bool elementRegistersPresent = false;
+volatile bool elementRegistersEnabled = false;
+volatile uint8_t elementRegister = 0x00;
+volatile uint8_t elementCpuSpeed = 0x00;
+volatile uint8_t generalZxiRegister = 0x00;
+
 // VTX5000
 volatile bool modemPresent = false;
 volatile bool modemEnabled = false;
@@ -2100,6 +2107,10 @@ void handleStateReset()
     mldEepProgramRemaining = 0;
     mdrEnabled = false;
     uartEnabled = false;
+    elementRegistersEnabled = false;
+    elementRegister = 0x00;
+    elementCpuSpeed = 0x00;
+    generalZxiRegister = 0x00;
     tzxEnabled = false;
     dskEnabled = false;
     modemEnabled = false;
@@ -2266,6 +2277,7 @@ void handleStateReset()
                 } else {
                     espUart.begin(0, 0);
                     uartEnabled = true;
+                    elementRegistersEnabled = elementRegistersPresent;
                 }
             }
         }
@@ -2383,6 +2395,7 @@ FASTRUN void loop()
                 } else {
                     espUart.begin(0, 0);
                     uartEnabled = true;
+                    elementRegistersEnabled = elementRegistersPresent;
                 }
             }
         }
@@ -3906,6 +3919,31 @@ FASTRUN void isrWrEvent(uint32_t gpioSix)
                                 PAGE_OUT_ROM(ROM_DIVMMC);
                             }
                             updateRomIndex(true);
+                        } else if (elementRegistersEnabled &&
+                            ((highPort & 0xf0) == 0x70))
+                        {
+                            uint8_t data = readData();
+                            switch (highPort)
+                            {
+                                case 0x78 :
+                                    elementRegister = data;
+                                    break;
+                                case 0x79 :
+                                    if (elementRegister == 0x30)
+                                    {
+                                        elementCpuSpeed = data;
+                                    }
+                                    break;
+                                case 0x7c :
+                                    generalZxiRegister = data;
+                                    break;
+                                case 0x7d :
+                                    if ((generalZxiRegister == 0x30) && (data == 0x01))
+                                    {
+                                        espUart.writeData(UartZXTeensy::UART_CLEAR_RECEIVE, 0x00);
+                                    }
+                                    break;
+                            }
                         } else if (divMmcState.enabled && ((highPort & 0xf0) == 0x70))
                         {
                             rtcTeensy.write((highPort & 0x0f), readData());
@@ -4420,7 +4458,29 @@ FASTRUN void isrRdEvent(uint32_t gpioSix)
             case 0x3b :
                 {
                     uint8_t highPort = decodeHighAddress(gpioSix);
-                    if (divMmcState.enabled && ((highPort & 0xf0) == 0x70))
+                    if (elementRegistersEnabled && ((highPort & 0xf0) == 0x70))
+                    {
+                        uint8_t data = 0xff;
+                        switch (highPort)
+                        {
+                            case 0x79 :
+                                if (elementRegister == 0x30)
+                                {
+                                    data = elementCpuSpeed;
+                                } else if (elementRegister == 0xff)
+                                {
+                                    data = 0xe1;
+                                }
+                                break;
+                            case 0x7d :
+                                if (generalZxiRegister == 0x30)
+                                {
+                                    data = espUart.getBaudCode();
+                                }
+                                break;
+                        }
+                        writeData(data);
+                    } else if (divMmcState.enabled && ((highPort & 0xf0) == 0x70))
                     {
                         writeData(rtcTeensy.read(highPort & 0x0f));
                     } else if (uartEnabled)

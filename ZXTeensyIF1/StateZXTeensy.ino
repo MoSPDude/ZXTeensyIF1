@@ -8,7 +8,7 @@ static const uint32_t STATE_48_FILE_SIZE = 49248;
 static const uint32_t STATE_128_FILE_SIZE = 131183;
 static const size_t STATE_SCREEN_SIZE = 0x1B00;
 static const uint8_t STATE_SIGNAL_FINISH = 0xC0;
-static const uint16_t STATE_DEVICE_VERSION = 1;
+static const uint16_t STATE_DEVICE_VERSION = 2;
 
 typedef enum {
     STATE_FILE_STATE,
@@ -39,6 +39,7 @@ typedef struct __attribute__((packed)) {
     uint8_t interface1Present;
     uint8_t mf128Present;
     uint8_t uartPresent;
+    uint8_t elementRegistersPresent;
     uint8_t usbPresent;
     uint8_t gamepadButtons;
     uint8_t wifiNtpPresent;
@@ -98,6 +99,7 @@ typedef struct __attribute__((packed)) {
     uint8_t printerEnabled;
     uint8_t lprintEnabled;
     uint8_t uartEnabled;
+    uint8_t elementRegistersEnabled;
     uint8_t modemEnabled;
     uint8_t modemOnReset;
     uint8_t usbEnabled;
@@ -426,6 +428,7 @@ void stateCaptureDeviceData(void* data)
     state->printerEnabled = printerEnabled;
     state->lprintEnabled = lprintEnabled;
     state->uartEnabled = uartEnabled;
+    state->elementRegistersEnabled = elementRegistersEnabled;
     state->modemEnabled = modemEnabled;
     state->modemOnReset = modemOnReset;
     state->usbEnabled = usbEnabled;
@@ -453,6 +456,7 @@ void stateCaptureDeviceData(void* data)
     state->interface1Present = interface1Present;
     state->mf128Present = mf128Present;
     state->uartPresent = uartPresent;
+    state->elementRegistersPresent = elementRegistersPresent;
     state->usbPresent = usbPresent;
     state->gamepadButtons = gamepadButtons;
     state->wifiNtpPresent = wifiNtpPresent;
@@ -677,6 +681,7 @@ inline void stateApplyConfiguration()
     interface1Present = stateRestoreDevice.interface1Present;
     mf128Present = stateRestoreDevice.mf128Present;
     uartPresent = stateRestoreDevice.uartPresent;
+    elementRegistersPresent = stateRestoreDevice.elementRegistersPresent;
     usbPresent = stateRestoreDevice.usbPresent;
     gamepadButtons = stateRestoreDevice.gamepadButtons;
     // NOTE: Preserve existing wifiNtpPresent and wifiNtpTz
@@ -706,6 +711,7 @@ inline __attribute__((always_inline, optimize("O3"))) void stateApplyDeviceData(
     printerEnabled = stateRestoreDevice.printerEnabled;
     lprintEnabled = stateRestoreDevice.lprintEnabled;
     uartEnabled = stateRestoreDevice.uartEnabled;
+    elementRegistersEnabled = stateRestoreDevice.elementRegistersEnabled;
     modemEnabled = stateRestoreDevice.modemEnabled;
     modemOnReset = stateRestoreDevice.modemOnReset;
     usbEnabled = stateRestoreDevice.usbEnabled;

@@ -14,7 +14,8 @@ class UartZXTeensy
     public :
         typedef enum {
             UART_WRITE,
-            UART_SET_BAUD
+            UART_SET_BAUD,
+            UART_CLEAR_RECEIVE
         } uart_action_t;
 
     protected :
@@ -29,6 +30,7 @@ class UartZXTeensy
 
         bool enabled;
         bool isModemPassthrough;
+        volatile uint8_t baudCode;
         volatile uint32_t readByteCycle;
 
         inline __attribute__((always_inline)) uart_action_t readWriteData(uint8_t* data)
@@ -45,7 +47,7 @@ class UartZXTeensy
 
     public :
         constexpr UartZXTeensy() : enabled(false), isModemPassthrough(false),
-            readByteCycle(0)
+            baudCode(0), readByteCycle(0)
         {
         }
 
@@ -88,6 +90,11 @@ class UartZXTeensy
         inline __attribute__((always_inline)) bool hasReadData()
         {
             return uartReadBuffer.canRead();
+        }
+
+        inline __attribute__((always_inline)) uint8_t getBaudCode()
+        {
+            return baudCode;
         }
 
         inline __attribute__((always_inline)) void writeData(uart_action_t action, uint8_t data)
@@ -141,6 +148,9 @@ class UartZXTeensy
                             end(false);
                             begin(data, 0);
                             break;
+                        case UART_CLEAR_RECEIVE :
+                            clearReceive();
+                            break;
                         case UART_WRITE :
                             Serial8.write(data);
                             break;
@@ -164,12 +174,17 @@ class UartZXTeensy
             }
         }
 
-        inline __attribute__((always_inline)) void clear()
+        inline __attribute__((always_inline)) void clearReceive()
         {
             uartReadBuffer.clear();
+            Serial8.clear();
+        }
+
+        inline __attribute__((always_inline)) void clear()
+        {
+            clearReceive();
             uartWriteBuffer.clear();
             uartFlagsBuffer.clear();
-            Serial8.clear();
         }
 };
 

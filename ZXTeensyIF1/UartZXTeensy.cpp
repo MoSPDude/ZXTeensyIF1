@@ -1,39 +1,23 @@
 
 #include "UartZXTeensy.h"
 
+static const uint32_t UART_BAUD_RATES[] = {
+    115200, 57600, 38400, 31250, 19200, 9600, 4800, 2400,
+    230400, 460800, 576000, 921600, 1152000, 1500000, 2000000,
+    2304000, 3456000, 4608000, 5760000, 6912000, 8064000, 9216000,
+    10368000, 11520000
+};
+
 void UartZXTeensy::begin(uint8_t baudRate, const char* modemUrl)
 {
     if (!enabled)
     {
-        int baud;
-        switch (baudRate)
+        if (baudRate >= (sizeof(UART_BAUD_RATES) / sizeof(UART_BAUD_RATES[0])))
         {
-            case 1 :
-                baud = 57600;
-                break;
-            case 2 :
-                baud = 38400;
-                break;
-            case 3 :
-                baud = 31250;
-                break;
-            case 4 :
-                baud = 19200;
-                break;
-            case 5 :
-                baud = 9600;
-                break;
-            case 6 :
-                baud = 4800;
-                break;
-            case 7 :
-                baud = 2400;
-                break;
-            default :
-                baud = 115200;
-                break;
+            baudRate = 0;
         }
-        Serial8.begin(baud);
+        baudCode = baudRate;
+        Serial8.begin(UART_BAUD_RATES[baudRate]);
         readByteCycle = ARM_DWT_CYCCNT;
         if (modemUrl != 0)
         {

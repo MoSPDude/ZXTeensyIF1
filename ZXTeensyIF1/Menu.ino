@@ -108,6 +108,7 @@ typedef enum {
     SETTING_ACTION_TOGGLE_USB,
     SETTING_ACTION_TOGGLE_FIRE_BUTTONS,
     SETTING_ACTION_TOGGLE_UART,
+    SETTING_ACTION_TOGGLE_ELEMENT_REGISTERS,
     SETTING_ACTION_TOGGLE_MODEM,
     SETTING_ACTION_TOGGLE_NTP,
     SETTING_ACTION_TOGGLE_FDC,
@@ -2069,6 +2070,11 @@ char* menuGenerateSettings(char* ptr)
             }
             ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_NO_OP,
                 ptr, label, 0);
+        } else {
+            ptr = menuInsertSetting(MENU_ACTION_SETTING,
+                SETTING_ACTION_TOGGLE_ELEMENT_REGISTERS, ptr,
+                MENU_STRINGS[STRING_ENABLE_ELEMENT_REGISTERS],
+                elementRegistersPresent);
         }
     }
     ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_NTP,
@@ -2482,6 +2488,10 @@ bool menuPerformSelection(uint8_t index)
                     break;
                 case SETTING_ACTION_TOGGLE_UART :
                     uartPresent = !uartPresent;
+                    menuConfigChanged = true;
+                    break;
+                case SETTING_ACTION_TOGGLE_ELEMENT_REGISTERS :
+                    elementRegistersPresent = !elementRegistersPresent;
                     menuConfigChanged = true;
                     break;
                 case SETTING_ACTION_TOGGLE_MODEM :
@@ -2993,6 +3003,7 @@ void menuPerformAction()
             // Load tools - with DivMMC and UART enabled
             uartPresent = true;
             divMmcState.present = true;
+            elementRegistersPresent = false;
             modemPresent = false;
             lprintPresent = false;
             break;
@@ -3328,6 +3339,7 @@ void menuClearConfiguration()
     mf128Present = false;
     mf128LoadGenie = false;
     uartPresent = false;
+    elementRegistersPresent = false;
     usbPresent = false;
     gamepadButtons = false;
     wifiNtpPresent = false;
@@ -3439,6 +3451,13 @@ void menuLoadConfiguration(const char* cfgCfgName)
                     {
                         strncpy(cfgData.dskFdbPath, &(cfgPtr[13]), MAX_PATH);
                         cfgData.dskFdbPath[(MAX_PATH - 1)] = 0;
+                        ++count;
+                    }
+                    break;
+                case 'e' :
+                    if (strncmp("elementRegistersPresent = ", cfgPtr, 26) == 0)
+                    {
+                        elementRegistersPresent = ((cfgPtr[26] == '1') ? true : false);
                         ++count;
                     }
                     break;
@@ -3583,6 +3602,7 @@ void menuSaveConfiguration()
             cfgFile.printf("mf128Present = %0d\n", mf128Present);
             cfgFile.printf("mf128LoadGenie = %0d\n", mf128LoadGenie);
             cfgFile.printf("uartPresent = %0d\n", uartPresent);
+            cfgFile.printf("elementRegistersPresent = %0d\n", elementRegistersPresent);
             cfgFile.printf("usbPresent = %0d\n", usbPresent);
             cfgFile.printf("gamepadButtons = %0d\n", gamepadButtons);
             cfgFile.printf("wifiNtpPresent = %0d\n", wifiNtpPresent);
