@@ -38,9 +38,9 @@ ULA.
 | J3 | 1 | Polou D24V5F3 | Optional, fit if ESP-01S is fitted |
 | L1 | 1 | 22uH 0.41A | |
 | Q1, Q2 | 2 | BC213C | |
-| Q3, Q6, Q9 | 3 | BC184C | |
+| Q3, Q6, Q9 | 3 | BC184C | or BC183 |
 | Q4, Q5, Q7, Q8 | 4 | PN2222A | |
-| Q10, Q11 | 2 | ZTX313 | |
+| Q10, Q11 | 2 | ZTX313 | (or BC183 **if reversed**) |
 | R1, R3, R5, R11, R12, R14, R24, R25, R31 | 9 | 1K0 | |
 | R2, R10, R17, R18 | 4 | 6K8 | |
 | R4, R6, R8, R13 | 4 | 3K9 | |
@@ -58,7 +58,7 @@ ULA.
 | U2 | 1 | Teensy4.1 | Teensy 4.1 No Ethernet |
 | U3, U5, U6, U7 | 4 | SN74LVC245AN | |
 | U4 | 1 | 74HCU04 | |
-| U8 | 1 | MAX232 | Alternative is MAX232A or MAX3232 |
+| U8 | 1 | MAX232 | or MAX232A or MAX3232 |
 | X1 | 1 | 8Mhz crystal | |
 
 ## Notes
@@ -75,6 +75,10 @@ case, simply removing the screws holding the edge connector riser and de-solderi
 was enough - it was removed very easily! The ULA for this board is a replacement
 vLA1, that worked after some firmware fixes. Only the connectors and BZX79CV4V3
 had been re-used from this donor board.
+
+The ZX Spectrum edge connector riser will sit over Q10, Q11 and C6 - with the top screwhole
+sat in between Q10 and Q11. For this reason, ensure they're close to the board with a gap
+in between. C6 might have to lean over U4 a little!
 
 ## Hardware revisions
 
