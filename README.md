@@ -34,10 +34,10 @@ A Teensy 4.1 powered DivMMC and ZX Interface 1 clone for the ZX Spectrum 48K/128
 * ESP-01S module via TX8/RX8
     * Requires the 9V power rail for the 3.3V regulator
     * Available on ports 0x143B (5179) for RX and 0x133B (4923) for TX
+        * https://www.specnext.com/the-next-on-the-network/
     * Optional eLeMeNt ZX ZXi register compatibility for WiFi BIOS 2.0 software
         * Replaces the RTC ports while enabled with the normal UART
         * Supports https://hood.speccy.cz/dwnld/ZXDBdownloader_info.htm
-    * https://www.specnext.com/the-next-on-the-network/
 * USB mouse and gamepad Kempston interface
     * Not wired to the board - use a small lead that exits the case
     * eg. StarTech.com "6in USB 2.0 Cable - USB A Female to USB Motherboard 4 Pin Header F/F"
@@ -46,7 +46,8 @@ A Teensy 4.1 powered DivMMC and ZX Interface 1 clone for the ZX Spectrum 48K/128
         * The time is only read or written when register 0xD sets HOLD to 1
     * Uses a minor bugfixed RTC.SYS from https://velesoft.speccy.cz/zx/rtcmodule/index.htm
         * Patched byte 6 from 0x0D to 0x7D
-    * Not wired to the board - attach a coin cell battery to VBAT
+    * Can synchronise from WiFi NTP at power on
+    * Not persistent, attach a coin cell battery to VBAT
         * See https://www.pjrc.com/store/teensy41.html#timing
 * Single speed TZX and TAP playback
     * Playback locks the keyboard, as it overdrives the ULA

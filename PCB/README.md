@@ -37,9 +37,9 @@ ULA.
 | J1 | 1 | ESP-01S | Optional, for WiFi |
 | J3 | 1 | Polou D24V5F3 | Optional, fit if ESP-01S is fitted |
 | L1 | 1 | 22uH 0.41A | |
-| Q1, Q2 | 2 | BC213C | |
+| Q1, Q2 | 2 | BC213C | or BC214C |
 | Q3, Q6, Q9 | 3 | BC184C | or BC183 |
-| Q4, Q5, Q7, Q8 | 4 | PN2222A | |
+| Q4, Q5, Q7, Q8 | 4 | PN2222A | or 2N2222 |
 | Q10, Q11 | 2 | ZTX313 | (or BC183 **if reversed**) |
 | R1, R3, R5, R11, R12, R14, R24, R25, R31 | 9 | 1K0 | |
 | R2, R10, R17, R18 | 4 | 6K8 | |
