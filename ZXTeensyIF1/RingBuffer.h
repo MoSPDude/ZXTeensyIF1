@@ -82,6 +82,11 @@ template <size_t BUFFER_SIZE> class RingBuffer
             return data;
         }
 
+        inline __attribute__((always_inline)) uint8_t peekRaw(size_t offset)
+        {
+            return buffer[(bufferTail + offset) % BUFFER_SIZE];
+        }
+
         inline __attribute__((always_inline)) bool canRead()
         {
             return (bufferHead != bufferTail);

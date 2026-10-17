@@ -170,7 +170,7 @@ uint8_t menuBrowserExpandedLineCount = 1;
 uint8_t menuBrowserExpandedMenuLine = 0;
 
 // Menu TZX and POK listings
-char menuDynamicList[255][MENU_STR_LEN];
+DMAMEM char menuDynamicList[255][MENU_STR_LEN];
 
 // Menu saved state preview
 uint8_t menuPreviewSlot = 0;
@@ -245,7 +245,7 @@ uint8_t menuRenderSkipEnd;
 
 // Debug menu text
 static const size_t MENU_DEBUG_SIZE = (21 * MENU_TXT_LEN * 2);
-char menuDebugBuffer[MENU_DEBUG_SIZE];
+DMAMEM char menuDebugBuffer[MENU_DEBUG_SIZE];
 volatile size_t menuDebugIndex = 0;
 volatile bool menuHasDebug = false;
 

@@ -1,0 +1,144 @@
+# Pico2Hdmi
+
+Arduino firmware for a Raspberry Pi Pico 2 and Adafruit PiCowBell HSTX DVI
+Output. It receives ZX Spectrum ULA and AY writes from the ZXTeensyIF1 over USB
+CDC and produces 720x576p50 HDMI video with 44.1 kHz stereo audio.
+
+
+## Hardware
+
+Adafruit DVI HSTX supplies the PiCowBell mapping as
+`ADAFRUIT_HSTXDVIBELL_CFG`:
+
+| HDMI signal | RP2350 GPIO |
+| --- | --- |
+| TMDS clock | 14 (+), 15 (-) |
+| TMDS data 0 | 12 (+), 13 (-) |
+| TMDS data 1 | 18 (+), 19 (-) |
+| TMDS data 2 | 16 (+), 17 (-) |
+
+The HSTX library owns DMA channels 0-2 for video and channel 3 when HDMI audio
+is enabled. HSTX is initialized on Arduino core 1, so its DMA interrupt and
+scanline renderer cannot delay TinyUSB command reception on core 0.
+
+In the intended system, the Spectrum powers the ZXTeensyIF1 and the Teensy's
+USB host connection powers the Pico 2/Cowbell assembly. Check the power
+arrangement before attaching a separate development USB supply.
+
+## Building
+
+Prerequisites:
+
+- Arduino CLI or Arduino IDE 2.x.
+- Earle Philhower's Arduino-Pico core 6.3.0.
+- Adafruit DVI HSTX 2.1.0 and its Adafruit GFX dependency.
+- Board: **Raspberry Pi Pico 2**, ARM architecture.
+- CPU Speed menu: **150 MHz**. Adafruit DVI HSTX requires this build setting and
+  configures the runtime clock itself.
+- USB stack: **Adafruit TinyUSB**.
+- Flash: **4MB (no FS)**.
+
+Install the display library through Arduino CLI if needed:
+
+```powershell
+arduino-cli lib install "Adafruit DVI HSTX@2.1.0"
+```
+
+From the ZXTeensyIF1 repository root:
+
+```powershell
+arduino-cli compile `
+  --fqbn "rp2040:rp2040:rpipico2:arch=arm,freq=150,usbstack=tinyusb,flash=4194304_0" `
+  --output-dir "Pico2Hdmi/build" `
+  "Pico2Hdmi"
+```
+
+The flashable artifact is `Pico2Hdmi/build/Pico2Hdmi.ino.uf2`.
+
+Adafruit DVI HSTX 2.1.0 emits a default-pinout warning while compiling its own
+source even though this sketch explicitly uses `ADAFRUIT_HSTXDVIBELL_CFG`. The
+warning does not affect the selected Cowbell mapping or the build.
+
+## Video and audio path
+
+`DVHSTX_RESOLUTION_360x288` selects the CEA 720x576p50 output timing. The HSTX
+DMA interrupt requests complete 720-pixel RGB565 lines from `drawVideoScanline`.
+The ULA renderer works at 360x288 and writes each logical pixel twice into one
+packed 32-bit word. Each logical line is rendered once into a small cache and
+copied to the two physical lines requested by HSTX.
+
+The scanline path has no framebuffer. It reads the current emulated display
+state while the foreground loop applies USB commands, so a state change may
+become visible part-way through a frame. This is the same deliberately relaxed
+tearing policy used by the first implementation.
+
+Adafruit DVI HSTX inserts HDMI data islands and accepts interleaved signed
+16-bit stereo frames through `audioWrite()`. The foreground loop keeps its queue
+fed in bounded batches at 44.1 kHz. Audio synthesis stays on core 0 with USB
+command application, while HSTX consumes the encoded audio queue from its
+core-1 interrupt. The previous PicoDVI audio ring, N/CTS calculation, PIO
+serializers, and core-1 TMDS encoder are gone.
+
+## USB command protocol
+
+USB CDC is a byte stream. Every command sequence begins with a four-byte
+message:
+
+| Byte | Meaning |
+| --- | --- |
+| 0 | Encoded address bits 7-0 |
+| 1 | Encoded address bits 15-8 |
+| 2 | Write data |
+| 3 | Status/extension flags; bit 0 starts an incremental-address run |
+
+Decode a command as:
+
+```text
+address = byte0 | (byte1 << 8)
+data    = byte2
+flags   = byte3
+```
+
+With bit 0 clear, the message is complete. For example, `10 00 AA 00` writes
+`0xAA` to encoded address `0x0010`. Bits 1-7 are reserved and currently
+ignored by the receiver.
+
+With bit 0 set, bytes following the message write to successive addresses. The
+sequence `B6 E0` ends the run. A data byte of `B6` is escaped as `B6 B6`.
+For example, `10 00 AA 01 FF B6 B6 CC B6 E0` writes `AA FF B6 CC` to addresses
+`0x0010` through `0x0013`. The parser retains partial messages, runs, and escape
+sequences across USB reads.
+
+| Encoded address | Size | Meaning |
+| --- | ---: | --- |
+| `0x0000`-`0x1AFF` | `0x1B00` | Screen 0 bitmap and attributes |
+| `0x7FFD` | 1 | Complete 128K memory-control value; bit 3 selects the screen |
+| `0x8000`-`0x9AFF` | `0x1B00` | Screen 1/shadow bitmap and attributes |
+| `0xBF3B` | 1 | ULAplus register select |
+| `0xBFFD` | 1 | AY data for the selected register |
+| `0xFF3B` | 1 | ULAplus data |
+| `0xFFFD` | 1 | AY register select |
+| `0xFFFE` | 1 | Complete ULA-port value |
+| `0xFFFF` | 1 | Reset notification; valid reset data is `0xFF` |
+
+The reset message is `FF FF FF 00`. It clears both screens and restores the
+ULA, ULAplus, AY, and beeper state without resetting protocol diagnostics or
+discarding bytes after that message.
+
+## Hardware validation
+
+- Confirm a stable 720x576p50 picture through the PiCowBell mini-HDMI output.
+- Confirm colour lane order, borders, bitmap layout, BRIGHT, FLASH, and shadow
+  screen selection.
+- Confirm 44.1 kHz HDMI audio on a television or other HDMI-audio sink.
+- Run sustained CDC screen traffic while watching `framingErrors`, audio underruns,
+  visible scanline glitches, and the Teensy's debugger-visible
+  `hdmiCdcDroppedWrites` counter.
+- Confirm the Pico LED pulses on accepted commands and reset restores black
+  video and silent audio state.
+
+## Upstream
+
+- [Adafruit DVI HSTX](https://github.com/adafruit/Adafruit-DVI-HSTX)
+- [Adafruit PiCowBell HSTX DVI Output guide](https://learn.adafruit.com/adafruit-picowbell-hstx-dvi-output)
+- [fruit-bat/pico-zxspectrum](https://github.com/fruit-bat/pico-zxspectrum)

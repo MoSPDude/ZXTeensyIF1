@@ -41,6 +41,11 @@ A Teensy 4.1 powered DivMMC and ZX Interface 1 clone for the ZX Spectrum 48K/128
 * USB mouse and gamepad Kempston interface
     * Not wired to the board - use a small lead that exits the case
     * eg. StarTech.com "6in USB 2.0 Cable - USB A Female to USB Motherboard 4 Pin Header F/F"
+* **EXPERIMENTAL** Pico 2 HDMI command output over the Teensy USB host
+    * Sends ULA and AY bus writes to the `Pico2Hdmi` firmware over USB Serial
+        * Pico ULA and AY emulation from https://github.com/fruit-bat/pico-zxspectrum
+        * Adafruit DVI HSTX video and HDMI audio on the RP2350 HSTX peripheral
+    * Coalesces consecutive addresses into escaped incremental-data runs
 * RTC module from the Teensy
     * Accessed as a RTC-72421 on ports 0x7X3B
         * The time is only read or written when register 0xD sets HOLD to 1
@@ -374,6 +379,38 @@ Once found, add the USB PID:VID code to %LOCALAPPDATA%\Arduino15\packages\teensy
 under JoystickController::pid_vid_mapping ,
 
 * 8BitDo M30 Wired Controller for Xbox One :- \{ 0x2dc8, 0x200a, XBOXONE, false \}
+
+## Experimental Pico 2 HDMI over USB Serial
+
+Define `HDMI_CDC_OUTPUT` in `ZXTeensyIF1/DefinesZXTeensy.h` to enable the
+experimental `Pico2Hdmi` output. The Teensy 4.1 USB host drives the RP2350 on a
+Raspberry Pi Pico 2 as an Adafruit TinyUSB CDC Serial device. The Pico firmware
+and its build instructions are in [`Pico2Hdmi`](Pico2Hdmi/README.md).
+
+ULA and AY bus writes are sent as address/data messages, with consecutive
+addresses coalesced into escaped data runs. The RP2350 emulates the ULA and AY,
+generating video and sound over HDMI. The Pico's built-in LED blinks when it
+receives a complete command.
+
+It requires a small fix to the USBHost_t36 library in
+%LOCALAPPDATA%\Arduino15\packages\teensy\hardware\avr\1.60.0\libraries\USBHost_t36\serial.cpp -
+as was getting data corruption when the ZX Spectrum was doing low bandwidth writes.
+It appears that in the USB Serial driver, a subsequent write may reuse and overwrite
+a partial buffer while the USB transfer is still active - causing transmitted data
+corruption.
+
+```
+diff --git a/serial.cpp b/serial.cpp
+--- a/serial.cpp
++++ b/serial.cpp
+@@ -1098,7 +1098,7 @@ void USBSerialBase::tx_data(const Transfer_t *transfer)
+        // immediately transmit another full packet, if we have enough data
+        if (count >= packetsize) count = packetsize;
+-       else txstate &= ~(mask | 4); // This packet will complete any outstanding flush
++       else txstate &= ~4;          // This packet will complete the outstanding flush
+
+        println("TX:moar data!!!!");
+```
 
 ## ROM paging and banking
 

@@ -477,7 +477,7 @@ volatile divmmc_spi_t divMmcDriveSlot[2];
 
 // MB03+ UART
 static const size_t UART_BUFFER_SIZE = ROM_PAGE_SIZE;
-uint8_t uartBuffer[UART_BUFFER_SIZE] __attribute__((aligned(16)));
+DMAMEM uint8_t uartBuffer[UART_BUFFER_SIZE] __attribute__((aligned(16)));
 volatile bool uartPresent = false;
 volatile bool uartEnabled = false;
 UartZXTeensy espUart;
@@ -546,6 +546,20 @@ volatile uint8_t spectrumBorder = 0x00;
 volatile uint8_t spectrumBankM = 0x00;
 volatile uint8_t spectrumBank678 = 0x00;
 volatile uint8_t spectrumAyReg = 0x00;
+
+#ifdef HDMI_CDC_OUTPUT
+// NOTE: RP2040 TinyUSB CDC uses 64-byte full-speed bulk endpoints
+static const size_t CDC_BUFFER_SIZE = 6912 * 3;
+static const uint8_t CDC_PACKET_SIZE = 64;
+static const uint8_t CDC_EXTENSION_NONE = 0x00;
+static const uint8_t CDC_EXTENSION_INCREMENTAL = 0x01;
+static const uint8_t CDC_ESCAPE = 0xB6;
+static const uint8_t CDC_RUN_END = 0xE0;
+USBSerial_BigBuffer hdmiCdc(usbHost, 1);
+DMAMEM RingBuffer<CDC_BUFFER_SIZE> hdmiCdcBuffer;
+volatile bool hdmiCdcConnected = false;
+volatile uint32_t hdmiCdcDroppedWrites = 0;
+#endif
 
 // SPI and UART tick cycle counter
 volatile uint32_t globalCycleCount;
@@ -988,6 +1002,28 @@ inline __attribute__((always_inline, optimize("O3"))) void enableInternalRom()
     romEnabled = false;
 }
 
+#ifdef HDMI_CDC_OUTPUT
+inline __attribute__((optimize("O3"))) void hdmiCdcSendData(uint16_t address, uint8_t data)
+{
+    if (hdmiCdcConnected)
+    {
+        if (hdmiCdcBuffer.getFree() >= 3)
+        {
+            uint8_t buffer[3];
+            buffer[0] = address & 0xFF;
+            buffer[1] = address >> 8;
+            buffer[2] = data;
+            hdmiCdcBuffer.writeBlock(buffer, 3);
+        } else {
+            // Retain a debugger-visible count if the Pico cannot keep up. The
+            // write cannot block because this function is called from bus timing
+            // paths as well as the foreground loop.
+            ++hdmiCdcDroppedWrites;
+        }
+    }
+}
+#endif
+
 void setState(run_state_t state_)
 {
     switch (state_)
@@ -1116,6 +1152,17 @@ void setup()
     attachInterrupt(digitalPinToInterrupt(BUTTON_PIN), isrPinButton, FALLING);
     attachInterruptVector(IRQ_GPIO6789, &isrFastGpios);
     NVIC_SET_PRIORITY(IRQ_GPIO6789, 16);
+
+#ifdef HDMI_CDC_OUTPUT
+    // Enable the USB host
+    usbHost.begin();
+    usbKeyboard.attachPress(usbKeyboardPressed);
+    usbKeyboard.attachRelease(usbKeyboardReleased);
+    usbEnabled = true;
+
+    // Delay to allow USB devices to initialise
+    delay(100);
+#endif
 }
 
 bool beginSdCard()
@@ -2344,6 +2391,26 @@ void handleStateReset()
         PAGE_IN_ROM(ROM_DIVMMC);
     }
 
+#ifdef HDMI_CDC_OUTPUT
+    if (usbEnabled)
+    {
+        usbHost.Task();
+        hdmiCdc.writeTimeOut(100);
+        hdmiCdcConnected = false;
+        if (hdmiCdc)
+        {
+            hdmiCdc.begin(115200);
+            hdmiCdc.write(0xFF);
+            hdmiCdc.write(0xFF);
+            hdmiCdc.write(0xFF);
+            hdmiCdc.write(CDC_EXTENSION_NONE);
+            hdmiCdcConnected = true;
+        } else {
+            hdmiCdcBuffer.clear();
+        }
+    }
+#endif
+
     // Enable the soft ROM, if present
     if ((romArrayPresent != 0) || divMmcState.allRamActive)
     {
@@ -2642,6 +2709,110 @@ FASTRUN void loop()
             default :
                 break;
         }
+
+#ifdef HDMI_CDC_OUTPUT
+        if (usbEnabled)
+        {
+            usbHost.Task();
+            if (hdmiCdc)
+            {
+                if (hdmiCdcConnected)
+                {
+                    // Fill at most one 64-byte full-speed bulk packet per
+                    // iteration. Consecutive addresses are encoded as one
+                    // header followed by as many escaped data bytes as fit
+                    // while reserving two bytes for the run terminator.
+                    size_t remainingCommands = hdmiCdcBuffer.getSize() / 3;
+                    size_t outputCapacity = hdmiCdc.availableForWrite();
+                    if (outputCapacity > CDC_PACKET_SIZE)
+                    {
+                        outputCapacity = CDC_PACKET_SIZE;
+                    }
+                    if ((remainingCommands != 0) && (outputCapacity >= 4))
+                    {
+                        uint8_t output[CDC_PACKET_SIZE];
+                        size_t outputSize = 0;
+                        while ((remainingCommands != 0) &&
+                            (outputSize + 4 <= outputCapacity))
+                        {
+                            uint16_t address = hdmiCdcBuffer.readRaw();
+                            address |= (uint16_t)hdmiCdcBuffer.readRaw() << 8;
+                            uint8_t data = hdmiCdcBuffer.readRaw();
+                            --remainingCommands;
+
+                            bool isRun = false;
+                            if (remainingCommands != 0)
+                            {
+                                uint16_t nextAddress = hdmiCdcBuffer.peekRaw(0);
+                                nextAddress |=
+                                    (uint16_t)hdmiCdcBuffer.peekRaw(1) << 8;
+                                size_t nextDataSize =
+                                    (hdmiCdcBuffer.peekRaw(2) == CDC_ESCAPE) ? 2 : 1;
+                                isRun =
+                                    (nextAddress == (uint16_t)(address + 1)) &&
+                                    (outputSize + 4 + nextDataSize + 2 <=
+                                        outputCapacity);
+                            }
+
+                            output[outputSize++] = address & 0xFF;
+                            output[outputSize++] = address >> 8;
+                            output[outputSize++] = data;
+                            output[outputSize++] = isRun ? CDC_EXTENSION_INCREMENTAL :
+                                CDC_EXTENSION_NONE;
+
+                            if (isRun)
+                            {
+                                while (remainingCommands != 0)
+                                {
+                                    uint16_t nextAddress = hdmiCdcBuffer.peekRaw(0);
+                                    nextAddress |=
+                                        (uint16_t)hdmiCdcBuffer.peekRaw(1) << 8;
+                                    if (nextAddress != (uint16_t)(address + 1))
+                                    {
+                                        break;
+                                    }
+
+                                    data = hdmiCdcBuffer.peekRaw(2);
+                                    size_t encodedDataSize =
+                                        (data == CDC_ESCAPE) ? 2 : 1;
+                                    if (outputSize + encodedDataSize + 2 >
+                                        outputCapacity)
+                                    {
+                                        break;
+                                    }
+
+                                    hdmiCdcBuffer.readRaw();
+                                    hdmiCdcBuffer.readRaw();
+                                    hdmiCdcBuffer.readRaw();
+                                    output[outputSize++] = data;
+                                    if (data == CDC_ESCAPE)
+                                    {
+                                        output[outputSize++] = CDC_ESCAPE;
+                                    }
+                                    address = nextAddress;
+                                    --remainingCommands;
+                                }
+                                output[outputSize++] = CDC_ESCAPE;
+                                output[outputSize++] = CDC_RUN_END;
+                            }
+                        }
+                        hdmiCdc.write(output, outputSize);
+                    }
+                } else {
+                    hdmiCdc.begin(115200);
+                    hdmiCdc.write(0xFF);
+                    hdmiCdc.write(0xFF);
+                    hdmiCdc.write(0xFF);
+                    hdmiCdc.write(CDC_EXTENSION_NONE);
+                    hdmiCdcConnected = true;
+                }
+            } else if (hdmiCdcConnected)
+            {
+                hdmiCdcConnected = false;
+                hdmiCdcBuffer.clear();
+            }
+        }
+#endif
     }
 
     // Run HTTP server actions
@@ -3462,6 +3633,7 @@ FASTRUN void isrPinButton()
 
 FASTRUN void isrWrEvent(uint32_t gpioSix)
 {
+    uint8_t data = readData();
     if ((gpioSix & ROM_ADDRESS_MASK) == 0x00000000)
     {
         // Perform "ROM" write access
@@ -3472,10 +3644,8 @@ FASTRUN void isrWrEvent(uint32_t gpioSix)
             return;
         }
 
-        uint16_t address = decodeAddress(gpioSix);
-        uint8_t data = readData();
-
         // Perform MLD, or ZXC2 address based paging
+        uint16_t address = decodeAddress(gpioSix);
         if (mldPresent && !IS_ROM_PAGED(ROM_MENU))
         {
             // Handle Dandanator command modes, when not programming
@@ -3759,6 +3929,25 @@ FASTRUN void isrWrEvent(uint32_t gpioSix)
             default :
                 break;
         }
+#ifdef HDMI_CDC_OUTPUT
+    } else if ((gpioSix & MREQ_PIN_BITMASK) == 0x00000000)
+    {
+        uint16_t address = decodeAddress(gpioSix);
+        if ((address >= 0x4000) && (address < 0x5B00))
+        {
+            hdmiCdcSendData((address - 0x4000), data);
+        } else if ((address >= 0xC000) && (address < 0xDB00))
+        {
+            uint8_t bank = spectrumBankM & 0x07;
+            if (bank == 0x05)
+            {
+                hdmiCdcSendData((address - 0xC000), data);
+            } else if (bank == 0x07)
+            {
+                hdmiCdcSendData((address - 0x4000), data);
+            }
+        }
+#endif
     } else if ((gpioSix & IOREQ_PIN_BITMASK) == 0x00000000)
     {
         // Perform I/O write access
@@ -3769,7 +3958,6 @@ FASTRUN void isrWrEvent(uint32_t gpioSix)
             if ((gpioSix & A15_PIN_BITMASK) == 0x00000000)
             {
                 bool isPort7F = ((gpioSix & A14_PIN_BITMASK) != 0x0);
-                uint8_t data = readData();
                 if (!rom1Present)
                 {
                     // Record 0x7ffd write access for Internal ROMs
@@ -3817,13 +4005,15 @@ FASTRUN void isrWrEvent(uint32_t gpioSix)
                         // Detect 0x7ffd write access to disable DivMMC
                         divMmcState.toggle = true;
                     }
+#ifdef HDMI_CDC_OUTPUT
+                    hdmiCdcSendData(0x7FFD, data);
+#endif
                 } else if ((gpioSix & A13_PIN_BITMASK) != 0x0)
                 {
                     if (dskEnabled && ((gpioSix & A12_PIN_BITMASK) != 0x0))
                     {
                         // Detect 0x3ffd write access for disk
-                        dskController.writeData(Dsk765ZXTeensy::WRITE_DATA,
-                            data);
+                        dskController.writeData(Dsk765ZXTeensy::WRITE_DATA, data);
                     }
                 } else if ((gpioSix & A12_PIN_BITMASK) != 0x0)
                 {
@@ -3879,11 +4069,18 @@ FASTRUN void isrWrEvent(uint32_t gpioSix)
                     // Detect 0x0ffd write access for Centronics printer
                     printerByte = data;
                 }
-            } else if (((gpioSix & A14_PIN_BITMASK) != 0x0) &&
-                !IS_ROM_PAGED(ROM_MENU))
+            } else if ((gpioSix & A14_PIN_BITMASK) != 0x0)
             {
                 // Capture 0xfffd last selected AY register
-                spectrumAyReg = readData();
+                if (!IS_ROM_PAGED(ROM_MENU))
+                {
+                    spectrumAyReg = data;
+                }
+#ifdef HDMI_CDC_OUTPUT
+                hdmiCdcSendData(0xFFFD, data);
+            } else {
+                hdmiCdcSendData(0xBFFD, data);
+#endif
             }
         } else {
             switch (port_)
@@ -3896,7 +4093,6 @@ FASTRUN void isrWrEvent(uint32_t gpioSix)
                         {
                             // DivMMC AllRAM extension control: ALLRAM, WRLOCK,
                             // MAPDISABLE and MAPRAM_PAGE in bits 7-4.
-                            uint8_t data = readData();
                             divMmcState.allRam = ((data & 0x80) != 0);
                             divMmcState.allRamActive = divMmcState.allRam;
                             divMmcState.writeLock = ((data & 0x40) != 0);
@@ -3922,7 +4118,6 @@ FASTRUN void isrWrEvent(uint32_t gpioSix)
                         } else if (elementRegistersEnabled &&
                             ((highPort & 0xf0) == 0x70))
                         {
-                            uint8_t data = readData();
                             switch (highPort)
                             {
                                 case 0x78 :
@@ -3946,16 +4141,16 @@ FASTRUN void isrWrEvent(uint32_t gpioSix)
                             }
                         } else if (divMmcState.enabled && ((highPort & 0xf0) == 0x70))
                         {
-                            rtcTeensy.write((highPort & 0x0f), readData());
+                            rtcTeensy.write((highPort & 0x0f), data);
                         } else if (uartEnabled)
                         {
                             switch (highPort)
                             {
                                 case 0x13 :
-                                    espUart.writeData(UartZXTeensy::UART_WRITE, readData());
+                                    espUart.writeData(UartZXTeensy::UART_WRITE, data);
                                     break;
                                 case 0x14 :
-                                    espUart.writeData(UartZXTeensy::UART_SET_BAUD, readData());
+                                    espUart.writeData(UartZXTeensy::UART_SET_BAUD, data);
                                     break;
                             }
                         }
@@ -3976,20 +4171,19 @@ FASTRUN void isrWrEvent(uint32_t gpioSix)
                 case 0x7b :
                     if (lprintEnabled)
                     {
-                        printerByte = readData();
+                        printerByte = data;
                         printerPort.writeData(printerByte);
                     }
                     break;
                 case 0x7f :
                     if (modemEnabled)
                     {
-                        espUart.writeData(UartZXTeensy::UART_WRITE, readData());
+                        espUart.writeData(UartZXTeensy::UART_WRITE, data);
                     }
                     break;
                 case 0xbf :
                     if (IS_ROM_PAGED(ROM_MENU))
                     {
-                        uint8_t data = readData();
                         if (data < MENU_PAGE_COUNT)
                         {
                             menuRamPtr = menuRamArray[data];
@@ -4017,7 +4211,6 @@ FASTRUN void isrWrEvent(uint32_t gpioSix)
                     if (isDivMmcSelected())
                     {
                         // DivMMC control
-                        uint8_t data = readData();
                         divMmcState.conMem = ((data & 0x80) != 0);
                         if (divMmcState.allRamEnabled && divMmcState.mapRam &&
                             ((data & 0xC0) == 0xC0))
@@ -4049,7 +4242,6 @@ FASTRUN void isrWrEvent(uint32_t gpioSix)
                     if (isDivMmcSelected())
                     {
                         // DivMMC card select
-                        uint8_t data = readData();
                         writeSdSpiWriteBuffer(SD_SPI_SELECT, data);
                         if ((data & 0x01) != 0)
                         {
@@ -4062,7 +4254,6 @@ FASTRUN void isrWrEvent(uint32_t gpioSix)
                 case 0xeb :
                     if (IS_ROM_PAGED(ROM_MENU))
                     {
-                        uint8_t data = readData();
                         if (isStateSaveActive() && ((data & 0x80) != 0))
                         {
                             stateSaveBlock(data);
@@ -4074,21 +4265,24 @@ FASTRUN void isrWrEvent(uint32_t gpioSix)
                     } else if (isDivMmcSelected())
                     {
                         // DivMMC write
-                        writeSdSpiWriteBuffer(SD_SPI_WRITE, readData());
+                        writeSdSpiWriteBuffer(SD_SPI_WRITE, data);
                     }
                     break;
                 case 0xfb :
                     if (lprintEnabled)
                     {
-                        printerByte = readData();
+                        printerByte = data;
                     }
                     break;
                 case 0xfe :
                     if (!IS_ROM_PAGED(ROM_MENU))
                     {
                         // Capture last border colour
-                        spectrumBorder = readData() & 0x07;
+                        spectrumBorder = data & 0x07;
                     }
+#ifdef HDMI_CDC_OUTPUT
+                    hdmiCdcSendData(0xFFFE, data);
+#endif
                     break;
                 case 0xff :
                     if (modemEnabled)
@@ -4097,7 +4291,6 @@ FASTRUN void isrWrEvent(uint32_t gpioSix)
                         {
                             modemOnReset = false;
                         } else {
-                            uint8_t data = readData();
                             if ((data & 0x20) == 0)
                             {
                                 PAGE_IN_ROM(ROM_MODEM);
