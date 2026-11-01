@@ -11,31 +11,28 @@ constexpr size_t kDisplayFileSize = kBitmapSize + kAttributeSize;
 constexpr size_t kScreenCount = 2;
 constexpr size_t kUlaPlusPaletteSize = 64;
 constexpr size_t kAyRegisterCount = 16;
-constexpr size_t kBeeperTransitionQueueSize = 256;
-static_assert((kBeeperTransitionQueueSize &
-               (kBeeperTransitionQueueSize - 1)) == 0,
-              "Beeper transition queue size must be a power of two");
+constexpr size_t kBeeperSampleQueueSize = 2048;
+static_assert((kBeeperSampleQueueSize & (kBeeperSampleQueueSize - 1)) == 0,
+              "Beeper sample queue size must be a power of two");
 
 struct UlaState {
   uint8_t portValue;
   uint8_t borderColour;
   bool micHigh;
   bool earHigh;
-  // USB is delivered in bursts, so several ULA writes can be dispatched
-  // before another PCM frame is rendered. Keep audio-level changes in order
-  // instead of allowing all but the final EAR/MIC state to disappear.
+  // USB is delivered in bursts. Queue changed EAR/MIC levels to preserve their
+  // order. The HDMI producer applies at most one per PCM frame and otherwise
+  // holds the existing level.
   bool audioMicHigh;
   bool audioEarHigh;
-  uint8_t beeperTransitions[kBeeperTransitionQueueSize];
-  uint16_t beeperTransitionRead;
-  uint16_t beeperTransitionWrite;
-  uint16_t beeperTransitionCount;
-  uint32_t beeperTransitionOverflows;
-  int32_t earFilterFast;
-  int32_t earFilterSlow;
-  int32_t micFilterFast;
-  int32_t micFilterSlow;
-  uint32_t beeperFilterPhase;
+  uint8_t beeperSamples[kBeeperSampleQueueSize];
+  uint16_t beeperSampleRead;
+  uint16_t beeperSampleWrite;
+  uint16_t beeperSampleCount;
+  uint32_t beeperSampleOverflows;
+  int32_t beeperPreviousInput;
+  int32_t beeperHighPass;
+  int32_t beeperLowPass;
 };
 
 struct UlaPlusState {
@@ -74,6 +71,9 @@ extern MachineState machineState;
 // wire protocol. Protocol framing and diagnostic counters are intentionally
 // not part of the emulated machine, so they survive a reset command.
 void resetMachineState();
+
+// Queue one 44.1 kHz EAR/MIC sample decoded from a command extension byte.
+void queueBeeperSample(uint8_t levels);
 
 // Apply one decoded write. Returns false only for an address (or reset value)
 // that is not part of the documented protocol.

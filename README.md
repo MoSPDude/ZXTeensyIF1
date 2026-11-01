@@ -388,9 +388,16 @@ Raspberry Pi Pico 2 as an Adafruit TinyUSB CDC Serial device. The Pico firmware
 and its build instructions are in [`Pico2Hdmi`](Pico2Hdmi/README.md).
 
 ULA and AY bus writes are sent as address/data messages, with consecutive
-addresses coalesced into escaped data runs. The RP2350 emulates the ULA and AY,
-generating video and sound over HDMI. The Pico's built-in LED blinks when it
-receives a complete command.
+addresses coalesced into escaped data runs. The experimental sender currently
+transmits complete 64-byte CDC packets, pads every remaining complete four-byte
+slot with an `FF FF 00 00` no-op, and leaves at most three ignored filler bytes.
+The RP2350 emulates the ULA and AY, generating video and sound over HDMI. The
+Pico's built-in LED blinks when it receives a complete command.
+
+EAR and MIC are sampled on the Teensy at 44.1 kHz. A level is carried in command
+extension bits only when it differs from the last transmitted level. When there
+is no bus command to share a changed level's header, `FF FF 00` is sent as an
+audio-only no-op. The Pico holds the last received level between changes.
 
 It requires a small fix to the USBHost_t36 library in
 %LOCALAPPDATA%\Arduino15\packages\teensy\hardware\avr\1.60.0\libraries\USBHost_t36\serial.cpp -

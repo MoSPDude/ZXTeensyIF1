@@ -548,15 +548,25 @@ volatile uint8_t spectrumBank678 = 0x00;
 volatile uint8_t spectrumAyReg = 0x00;
 
 #ifdef HDMI_CDC_OUTPUT
-// NOTE: RP2040 TinyUSB CDC uses 64-byte full-speed bulk endpoints
+// NOTE: Pico2 TinyUSB CDC uses 64-byte full-speed bulk endpoints
 static const size_t CDC_BUFFER_SIZE = 6912 * 3;
 static const uint8_t CDC_PACKET_SIZE = 64;
-static const uint8_t CDC_EXTENSION_NONE = 0x00;
 static const uint8_t CDC_EXTENSION_INCREMENTAL = 0x01;
+static const uint8_t CDC_EXTENSION_AUDIO_VALID = 0x02;
 static const uint8_t CDC_ESCAPE = 0xB6;
 static const uint8_t CDC_RUN_END = 0xE0;
+static const uint32_t CDC_AUDIO_SAMPLE_RATE = 44100;
+static const uint32_t CDC_AUDIO_SAMPLE_CYCLES = (TEENSY_CLK_FREQ / CDC_AUDIO_SAMPLE_RATE);
+static const uint32_t CDC_AUDIO_SAMPLE_REMAINDER = (TEENSY_CLK_FREQ % CDC_AUDIO_SAMPLE_RATE);
+
 USBSerial_BigBuffer hdmiCdc(usbHost, 1);
 DMAMEM RingBuffer<CDC_BUFFER_SIZE> hdmiCdcBuffer;
+volatile uint8_t hdmiCdcUlaBeeper = 0;
+volatile uint8_t hdmiCdcUlaBorder = 0;
+uint8_t hdmiCdcBeeperSentLevels = 0;
+bool hdmiCdcBeeperSentValid = false;
+uint32_t hdmiCdcAudioCycleCount = 0;
+uint32_t hdmiCdcAudioRemainder = 0;
 volatile bool hdmiCdcConnected = false;
 volatile uint32_t hdmiCdcDroppedWrites = 0;
 #endif
@@ -571,6 +581,9 @@ FASTRUN void isrWrEvent(uint32_t gpioSix) __attribute__((hot, optimize("O3")));
 
 // Optimised task loop functions
 FASTRUN void loop() __attribute__((hot, optimize("O3")));
+#ifdef HDMI_CDC_OUTPUT
+FASTRUN void hdmiCdcServiceOutput() __attribute__((hot, optimize("O3")));
+#endif
 inline void sdSpiOnTick() __attribute__((always_inline, hot, optimize("O3")));
 inline void zxC3OnTick() __attribute__((always_inline, hot, optimize("O3")));
 inline void stateOnTick() __attribute__((always_inline, optimize("O3")));
@@ -1003,6 +1016,33 @@ inline __attribute__((always_inline, optimize("O3"))) void enableInternalRom()
 }
 
 #ifdef HDMI_CDC_OUTPUT
+inline __attribute__((optimize("O3"))) void hdmiCdcBegin()
+{
+    hdmiCdc.begin(115200);
+    uint8_t output[CDC_PACKET_SIZE];
+    output[0] = 0xFF;
+    output[1] = 0xFF;
+    output[2] = 0xFF;
+    output[3] = 0x00;
+    for (size_t i = 4; i < CDC_PACKET_SIZE; i += 4)
+    {
+        output[i] = 0xFF;
+        output[i + 1] = 0xFF;
+        output[i + 2] = 0x00;
+        output[i + 3] = 0x00;
+    }
+    hdmiCdc.write(output, CDC_PACKET_SIZE);
+    hdmiCdcBeeperSentValid = false;
+    hdmiCdcAudioCycleCount = ARM_DWT_CYCCNT;
+    hdmiCdcAudioRemainder = 0;
+    hdmiCdcConnected = true;
+}
+
+inline __attribute__((always_inline, optimize("O3"))) bool hdmiCdcAudioDue(uint32_t cycle)
+{
+    return ((cycle - hdmiCdcAudioCycleCount) >= CDC_AUDIO_SAMPLE_CYCLES);
+}
+
 inline __attribute__((optimize("O3"))) void hdmiCdcSendData(uint16_t address, uint8_t data)
 {
     if (hdmiCdcConnected)
@@ -1020,6 +1060,143 @@ inline __attribute__((optimize("O3"))) void hdmiCdcSendData(uint16_t address, ui
             // paths as well as the foreground loop.
             ++hdmiCdcDroppedWrites;
         }
+    }
+}
+
+FASTRUN void hdmiCdcServiceOutput()
+{
+    // Experimentally send only complete 64-byte full-speed bulk packets. After
+    // encoding commands and incremental runs, fill every remaining complete
+    // four-byte slot with an audio-only no-op. The Pico ignores any final one
+    // to three filler bytes at the packet boundary.
+    size_t remainingCommands = hdmiCdcBuffer.getSize() / 3;
+    uint32_t audioCycle = ARM_DWT_CYCCNT;
+    if ((remainingCommands == 0) && !hdmiCdcAudioDue(audioCycle))
+    {
+        return;
+    }
+    if (hdmiCdc.availableForWrite() < CDC_PACKET_SIZE)
+    {
+        return;
+    }
+
+    uint8_t output[CDC_PACKET_SIZE];
+    size_t outputSize = 0;
+    while (outputSize + 4 <= CDC_PACKET_SIZE)
+    {
+        audioCycle = ARM_DWT_CYCCNT;
+        bool audioDue = hdmiCdcAudioDue(audioCycle);
+        bool hasCommand = (remainingCommands != 0);
+        if (!audioDue && !hasCommand)
+        {
+            break;
+        }
+
+        uint8_t levels = 0;
+        bool audioChanged = false;
+        if (audioDue)
+        {
+            levels = hdmiCdcUlaBeeper;
+            hdmiCdcAudioCycleCount = audioCycle;
+            hdmiCdcAudioRemainder += CDC_AUDIO_SAMPLE_REMAINDER;
+            if (hdmiCdcAudioRemainder >= CDC_AUDIO_SAMPLE_RATE)
+            {
+                hdmiCdcAudioRemainder -= CDC_AUDIO_SAMPLE_RATE;
+                ++hdmiCdcAudioCycleCount;
+            }
+            audioChanged = !hdmiCdcBeeperSentValid ||
+                (levels != hdmiCdcBeeperSentLevels);
+        }
+        if (!audioChanged && !hasCommand)
+        {
+            break;
+        }
+
+        uint16_t address = 0xFFFF;
+        uint8_t data = 0x00;
+        if (hasCommand)
+        {
+            address = hdmiCdcBuffer.readRaw();
+            address |= (uint16_t)hdmiCdcBuffer.readRaw() << 8;
+            data = hdmiCdcBuffer.readRaw();
+            --remainingCommands;
+        }
+
+        uint8_t extension = 0x00;
+        if (audioChanged)
+        {
+            extension = CDC_EXTENSION_AUDIO_VALID | levels;
+            hdmiCdcBeeperSentLevels = levels;
+            hdmiCdcBeeperSentValid = true;
+        }
+
+        bool isRun = false;
+        if (hasCommand && (remainingCommands != 0))
+        {
+            uint16_t nextAddress = hdmiCdcBuffer.peekRaw(0);
+            nextAddress |= (uint16_t)hdmiCdcBuffer.peekRaw(1) << 8;
+            size_t nextDataSize =
+                (hdmiCdcBuffer.peekRaw(2) == CDC_ESCAPE) ? 2 : 1;
+            isRun = (nextAddress == (uint16_t)(address + 1)) &&
+                (outputSize + 4 + nextDataSize + 2 <= CDC_PACKET_SIZE);
+            if (isRun)
+            {
+                extension |= CDC_EXTENSION_INCREMENTAL;
+            }
+        }
+
+        output[outputSize++] = address & 0xFF;
+        output[outputSize++] = address >> 8;
+        output[outputSize++] = data;
+        output[outputSize++] = extension;
+
+        if (isRun)
+        {
+            while (remainingCommands != 0)
+            {
+                uint16_t nextAddress = hdmiCdcBuffer.peekRaw(0);
+                nextAddress |= (uint16_t)hdmiCdcBuffer.peekRaw(1) << 8;
+                if (nextAddress != (uint16_t)(address + 1))
+                {
+                    break;
+                }
+
+                data = hdmiCdcBuffer.peekRaw(2);
+                size_t encodedDataSize = (data == CDC_ESCAPE) ? 2 : 1;
+                if (outputSize + encodedDataSize + 2 > CDC_PACKET_SIZE)
+                {
+                    break;
+                }
+
+                hdmiCdcBuffer.readRaw();
+                hdmiCdcBuffer.readRaw();
+                hdmiCdcBuffer.readRaw();
+                output[outputSize++] = data;
+                if (data == CDC_ESCAPE)
+                {
+                    output[outputSize++] = CDC_ESCAPE;
+                }
+                address = nextAddress;
+                --remainingCommands;
+            }
+            output[outputSize++] = CDC_ESCAPE;
+            output[outputSize++] = CDC_RUN_END;
+        }
+    }
+    if (outputSize != 0)
+    {
+        while (outputSize + 4 <= CDC_PACKET_SIZE)
+        {
+            output[outputSize++] = 0xFF;
+            output[outputSize++] = 0xFF;
+            output[outputSize++] = 0x00;
+            output[outputSize++] = 0x00;
+        }
+        while (outputSize < CDC_PACKET_SIZE)
+        {
+            output[outputSize++] = 0x00;
+        }
+        hdmiCdc.write(output, CDC_PACKET_SIZE);
     }
 }
 #endif
@@ -2397,14 +2574,11 @@ void handleStateReset()
         usbHost.Task();
         hdmiCdc.writeTimeOut(100);
         hdmiCdcConnected = false;
+        hdmiCdcUlaBeeper = 0;
+        hdmiCdcUlaBorder = 0;
         if (hdmiCdc)
         {
-            hdmiCdc.begin(115200);
-            hdmiCdc.write(0xFF);
-            hdmiCdc.write(0xFF);
-            hdmiCdc.write(0xFF);
-            hdmiCdc.write(CDC_EXTENSION_NONE);
-            hdmiCdcConnected = true;
+            hdmiCdcBegin();
         } else {
             hdmiCdcBuffer.clear();
         }
@@ -2718,93 +2892,9 @@ FASTRUN void loop()
             {
                 if (hdmiCdcConnected)
                 {
-                    // Fill at most one 64-byte full-speed bulk packet per
-                    // iteration. Consecutive addresses are encoded as one
-                    // header followed by as many escaped data bytes as fit
-                    // while reserving two bytes for the run terminator.
-                    size_t remainingCommands = hdmiCdcBuffer.getSize() / 3;
-                    size_t outputCapacity = hdmiCdc.availableForWrite();
-                    if (outputCapacity > CDC_PACKET_SIZE)
-                    {
-                        outputCapacity = CDC_PACKET_SIZE;
-                    }
-                    if ((remainingCommands != 0) && (outputCapacity >= 4))
-                    {
-                        uint8_t output[CDC_PACKET_SIZE];
-                        size_t outputSize = 0;
-                        while ((remainingCommands != 0) &&
-                            (outputSize + 4 <= outputCapacity))
-                        {
-                            uint16_t address = hdmiCdcBuffer.readRaw();
-                            address |= (uint16_t)hdmiCdcBuffer.readRaw() << 8;
-                            uint8_t data = hdmiCdcBuffer.readRaw();
-                            --remainingCommands;
-
-                            bool isRun = false;
-                            if (remainingCommands != 0)
-                            {
-                                uint16_t nextAddress = hdmiCdcBuffer.peekRaw(0);
-                                nextAddress |=
-                                    (uint16_t)hdmiCdcBuffer.peekRaw(1) << 8;
-                                size_t nextDataSize =
-                                    (hdmiCdcBuffer.peekRaw(2) == CDC_ESCAPE) ? 2 : 1;
-                                isRun =
-                                    (nextAddress == (uint16_t)(address + 1)) &&
-                                    (outputSize + 4 + nextDataSize + 2 <=
-                                        outputCapacity);
-                            }
-
-                            output[outputSize++] = address & 0xFF;
-                            output[outputSize++] = address >> 8;
-                            output[outputSize++] = data;
-                            output[outputSize++] = isRun ? CDC_EXTENSION_INCREMENTAL :
-                                CDC_EXTENSION_NONE;
-
-                            if (isRun)
-                            {
-                                while (remainingCommands != 0)
-                                {
-                                    uint16_t nextAddress = hdmiCdcBuffer.peekRaw(0);
-                                    nextAddress |=
-                                        (uint16_t)hdmiCdcBuffer.peekRaw(1) << 8;
-                                    if (nextAddress != (uint16_t)(address + 1))
-                                    {
-                                        break;
-                                    }
-
-                                    data = hdmiCdcBuffer.peekRaw(2);
-                                    size_t encodedDataSize =
-                                        (data == CDC_ESCAPE) ? 2 : 1;
-                                    if (outputSize + encodedDataSize + 2 >
-                                        outputCapacity)
-                                    {
-                                        break;
-                                    }
-
-                                    hdmiCdcBuffer.readRaw();
-                                    hdmiCdcBuffer.readRaw();
-                                    hdmiCdcBuffer.readRaw();
-                                    output[outputSize++] = data;
-                                    if (data == CDC_ESCAPE)
-                                    {
-                                        output[outputSize++] = CDC_ESCAPE;
-                                    }
-                                    address = nextAddress;
-                                    --remainingCommands;
-                                }
-                                output[outputSize++] = CDC_ESCAPE;
-                                output[outputSize++] = CDC_RUN_END;
-                            }
-                        }
-                        hdmiCdc.write(output, outputSize);
-                    }
+                    hdmiCdcServiceOutput();
                 } else {
-                    hdmiCdc.begin(115200);
-                    hdmiCdc.write(0xFF);
-                    hdmiCdc.write(0xFF);
-                    hdmiCdc.write(0xFF);
-                    hdmiCdc.write(CDC_EXTENSION_NONE);
-                    hdmiCdcConnected = true;
+                    hdmiCdcBegin();
                 }
             } else if (hdmiCdcConnected)
             {
@@ -4281,7 +4371,16 @@ FASTRUN void isrWrEvent(uint32_t gpioSix)
                         spectrumBorder = data & 0x07;
                     }
 #ifdef HDMI_CDC_OUTPUT
-                    hdmiCdcSendData(0xFFFE, data);
+                    // Capture beeper levels for HDMI CDC
+                    hdmiCdcUlaBeeper = data & 0x18;
+
+                    // Capture border colour for HDMI CDC
+                    data = data & 0x07;
+                    if (data != hdmiCdcUlaBorder)
+                    {
+                        hdmiCdcSendData(0xFFFE, data);
+                        hdmiCdcUlaBorder = data;
+                    }
 #endif
                     break;
                 case 0xff :

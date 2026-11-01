@@ -28,17 +28,16 @@ constexpr int32_t kAyOuterWeight = 16;
 constexpr int32_t kAyCentreWeight = 11;
 constexpr int32_t kAyCrossfeedWeight = 4;
 
-// fruit-bat/pico-zxspectrum advances its beeper filter every four Z80
-// T-states. Preserve that cadence while the current EAR/MIC state is sampled
-// at 44.1 kHz; USB transport timing is intentionally outside this prototype.
-constexpr uint32_t kBeeperFilterDivider = 4;
-constexpr uint32_t kBeeperFilterRate =
-    kSpectrumClock / kBeeperFilterDivider;
-constexpr int32_t kBeeperLimit = 112;
-// Scale the filter's -112..112 result to approximately the previous EAR/MIC
-// peak levels while making both signals bipolar around signed PCM zero.
-constexpr int32_t kEarScale = 55;
-constexpr int32_t kMicScale = 14;
+// Approximate the grey +2 SOUND socket as a resistor-weighted ULA level feeding
+// a 160 Hz AC-coupling high-pass and a 10 kHz output low-pass. Filter state is
+// Q16 and coefficients are Q15, calculated for the 44.1 kHz HDMI sample rate.
+constexpr int32_t kBeeperStateShift = 16;
+constexpr int32_t kBeeperCoefficientShift = 15;
+constexpr int32_t kBeeperHighPassCoefficient = 32029;
+constexpr int32_t kBeeperLowPassCoefficient = 24885;
+// Retain approximately the previous EAR/MIC peak relationship and level.
+constexpr int32_t kEarLevel = 112 * 55;
+constexpr int32_t kMicLevel = 112 * 14;
 constexpr uint8_t kMicMask = 0x08;
 constexpr uint8_t kEarMask = 0x10;
 
@@ -172,52 +171,39 @@ int16_t clampSample(int32_t sample) {
   return static_cast<int16_t>(sample);
 }
 
-inline void advanceBeeperPole(int32_t &fast, int32_t &slow, bool high) {
-  const int32_t drive = high ? 1 : -1;
-  fast -= fast >> 6;
-  slow -= slow >> 10;
-  fast += drive * 95;
-  slow += drive * 1024;
+inline int32_t scaleFixedTowardZero(int64_t value, uint32_t shift) {
+  return static_cast<int32_t>(value / (int64_t{1} << shift));
 }
 
-inline int32_t beeperPoleOutput(int32_t fast, int32_t slow) {
-  const int32_t output = (fast >> 4) - (slow >> 12);
-  if (output < -kBeeperLimit) {
-    return -kBeeperLimit;
-  }
-  if (output > kBeeperLimit) {
-    return kBeeperLimit;
-  }
-  return output;
+inline int32_t filterBeeper(UlaState &ula, int32_t input) {
+  const int32_t fixedInput = input << kBeeperStateShift;
+  const int32_t highPassInput =
+      ula.beeperHighPass + fixedInput - ula.beeperPreviousInput;
+  ula.beeperHighPass = scaleFixedTowardZero(
+      static_cast<int64_t>(kBeeperHighPassCoefficient) * highPassInput,
+      kBeeperCoefficientShift);
+  ula.beeperPreviousInput = fixedInput;
+
+  ula.beeperLowPass += scaleFixedTowardZero(
+      static_cast<int64_t>(kBeeperLowPassCoefficient) *
+          (ula.beeperHighPass - ula.beeperLowPass),
+      kBeeperCoefficientShift);
+  return scaleFixedTowardZero(ula.beeperLowPass, kBeeperStateShift);
 }
 
 int32_t __not_in_flash_func(renderBeeper)(UlaState &ula) {
-  // Retain edge order without allowing a USB burst to collapse several ULA
-  // changes into one state. One transition per PCM frame bounds the work and
-  // avoids stretching the audio service enough to drain the HSTX queue.
-  if (ula.beeperTransitionCount != 0) {
-    const uint8_t levels = ula.beeperTransitions[ula.beeperTransitionRead];
-    ula.beeperTransitionRead =
-        (ula.beeperTransitionRead + 1) &
-        (kBeeperTransitionQueueSize - 1);
-    --ula.beeperTransitionCount;
+  if (ula.beeperSampleCount != 0) {
+    const uint8_t levels = ula.beeperSamples[ula.beeperSampleRead];
+    ula.beeperSampleRead =
+        (ula.beeperSampleRead + 1) & (kBeeperSampleQueueSize - 1);
+    --ula.beeperSampleCount;
     ula.audioMicHigh = (levels & kMicMask) != 0;
     ula.audioEarHigh = (levels & kEarMask) != 0;
   }
 
-  ula.beeperFilterPhase += kBeeperFilterRate;
-  while (ula.beeperFilterPhase >= kAudioSampleRate) {
-    ula.beeperFilterPhase -= kAudioSampleRate;
-    advanceBeeperPole(ula.earFilterFast, ula.earFilterSlow,
-                      ula.audioEarHigh);
-    advanceBeeperPole(ula.micFilterFast, ula.micFilterSlow,
-                      ula.audioMicHigh);
-  }
-
-  return beeperPoleOutput(ula.earFilterFast, ula.earFilterSlow) *
-             kEarScale +
-         beeperPoleOutput(ula.micFilterFast, ula.micFilterSlow) *
-             kMicScale;
+  const int32_t input = (ula.audioEarHigh ? kEarLevel : 0) +
+                        (ula.audioMicHigh ? kMicLevel : 0);
+  return filterBeeper(ula, input);
 }
 
 }  // namespace
@@ -244,9 +230,8 @@ StereoSample __not_in_flash_func(renderAudioSample)() {
                   channelB * kAyCentreWeight +
                   channelC * kAyOuterWeight;
 
-  // The two-pole response softens the ideal ULA edges and removes the
-  // unipolar offset from the HDMI mix. EAR remains roughly four times louder
-  // than MIC, matching the previous level relationship.
+  // AC-couple and band-limit the resistor-weighted ULA level. EAR remains
+  // roughly four times louder than MIC, matching the previous relationship.
   const int32_t beeper = renderBeeper(machineState.ula);
   left += beeper;
   right += beeper;

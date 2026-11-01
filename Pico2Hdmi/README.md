@@ -79,17 +79,26 @@ command application, while HSTX consumes the encoded audio queue from its
 core-1 interrupt. The previous PicoDVI audio ring, N/CTS calculation, PIO
 serializers, and core-1 TMDS encoder are gone.
 
+The ULA beeper uses resistor-weighted unipolar EAR and MIC levels followed by a
+fixed-point 160 Hz high-pass and 10 kHz low-pass at the HDMI sample rate. This
+approximates the AC-coupled grey +2 SOUND output: a held ULA level decays to
+silence, while edges and audible square-wave content pass without the previous
+per-source hard clipping.
+
 ## USB command protocol
 
-USB CDC is a byte stream. Every command sequence begins with a four-byte
-message:
+USB CDC is a byte stream. The experimental Teensy sender always transmits a
+complete 64-byte packet. After its commands and incremental runs, every
+remaining complete four-byte slot is padded with the audio-only no-op
+`FF FF 00 00`; at most three final filler bytes are ignored. The Pico waits for
+all 64 bytes before parsing a packet. Every message begins with:
 
 | Byte | Meaning |
 | --- | --- |
 | 0 | Encoded address bits 7-0 |
 | 1 | Encoded address bits 15-8 |
 | 2 | Write data |
-| 3 | Status/extension flags; bit 0 starts an incremental-address run |
+| 3 | Status/extension flags |
 
 Decode a command as:
 
@@ -99,15 +108,35 @@ data    = byte2
 flags   = byte3
 ```
 
+The extension bits are:
+
+| Bit | Meaning |
+| ---: | --- |
+| 0 | Start an incremental-address run |
+| 1 | Bits 3-4 contain a changed beeper level sampled on the 44.1 kHz clock |
+| 2 | Reserved; currently ignored |
+| 3 | MIC level for the beeper sample; matches ULA-port bit 3 |
+| 4 | EAR level for the beeper sample; matches ULA-port bit 4 |
+| 5-7 | Reserved; currently ignored |
+
 With bit 0 clear, the message is complete. For example, `10 00 AA 00` writes
-`0xAA` to encoded address `0x0010`. Bits 1-7 are reserved and currently
-ignored by the receiver.
+`0xAA` to encoded address `0x0010`.
 
 With bit 0 set, bytes following the message write to successive addresses. The
 sequence `B6 E0` ends the run. A data byte of `B6` is escaped as `B6 B6`.
 For example, `10 00 AA 01 FF B6 B6 CC B6 E0` writes `AA FF B6 CC` to addresses
-`0x0010` through `0x0013`. The parser retains partial messages, runs, and escape
-sequences across USB reads.
+`0x0010` through `0x0013`. Runs always terminate within their 64-byte packet.
+
+The Teensy samples EAR and MIC at 44.1 kHz but transmits a level only when it
+differs from the last transmitted level. When a bus command is waiting, that
+command and the changed level share the header. Otherwise `FF FF 00` is used as
+an audio-only no-op command. The Pico ignores that address/data pair while
+queuing the changed level encoded in the extension byte. It applies at most one
+queued change per PCM frame and holds the existing level when the queue is
+empty. Audio-only headers therefore use `FF FF 00 02`, `FF FF 00 0A`,
+`FF FF 00 12`, or `FF FF 00 1A` for the four EAR/MIC levels.
+An audio-bearing bus command may also set bit 0 and begin an
+incremental-address run.
 
 | Encoded address | Size | Meaning |
 | --- | ---: | --- |
@@ -119,7 +148,8 @@ sequences across USB reads.
 | `0xFF3B` | 1 | ULAplus data |
 | `0xFFFD` | 1 | AY register select |
 | `0xFFFE` | 1 | Complete ULA-port value |
-| `0xFFFF` | 1 | Reset notification; valid reset data is `0xFF` |
+| `0xFFFF`, data `0x00` | 1 | Audio-only no-op |
+| `0xFFFF`, data `0xFF` | 1 | Reset notification |
 
 The reset message is `FF FF FF 00`. It clears both screens and restores the
 ULA, ULAplus, AY, and beeper state without resetting protocol diagnostics or
@@ -131,9 +161,9 @@ discarding bytes after that message.
 - Confirm colour lane order, borders, bitmap layout, BRIGHT, FLASH, and shadow
   screen selection.
 - Confirm 44.1 kHz HDMI audio on a television or other HDMI-audio sink.
-- Run sustained CDC screen traffic while watching `framingErrors`, audio underruns,
-  visible scanline glitches, and the Teensy's debugger-visible
-  `hdmiCdcDroppedWrites` counter.
+- Run sustained CDC screen traffic while watching `framingErrors`,
+  `audioSamples`, `beeperSampleOverflows`, visible scanline glitches, and the
+  Teensy's debugger-visible `hdmiCdcDroppedWrites` counter.
 - Confirm the Pico LED pulses on accepted commands and reset restores black
   video and silent audio state.
 

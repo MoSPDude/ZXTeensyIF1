@@ -10,6 +10,7 @@ struct ProtocolCounters {
   uint32_t completedCommands;
   uint32_t unknownCommands;
   uint32_t framingErrors;
+  uint32_t audioSamples;
 };
 
 // Volatile keeps these symbols useful in a debugger without adding output to
@@ -19,6 +20,7 @@ extern volatile ProtocolCounters protocolCounters;
 class CommandParser {
  public:
   void push(const uint8_t *data, size_t size);
+  void pushPacket(const uint8_t *data, size_t size);
   void push(uint8_t byte);
   uint16_t pendingByteCount() const { return pendingByteCount_; }
 

@@ -20,9 +20,12 @@
 namespace {
 
 constexpr size_t kAudioServiceBatch = 64;  // Must be a multiple of four.
+constexpr size_t kUsbPacketSize = 64;
 constexpr size_t kUsbStagingBufferSize = 4096;  // Must be a power of two.
 static_assert((kUsbStagingBufferSize & (kUsbStagingBufferSize - 1)) == 0,
               "USB staging buffer size must be a power of two");
+static_assert((kUsbStagingBufferSize % kUsbPacketSize) == 0,
+              "USB staging buffer must hold complete packets");
 static_assert((kAudioServiceBatch & 3) == 0,
               "HSTX audio is queued in four-frame packets");
 constexpr uint32_t kCommandLedPulseMs = 30;
@@ -126,22 +129,15 @@ void drainUsbInput() {
 }
 
 void serviceUsbCommands() {
-  // CommandParser retains partial headers, incremental runs, and escapes
-  // across calls. Consume the complete application staging ring so TinyUSB
-  // can promptly accept another host packet. The HDMI audio queue provides
-  // enough headroom for this bounded 4 KiB burst.
-  size_t remaining = usbStagingCount;
-
-  while (remaining != 0) {
-    size_t contiguous = kUsbStagingBufferSize - usbStagingTail;
-    if (contiguous > remaining) {
-      contiguous = remaining;
-    }
-    zx::commandParser.push(usbStagingBuffer + usbStagingTail, contiguous);
+  // The experimental Teensy sender pads every transmission to one complete
+  // full-speed CDC packet. Retain a partial packet until all 64 bytes arrive.
+  while (usbStagingCount >= kUsbPacketSize) {
+    // The staging buffer and tail are packet-aligned, so a packet never wraps.
+    zx::commandParser.pushPacket(usbStagingBuffer + usbStagingTail,
+                                 kUsbPacketSize);
     usbStagingTail =
-        (usbStagingTail + contiguous) & (kUsbStagingBufferSize - 1);
-    usbStagingCount -= contiguous;
-    remaining -= contiguous;
+        (usbStagingTail + kUsbPacketSize) & (kUsbStagingBufferSize - 1);
+    usbStagingCount -= kUsbPacketSize;
   }
 }
 

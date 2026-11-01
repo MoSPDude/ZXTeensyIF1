@@ -22,7 +22,6 @@ constexpr uint8_t kUlaPlusModeRegister = 0x40;
 constexpr uint8_t kAyEnvelopeShapeRegister = 13;
 constexpr uint8_t kMicMask = 0x08;
 constexpr uint8_t kEarMask = 0x10;
-constexpr uint8_t kBeeperMask = kMicMask | kEarMask;
 
 static_assert(kScreen0Last - kScreen0First + 1 == kDisplayFileSize);
 static_assert(kScreen1Last - kScreen1First + 1 == kDisplayFileSize);
@@ -38,33 +37,11 @@ void writeUlaPlusData(uint8_t data) {
 
 void writeUlaPort(uint8_t data) {
   UlaState &ula = machineState.ula;
-  const uint8_t oldBeeper = ula.portValue & kBeeperMask;
-  const uint8_t newBeeper = data & kBeeperMask;
 
   ula.portValue = data;
   ula.borderColour = data & 0x07;
   ula.micHigh = (data & kMicMask) != 0;
   ula.earHigh = (data & kEarMask) != 0;
-
-  // Border-only writes are extremely common and must not consume queue space.
-  if (newBeeper == oldBeeper) {
-    return;
-  }
-
-  // Under normal beeper rates the audio producer drains this much faster than
-  // USB can fill it. If it does overflow, discard the oldest transition so the
-  // rendered state still converges on the most recently received output.
-  if (ula.beeperTransitionCount == kBeeperTransitionQueueSize) {
-    ula.beeperTransitionRead =
-        (ula.beeperTransitionRead + 1) & (kBeeperTransitionQueueSize - 1);
-    --ula.beeperTransitionCount;
-    ++ula.beeperTransitionOverflows;
-  }
-
-  ula.beeperTransitions[ula.beeperTransitionWrite] = newBeeper;
-  ula.beeperTransitionWrite =
-      (ula.beeperTransitionWrite + 1) & (kBeeperTransitionQueueSize - 1);
-  ++ula.beeperTransitionCount;
 }
 
 void restartAyEnvelope(uint8_t shape) {
@@ -88,15 +65,13 @@ void resetMachineState() {
   machineState.ula.earHigh = false;
   machineState.ula.audioMicHigh = false;
   machineState.ula.audioEarHigh = false;
-  machineState.ula.beeperTransitionRead = 0;
-  machineState.ula.beeperTransitionWrite = 0;
-  machineState.ula.beeperTransitionCount = 0;
-  machineState.ula.beeperTransitionOverflows = 0;
-  machineState.ula.earFilterFast = 0;
-  machineState.ula.earFilterSlow = 0;
-  machineState.ula.micFilterFast = 0;
-  machineState.ula.micFilterSlow = 0;
-  machineState.ula.beeperFilterPhase = 0;
+  machineState.ula.beeperSampleRead = 0;
+  machineState.ula.beeperSampleWrite = 0;
+  machineState.ula.beeperSampleCount = 0;
+  machineState.ula.beeperSampleOverflows = 0;
+  machineState.ula.beeperPreviousInput = 0;
+  machineState.ula.beeperHighPass = 0;
+  machineState.ula.beeperLowPass = 0;
 
   machineState.ulaPlus.selectedRegister = 0;
   machineState.ulaPlus.mode = 0;
@@ -114,6 +89,21 @@ void resetMachineState() {
   machineState.ay.envelopeLevel = 15;
   machineState.ay.envelopeDirection = -1;
   machineState.ay.envelopeHolding = false;
+}
+
+void queueBeeperSample(uint8_t levels) {
+  UlaState &ula = machineState.ula;
+  if (ula.beeperSampleCount == kBeeperSampleQueueSize) {
+    ula.beeperSampleRead =
+        (ula.beeperSampleRead + 1) & (kBeeperSampleQueueSize - 1);
+    --ula.beeperSampleCount;
+    ++ula.beeperSampleOverflows;
+  }
+
+  ula.beeperSamples[ula.beeperSampleWrite] = levels;
+  ula.beeperSampleWrite =
+      (ula.beeperSampleWrite + 1) & (kBeeperSampleQueueSize - 1);
+  ++ula.beeperSampleCount;
 }
 
 bool applyCommand(uint16_t address, uint8_t data) {

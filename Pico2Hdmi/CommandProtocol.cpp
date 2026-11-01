@@ -13,10 +13,40 @@ void CommandParser::push(const uint8_t *data, size_t size) {
   }
 }
 
+void CommandParser::pushPacket(const uint8_t *data, size_t size) {
+  while (size != 0) {
+    // A fixed-size packet contains as many complete no-op headers as fit after
+    // its useful commands. Ignore the final one to three filler bytes rather
+    // than carrying a partial header into the next packet.
+    if (state_ == State::kMessage && pendingByteCount_ == 0 &&
+        size < kMessageSize) {
+      protocolCounters.receivedBytes =
+          protocolCounters.receivedBytes + size;
+      break;
+    }
+    push(*data++);
+    --size;
+  }
+
+  // Incremental runs must terminate within their packet. Bound any damaged
+  // packet to that packet instead of allowing it to corrupt the next one.
+  if (state_ != State::kMessage || pendingByteCount_ != 0) {
+    protocolCounters.framingErrors = protocolCounters.framingErrors + 1;
+    pendingByteCount_ = 0;
+    state_ = State::kMessage;
+  }
+}
+
 void CommandParser::push(uint8_t byte) {
   constexpr uint8_t kIncrementalFlag = 0x01;
+  constexpr uint8_t kAudioValidFlag = 0x02;
   constexpr uint8_t kEscape = 0xb6;
   constexpr uint8_t kRunEnd = 0xe0;
+  constexpr uint16_t kAudioOnlyAddress = 0xffff;
+  constexpr uint8_t kAudioOnlyData = 0x00;
+  constexpr uint8_t kMicMask = 0x08;
+  constexpr uint8_t kEarMask = 0x10;
+  constexpr uint8_t kBeeperMask = kMicMask | kEarMask;
 
   protocolCounters.receivedBytes = protocolCounters.receivedBytes + 1;
   switch (state_) {
@@ -25,9 +55,18 @@ void CommandParser::push(uint8_t byte) {
       if (pendingByteCount_ == kMessageSize) {
         incrementalAddress_ = static_cast<uint16_t>(message_[0]) |
                               (static_cast<uint16_t>(message_[1]) << 8);
-        dispatchWrite(incrementalAddress_, message_[2]);
+        const uint8_t extension = message_[3];
+        const bool audioOnly = incrementalAddress_ == kAudioOnlyAddress &&
+                               message_[2] == kAudioOnlyData;
+        if (!audioOnly) {
+          dispatchWrite(incrementalAddress_, message_[2]);
+        }
+        if ((extension & kAudioValidFlag) != 0) {
+          queueBeeperSample(extension & kBeeperMask);
+          protocolCounters.audioSamples = protocolCounters.audioSamples + 1;
+        }
         pendingByteCount_ = 0;
-        if ((message_[3] & kIncrementalFlag) != 0) {
+        if (!audioOnly && (extension & kIncrementalFlag) != 0) {
           state_ = State::kIncrementalData;
         }
       }
