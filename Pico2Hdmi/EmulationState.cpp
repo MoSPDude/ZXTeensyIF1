@@ -7,33 +7,55 @@ namespace {
 
 constexpr uint16_t kScreen0First = 0x0000;
 constexpr uint16_t kScreen0Last = 0x1aff;
+constexpr uint16_t kScreen0SecondFirst = 0x2000;
+constexpr uint16_t kScreen0SecondLast = 0x3aff;
 constexpr uint16_t kMemoryControlAddress = 0x7ffd;
 constexpr uint16_t kScreen1First = 0x8000;
 constexpr uint16_t kScreen1Last = 0x9aff;
+constexpr uint16_t kScreen1SecondFirst = 0xa000;
+constexpr uint16_t kScreen1SecondLast = 0xbaff;
 constexpr uint16_t kUlaPlusSelectAddress = 0xbf3b;
 constexpr uint16_t kAyDataAddress = 0xbffd;
 constexpr uint16_t kUlaPlusDataAddress = 0xff3b;
 constexpr uint16_t kAySelectAddress = 0xfffd;
 constexpr uint16_t kUlaPortAddress = 0xfffe;
+constexpr uint16_t kTimexControlAddress = 0xfffb;
 constexpr uint16_t kResetAddress = 0xffff;
 constexpr uint8_t kResetData = 0xff;
 
-constexpr uint8_t kUlaPlusModeRegister = 0x40;
+constexpr uint8_t kUlaPlusModeGroup = 0x40;
+constexpr uint8_t kUlaPlusGroupMask = 0xc0;
 constexpr uint8_t kAyEnvelopeShapeRegister = 13;
 constexpr uint8_t kMicMask = 0x08;
 constexpr uint8_t kEarMask = 0x10;
 
 static_assert(kScreen0Last - kScreen0First + 1 == kDisplayFileSize);
 static_assert(kScreen1Last - kScreen1First + 1 == kDisplayFileSize);
+static_assert(kScreen0SecondLast - kScreen0SecondFirst + 1 ==
+              kDisplayFileSize);
+static_assert(kScreen1SecondLast - kScreen1SecondFirst + 1 ==
+              kDisplayFileSize);
 
-void writeUlaPlusData(uint8_t data) {
-  const uint8_t selected = machineState.ulaPlus.selectedRegister;
-  if (selected < kUlaPlusPaletteSize) {
-    machineState.ulaPlus.palette[selected] = data;
-  } else if (selected == kUlaPlusModeRegister) {
-    machineState.ulaPlus.mode = data;
-  }
+constexpr uint8_t expandBlue(uint8_t blue) {
+  return static_cast<uint8_t>((blue << 1) |
+                              (((blue >> 1) | blue) & 0x01));
 }
+
+constexpr uint16_t expandUlaPlusColour(uint8_t colour) {
+  const uint8_t green = colour >> 5;
+  const uint8_t red = (colour >> 2) & 0x07;
+  const uint8_t blue = expandBlue(colour & 0x03);
+  const uint16_t red5 = static_cast<uint16_t>((red << 2) | (red >> 1));
+  const uint16_t green6 = static_cast<uint16_t>((green << 3) | green);
+  const uint16_t blue5 = static_cast<uint16_t>((blue << 2) | (blue >> 1));
+  return static_cast<uint16_t>((red5 << 11) | (green6 << 5) | blue5);
+}
+
+static_assert(expandUlaPlusColour(0x00) == 0x0000);
+static_assert(expandUlaPlusColour(0x03) == 0x001f);
+static_assert(expandUlaPlusColour(0x1c) == 0xf800);
+static_assert(expandUlaPlusColour(0xe0) == 0x07e0);
+static_assert(expandUlaPlusColour(0xff) == 0xffff);
 
 void writeUlaPort(uint8_t data) {
   UlaState &ula = machineState.ula;
@@ -74,9 +96,17 @@ void resetMachineState() {
   machineState.ula.beeperLowPass = 0;
 
   machineState.ulaPlus.selectedRegister = 0;
+  machineState.ulaPlus.modeRegister = kUlaPlusModeGroup;
   machineState.ulaPlus.mode = 0;
   memset(machineState.ulaPlus.palette, 0,
          sizeof(machineState.ulaPlus.palette));
+  memset(machineState.ulaPlus.paletteRgb565, 0,
+         sizeof(machineState.ulaPlus.paletteRgb565));
+
+  machineState.timex.mode = 0;
+  machineState.timex.colour = 0;
+  machineState.timex.screen = 0;
+  machineState.timex.active = false;
 
   machineState.ay.selectedRegister = 0;
   memset(machineState.ay.registers, 0, sizeof(machineState.ay.registers));
@@ -117,6 +147,16 @@ bool applyCommand(uint16_t address, uint8_t data) {
     return true;
   }
 
+  if (address >= kScreen0SecondFirst && address <= kScreen0SecondLast) {
+    machineState.displayFile[0][address - kScreen0First] = data;
+    return true;
+  }
+
+  if (address >= kScreen1SecondFirst && address <= kScreen1SecondLast) {
+    machineState.displayFile[1][address - kScreen1First] = data;
+    return true;
+  }
+
   switch (address) {
     case kMemoryControlAddress:
       machineState.memoryControl = data;
@@ -138,7 +178,7 @@ bool applyCommand(uint16_t address, uint8_t data) {
       return true;
 
     case kUlaPlusDataAddress:
-      writeUlaPlusData(data);
+      applyUlaPlusRegister(machineState.ulaPlus.selectedRegister, data);
       return true;
 
     case kAySelectAddress:
@@ -151,6 +191,10 @@ bool applyCommand(uint16_t address, uint8_t data) {
       writeUlaPort(data);
       return true;
 
+    case kTimexControlAddress:
+      applyTimexControl(data);
+      return true;
+
     case kResetAddress:
       if (data != kResetData) {
         return false;
@@ -161,6 +205,68 @@ bool applyCommand(uint16_t address, uint8_t data) {
     default:
       return false;
   }
+}
+
+void applyUlaPlusRegister(uint8_t selectedRegister, uint8_t data) {
+  if (selectedRegister < kUlaPlusPaletteSize) {
+    machineState.ulaPlus.palette[selectedRegister] = data;
+    machineState.ulaPlus.paletteRgb565[selectedRegister] =
+        expandUlaPlusColour(data);
+  } else if ((selectedRegister & kUlaPlusGroupMask) == kUlaPlusModeGroup) {
+    machineState.ulaPlus.modeRegister = selectedRegister;
+    machineState.ulaPlus.mode = data;
+    machineState.timex = decodeTimexControl(selectedRegister, true);
+  }
+}
+
+TimexState decodeTimexControl(uint8_t control, bool ulaPlusModeRegister) {
+  TimexState state = {};
+  state.active = true;
+  state.colour = (control >> 3) & 0x07;
+
+  const uint8_t encodedMode = control & 0x07;
+  if (ulaPlusModeRegister) {
+    switch (encodedMode) {
+      case 0x03:
+        state.mode = 0x02;
+        state.screen = 1;
+        break;
+
+      case 0x04:
+        state.mode = 0x00;
+        state.screen = 1;
+        break;
+
+      case 0x05:
+        state.mode = 0x01;
+        state.screen = 1;
+        break;
+
+      case 0x07:
+        state.mode = 0x06;
+        state.screen = 1;
+        break;
+
+      default:
+        state.mode = encodedMode;
+        state.screen = 0;
+        break;
+    }
+  } else {
+    // The original Timex SCLD defines only modes 0, 1, 2 and 6. Treat its
+    // documented unpredictable encodings as normal mode rather than showing
+    // stale or uninitialized data.
+    state.mode = (encodedMode == 0x01 || encodedMode == 0x02 ||
+                  encodedMode == 0x06)
+                     ? encodedMode
+                     : 0x00;
+    state.screen = 0;
+  }
+  return state;
+}
+
+void applyTimexControl(uint8_t control) {
+  machineState.timex = decodeTimexControl(control, false);
 }
 
 }  // namespace zx

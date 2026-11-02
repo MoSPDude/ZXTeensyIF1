@@ -8,6 +8,9 @@ namespace zx {
 constexpr size_t kBitmapSize = 6144;
 constexpr size_t kAttributeSize = 768;
 constexpr size_t kDisplayFileSize = kBitmapSize + kAttributeSize;
+constexpr size_t kTimexSecondDisplayOffset = 0x2000;
+constexpr size_t kDisplayMemorySize =
+    kTimexSecondDisplayOffset + kDisplayFileSize;
 constexpr size_t kScreenCount = 2;
 constexpr size_t kUlaPlusPaletteSize = 64;
 constexpr size_t kAyRegisterCount = 16;
@@ -37,8 +40,17 @@ struct UlaState {
 
 struct UlaPlusState {
   uint8_t selectedRegister;
+  uint8_t modeRegister;
   uint8_t mode;
   uint8_t palette[kUlaPlusPaletteSize];
+  uint16_t paletteRgb565[kUlaPlusPaletteSize];
+};
+
+struct TimexState {
+  uint8_t mode;
+  uint8_t colour;
+  uint8_t screen;
+  bool active;
 };
 
 // AY register state and the synthesis counters advanced by the 44.1 kHz HDMI
@@ -58,10 +70,11 @@ struct AyState {
 };
 
 struct MachineState {
-  uint8_t displayFile[kScreenCount][kDisplayFileSize];
+  uint8_t displayFile[kScreenCount][kDisplayMemorySize];
   uint8_t memoryControl;
   UlaState ula;
   UlaPlusState ulaPlus;
+  TimexState timex;
   AyState ay;
 };
 
@@ -78,5 +91,15 @@ void queueBeeperSample(uint8_t levels);
 // Apply one decoded write. Returns false only for an address (or reset value)
 // that is not part of the documented protocol.
 bool applyCommand(uint16_t address, uint8_t data);
+
+// Apply a resolved ULAplus data-port write. Raster scheduling resolves the
+// selected register while parsing, then calls this on the video core at the
+// requested source scanline.
+void applyUlaPlusRegister(uint8_t selectedRegister, uint8_t data);
+
+// Resolve the Timex control port directly or through the optional ULAplus
+// mode-register mirror. The latter extends the mode encoding with bank 7.
+TimexState decodeTimexControl(uint8_t control, bool ulaPlusModeRegister);
+void applyTimexControl(uint8_t control);
 
 }  // namespace zx

@@ -7,6 +7,7 @@
 #include "AudioSynth.h"
 #include "CommandProtocol.h"
 #include "EmulationState.h"
+#include "RasterEvents.h"
 #include "UlaVideo.h"
 
 #ifndef USE_TINYUSB
@@ -46,16 +47,22 @@ volatile bool machineStateReady = false;
 volatile int8_t displayStartupStatus = 0;
 
 // The HSTX scanline callback supplies a complete 720-pixel RGB565 line. The
-// ULA renderer writes two identical 16-bit output pixels in each 32-bit word.
-// Render each 360-pixel logical row once, then copy the cached packed pixels
-// into both physical output lines.
+// The ULA renderer writes two packed 16-bit output pixels in each 32-bit word;
+// they are duplicates in 256-pixel modes and distinct in Timex hi-res. Render
+// each logical row once, then copy it into both physical output lines.
 static void __not_in_flash_func(drawVideoScanline)(uint32_t vScanline,
                                                     uint32_t activeLine,
                                                     uint32_t *destination) {
   (void)vScanline;
   if ((activeLine & 1) == 0) {
-    zx::renderUlaScanline(scanlineCache, activeLine >> 1,
+    const size_t logicalLine = activeLine >> 1;
+    if (logicalLine == 0) {
+      zx::beginRasterOutputFrame();
+    }
+    zx::applyRasterEventsForOutputLine(logicalLine);
+    zx::renderUlaScanline(scanlineCache, logicalLine,
                           display.getFrameCount());
+    zx::finishRasterOutputLine(logicalLine);
   }
   for (size_t x = 0; x < zx::kVideoWidth; ++x) {
     destination[x] = scanlineCache[x];
@@ -168,6 +175,7 @@ bool core1_separate_stack = true;
 
 void setup() {
   zx::resetMachineState();
+  zx::initializeRasterEvents();
   pinMode(LED_BUILTIN, OUTPUT);
   digitalWrite(LED_BUILTIN, LOW);
 

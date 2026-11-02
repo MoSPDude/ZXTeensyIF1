@@ -549,15 +549,24 @@ volatile uint8_t spectrumAyReg = 0x00;
 
 #ifdef HDMI_CDC_OUTPUT
 // NOTE: Pico2 TinyUSB CDC uses 64-byte full-speed bulk endpoints
-static const size_t CDC_BUFFER_SIZE = 6912 * 3;
 static const uint8_t CDC_PACKET_SIZE = 64;
+static const size_t CDC_BUFFER_SIZE = 6912 * 3;
 static const uint8_t CDC_EXTENSION_INCREMENTAL = 0x01;
 static const uint8_t CDC_EXTENSION_AUDIO_VALID = 0x02;
 static const uint8_t CDC_ESCAPE = 0xB6;
 static const uint8_t CDC_RUN_END = 0xE0;
+static const uint16_t CDC_FRAME_MARKER_ADDRESS = 0xFFFC;
+// Synthetic protocol address, outside all mirrored display-file ranges.
+static const uint16_t CDC_TIMEX_CONTROL_ADDRESS = 0xFFFB;
+static const uint16_t CDC_ULAPLUS_SELECT_ADDRESS = 0xBF3B;
+static const uint16_t CDC_ULAPLUS_DATA_ADDRESS = 0xFF3B;
+static const uint16_t CDC_RASTER_SOURCE_LINES = 312;
+static const uint8_t CDC_RASTER_PHASE_BITS = 7;
 static const uint32_t CDC_AUDIO_SAMPLE_RATE = 44100;
 static const uint32_t CDC_AUDIO_SAMPLE_CYCLES = (TEENSY_CLK_FREQ / CDC_AUDIO_SAMPLE_RATE);
 static const uint32_t CDC_AUDIO_SAMPLE_REMAINDER = (TEENSY_CLK_FREQ % CDC_AUDIO_SAMPLE_RATE);
+static const uint32_t CDC_FRAME_DEFAULT_CYCLES = (TEENSY_CLK_FREQ / 50);
+static const uint32_t CDC_FRAME_MIN_ACK_CYCLES = (TEENSY_CLK_FREQ / 100);
 
 USBSerial_BigBuffer hdmiCdc(usbHost, 1);
 DMAMEM RingBuffer<CDC_BUFFER_SIZE> hdmiCdcBuffer;
@@ -568,7 +577,19 @@ bool hdmiCdcBeeperSentValid = false;
 uint32_t hdmiCdcAudioCycleCount = 0;
 uint32_t hdmiCdcAudioRemainder = 0;
 volatile bool hdmiCdcConnected = false;
-volatile uint32_t hdmiCdcDroppedWrites = 0;
+volatile uint8_t hdmiCdcUlaPlusRegister = 0;
+volatile uint8_t hdmiCdcUlaPlusMode = 0;
+volatile uint8_t hdmiCdcUlaPlusPalette[64] = {};
+volatile uint8_t hdmiCdcTimexControl = 0;
+volatile bool hdmiCdcTimexControlValid = false;
+volatile bool hdmiCdcFrameSyncValid = false;
+volatile uint32_t hdmiCdcFrameStartCycle = 0;
+volatile uint32_t hdmiCdcLastFrameAckCycle = 0;
+volatile uint32_t hdmiCdcFramePeriodCycles = CDC_FRAME_DEFAULT_CYCLES;
+volatile uint32_t hdmiCdcFrameLineCycles = (CDC_FRAME_DEFAULT_CYCLES / CDC_RASTER_SOURCE_LINES);
+volatile uint8_t hdmiCdcFrameSequence = 0;
+volatile uint32_t hdmiCdcFrameAcks = 0;
+volatile uint32_t hdmiCdcRejectedFrameAcks = 0;
 #endif
 
 // SPI and UART tick cycle counter
@@ -583,6 +604,8 @@ FASTRUN void isrWrEvent(uint32_t gpioSix) __attribute__((hot, optimize("O3")));
 FASTRUN void loop() __attribute__((hot, optimize("O3")));
 #ifdef HDMI_CDC_OUTPUT
 FASTRUN void hdmiCdcServiceOutput() __attribute__((hot, optimize("O3")));
+inline void hdmiCdcSendData(uint16_t address, uint8_t data) __attribute__((optimize("O3")));
+inline void hdmiCdcOnInterruptAcknowledge(uint32_t cycle) __attribute__((always_inline, hot, optimize("O3")));
 #endif
 inline void sdSpiOnTick() __attribute__((always_inline, hot, optimize("O3")));
 inline void zxC3OnTick() __attribute__((always_inline, hot, optimize("O3")));
@@ -1019,6 +1042,7 @@ inline __attribute__((always_inline, optimize("O3"))) void enableInternalRom()
 inline __attribute__((optimize("O3"))) void hdmiCdcBegin()
 {
     hdmiCdc.begin(115200);
+    hdmiCdcBuffer.clear();
     uint8_t output[CDC_PACKET_SIZE];
     output[0] = 0xFF;
     output[1] = 0xFF;
@@ -1035,6 +1059,7 @@ inline __attribute__((optimize("O3"))) void hdmiCdcBegin()
     hdmiCdcBeeperSentValid = false;
     hdmiCdcAudioCycleCount = ARM_DWT_CYCCNT;
     hdmiCdcAudioRemainder = 0;
+    hdmiCdcFrameSyncValid = false;
     hdmiCdcConnected = true;
 }
 
@@ -1045,22 +1070,111 @@ inline __attribute__((always_inline, optimize("O3"))) bool hdmiCdcAudioDue(uint3
 
 inline __attribute__((optimize("O3"))) void hdmiCdcSendData(uint16_t address, uint8_t data)
 {
+    if (hdmiCdcConnected && (hdmiCdcBuffer.getFree() >= 3))
+    {
+        uint8_t buffer[3];
+        buffer[0] = address & 0xFF;
+        buffer[1] = address >> 8;
+        buffer[2] = data;
+        hdmiCdcBuffer.writeBlock(buffer, 3);
+    }
+}
+
+inline __attribute__((always_inline, optimize("O3"))) uint16_t hdmiCdcRasterTimestamp(
+    uint32_t cycle)
+{
+    uint32_t lineCycles = hdmiCdcFrameLineCycles;
+    if (!hdmiCdcFrameSyncValid || (lineCycles == 0))
+    {
+        return 0;
+    }
+
+    uint32_t sourceLine = (cycle - hdmiCdcFrameStartCycle) / lineCycles;
+    if (sourceLine >= CDC_RASTER_SOURCE_LINES)
+    {
+        sourceLine = CDC_RASTER_SOURCE_LINES - 1;
+    }
+    return (uint16_t)(sourceLine << CDC_RASTER_PHASE_BITS);
+}
+
+inline __attribute__((optimize("O3"))) void hdmiCdcSendTimedData(uint16_t address,
+    uint8_t data, uint32_t cycle)
+{
     if (hdmiCdcConnected)
     {
-        if (hdmiCdcBuffer.getFree() >= 3)
+        if (!hdmiCdcFrameSyncValid)
         {
-            uint8_t buffer[3];
-            buffer[0] = address & 0xFF;
-            buffer[1] = address >> 8;
-            buffer[2] = data;
-            hdmiCdcBuffer.writeBlock(buffer, 3);
-        } else {
-            // Retain a debugger-visible count if the Pico cannot keep up. The
-            // write cannot block because this function is called from bus timing
-            // paths as well as the foreground loop.
-            ++hdmiCdcDroppedWrites;
+            hdmiCdcSendData(address, data);
+        } else if (hdmiCdcBuffer.getFree() >= 6)
+        {
+            const uint16_t timestamp = hdmiCdcRasterTimestamp(cycle);
+            uint8_t buffer[6];
+            buffer[0] = timestamp & 0xFF;
+            buffer[1] = 0xFC;
+            buffer[2] = timestamp >> 8;
+            buffer[3] = address & 0xFF;
+            buffer[4] = address >> 8;
+            buffer[5] = data;
+            hdmiCdcBuffer.writeBlock(buffer, sizeof(buffer));
         }
     }
+}
+
+inline void hdmiCdcOnInterruptAcknowledge(uint32_t cycle)
+{
+    uint32_t elapsedFrames = 1;
+    if (hdmiCdcFrameSyncValid)
+    {
+        const uint32_t elapsed = cycle - hdmiCdcLastFrameAckCycle;
+        if (elapsed < CDC_FRAME_MIN_ACK_CYCLES)
+        {
+            ++hdmiCdcRejectedFrameAcks;
+            return;
+        }
+
+        uint32_t period = hdmiCdcFramePeriodCycles;
+        elapsedFrames = elapsed / period;
+        const uint32_t remainder = elapsed - (elapsedFrames * period);
+        if ((remainder >= (period / 2)) &&
+            (elapsedFrames < (UINT32_MAX / period)))
+        {
+            ++elapsedFrames;
+        }
+        if (elapsedFrames == 0)
+        {
+            elapsedFrames = 1;
+        }
+
+        const uint32_t expected = elapsedFrames * period;
+        const uint32_t phaseError = (elapsed >= expected) ?
+            (elapsed - expected) : (expected - elapsed);
+        if ((phaseError > (period / 8)) && (elapsed <= (period * 4)))
+        {
+            ++hdmiCdcRejectedFrameAcks;
+            return;
+        }
+
+        // After a long gap, accept a new reference even if the 32-bit cycle
+        // counter wrapped or the firmware missed the original frame phase.
+        // The sequence jump tells the Pico to discard any ambiguous frame.
+
+        // Adjust only from consecutive acknowledgements. Longer gaps usually
+        // mean that the Spectrum kept maskable interrupts disabled.
+        if (elapsedFrames == 1)
+        {
+            int32_t error = (int32_t)(elapsed - period);
+            period = (uint32_t)((int32_t)period + (error / 8));
+            hdmiCdcFramePeriodCycles = period;
+            hdmiCdcFrameLineCycles = period / CDC_RASTER_SOURCE_LINES;
+        }
+    }
+
+    hdmiCdcFrameSequence += (uint8_t)elapsedFrames;
+    hdmiCdcFrameStartCycle = cycle;
+    hdmiCdcLastFrameAckCycle = cycle;
+    hdmiCdcFrameSyncValid = true;
+    ++hdmiCdcFrameAcks;
+    hdmiCdcSendData(CDC_FRAME_MARKER_ADDRESS, hdmiCdcFrameSequence);
 }
 
 FASTRUN void hdmiCdcServiceOutput()
@@ -1320,9 +1434,12 @@ void setup()
 
     // Setup RD, WR, ROMCS, reset and button ISRs
     // NOTE: Set GPIO interrupt as high priority, to avoid misses
-    // Interrupts on GPIO6 - isrFastGpios assumes only RD_PIN and WR_PIN
+    // Interrupts on GPIO6 - assumes only RD_PIN and WR_PIN
     attachInterrupt(digitalPinToInterrupt(RD_PIN), isrFastGpios, CHANGE);
     attachInterrupt(digitalPinToInterrupt(WR_PIN), isrFastGpios, FALLING);
+#ifdef HDMI_CDC_OUTPUT
+    attachInterrupt(digitalPinToInterrupt(IOREQ_PIN), isrFastGpios, FALLING);
+#endif
     // Interrupts on GPIO9
     attachInterrupt(digitalPinToInterrupt(ROMCS_IN_PIN), isrFastGpios, CHANGE);
     attachInterrupt(digitalPinToInterrupt(RESET_IN_PIN), isrPinReset, FALLING);
@@ -2350,6 +2467,18 @@ void handleStateReset()
     divMmcState.bankRom01 = false;
     divMmcState.bankRom01Locked = false;
     spectrumAyReg = 0x00;
+#ifdef HDMI_CDC_OUTPUT
+    hdmiCdcUlaPlusRegister = 0;
+    hdmiCdcUlaPlusMode = 0;
+    memset((void*)hdmiCdcUlaPlusPalette, 0,
+        sizeof(hdmiCdcUlaPlusPalette));
+    hdmiCdcTimexControl = 0;
+    hdmiCdcTimexControlValid = false;
+    hdmiCdcFrameSyncValid = false;
+    hdmiCdcFramePeriodCycles = CDC_FRAME_DEFAULT_CYCLES;
+    hdmiCdcFrameLineCycles =
+        CDC_FRAME_DEFAULT_CYCLES / CDC_RASTER_SOURCE_LINES;
+#endif
     stateStartLoad = false;
 
     // Reset the USB detection state
@@ -3609,7 +3738,11 @@ inline void writeRomData(uint16_t address)
 FASTRUN void isrFastGpios()
 {
     // Interrupts on GPIO6 - assumes only RD_PIN and WR_PIN
+#ifdef HDMI_CDC_OUTPUT
+    GPIO6_ISR = (RD_PIN_BITMASK | WR_PIN_BITMASK | IOREQ_PIN_BITMASK);
+#else
     GPIO6_ISR = (RD_PIN_BITMASK | WR_PIN_BITMASK);
+#endif
     uint32_t gpioSix = (*(volatile uint32_t *)IMXRT_GPIO6_ADDRESS);
 
     // Always perform RD and WR behaviour, including ROMCS behaviour
@@ -3641,6 +3774,19 @@ FASTRUN void isrFastGpios()
         {
             isrWrEvent(gpioSix);
         }
+#ifdef HDMI_CDC_OUTPUT
+        else if (((gpioSix & IOREQ_PIN_BITMASK) == 0) &&
+            ((gpioSix & MREQ_PIN_BITMASK) != 0))
+        {
+            // Software detection for a maskable interrupt acknowledge, of
+            // M1 and IORQ low, whilst MREQ, RD and WR remain high.
+            uint32_t gpioNine = (*(volatile uint32_t *)IMXRT_GPIO9_ADDRESS);
+            if ((gpioNine & M1_PIN_BITMASK) == 0)
+            {
+                hdmiCdcOnInterruptAcknowledge(ARM_DWT_CYCCNT);
+            }
+        }
+#endif
     } else {
         isrRdEvent(gpioSix);
     }
@@ -4022,11 +4168,14 @@ FASTRUN void isrWrEvent(uint32_t gpioSix)
 #ifdef HDMI_CDC_OUTPUT
     } else if ((gpioSix & MREQ_PIN_BITMASK) == 0x00000000)
     {
+        // Capture video memory writes for HDMI CDC
         uint16_t address = decodeAddress(gpioSix);
-        if ((address >= 0x4000) && (address < 0x5B00))
+        if (((address >= 0x4000) && (address < 0x5B00)) ||
+            ((address >= 0x6000) && (address < 0x7B00)))
         {
             hdmiCdcSendData((address - 0x4000), data);
-        } else if ((address >= 0xC000) && (address < 0xDB00))
+        } else if (((address >= 0xC000) && (address < 0xDB00)) ||
+            ((address >= 0xE000) && (address < 0xFB00)))
         {
             uint8_t bank = spectrumBankM & 0x07;
             if (bank == 0x05)
@@ -4169,6 +4318,7 @@ FASTRUN void isrWrEvent(uint32_t gpioSix)
 #ifdef HDMI_CDC_OUTPUT
                 hdmiCdcSendData(0xFFFD, data);
             } else {
+                // Capture AY register data for HDMI CDC
                 hdmiCdcSendData(0xBFFD, data);
 #endif
             }
@@ -4178,6 +4328,29 @@ FASTRUN void isrWrEvent(uint32_t gpioSix)
                 case 0x3b :
                     {
                         uint8_t highPort = decodeHighAddress(gpioSix);
+#ifdef HDMI_CDC_OUTPUT
+                        if (highPort == 0xbf)
+                        {
+                            // Capture ULAplus 0xBF3B register select port
+                            hdmiCdcUlaPlusRegister = data;
+                            hdmiCdcSendData(CDC_ULAPLUS_SELECT_ADDRESS, data);
+                        } else if (highPort == 0xff)
+                        {
+                            // Capture ULAplus 0xFF3B data port
+                            const uint8_t selected = hdmiCdcUlaPlusRegister;
+                            if (selected < 64)
+                            {
+                                hdmiCdcUlaPlusPalette[selected] = data;
+                            } else if ((selected & 0xc0) == 0x40)
+                            {
+                                hdmiCdcUlaPlusMode = data;
+                                hdmiCdcTimexControl = selected & 0x3f;
+                                hdmiCdcTimexControlValid = true;
+                            }
+                            hdmiCdcSendTimedData(CDC_ULAPLUS_DATA_ADDRESS,
+                                data, ARM_DWT_CYCCNT);
+                        } else
+#endif
                         if (divMmcState.allRamEnabled && divMmcState.enabled &&
                             (highPort == 0x0F))
                         {
@@ -4400,6 +4573,15 @@ FASTRUN void isrWrEvent(uint32_t gpioSix)
                             updateRomIndex(true);
                         }
                     }
+#ifdef HDMI_CDC_OUTPUT
+                    else {
+                        // Capture Timex ULA port for HDMI CDC
+                        hdmiCdcTimexControl = data;
+                        hdmiCdcTimexControlValid = true;
+                        hdmiCdcSendTimedData(CDC_TIMEX_CONTROL_ADDRESS,
+                            data, ARM_DWT_CYCCNT);
+                    }
+#endif
                     break;
             }
         }
@@ -4750,6 +4932,22 @@ FASTRUN void isrRdEvent(uint32_t gpioSix)
             case 0x3b :
                 {
                     uint8_t highPort = decodeHighAddress(gpioSix);
+#ifdef HDMI_CDC_OUTPUT
+                    if (hdmiCdcConnected && (highPort == 0xff))
+                    {
+                        // ULAplus 0xFF3B data port
+                        const uint8_t selected = hdmiCdcUlaPlusRegister;
+                        if (selected < 64)
+                        {
+                            writeData(hdmiCdcUlaPlusPalette[selected]);
+                        } else if ((selected & 0xc0) == 0x40)
+                        {
+                            writeData(hdmiCdcUlaPlusMode);
+                        } else {
+                            writeData(0xff);
+                        }
+                    } else
+#endif
                     if (elementRegistersEnabled && ((highPort & 0xf0) == 0x70))
                     {
                         uint8_t data = 0xff;
@@ -4912,6 +5110,13 @@ FASTRUN void isrRdEvent(uint32_t gpioSix)
                 {
                     writeData(modemOnReset ? 0x00 : espUart.getModemStatusByte());
                 }
+#ifdef HDMI_CDC_OUTPUT
+                else if (hdmiCdcConnected && hdmiCdcTimexControlValid)
+                {
+                    // Timex ULA port
+                    writeData(hdmiCdcTimexControl);
+                }
+#endif
                 break;
         }
     }

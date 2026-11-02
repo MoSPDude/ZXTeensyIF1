@@ -1,6 +1,7 @@
 #include "CommandProtocol.h"
 
 #include "EmulationState.h"
+#include "RasterEvents.h"
 
 namespace zx {
 
@@ -103,8 +104,55 @@ void CommandParser::push(uint8_t byte) {
 }
 
 void CommandParser::dispatchWrite(uint16_t address, uint8_t data) {
+  constexpr uint16_t kRasterTimestampMask = 0xff00;
+  constexpr uint16_t kRasterTimestampBase = 0xfc00;
+  constexpr uint16_t kFrameMarkerAddress = 0xfffc;
+  constexpr uint16_t kTimexControlAddress = 0xfffb;
+  constexpr uint16_t kUlaPlusSelectAddress = 0xbf3b;
+  constexpr uint16_t kUlaPlusDataAddress = 0xff3b;
+  constexpr uint16_t kResetAddress = 0xffff;
+  constexpr uint8_t kResetData = 0xff;
+
   protocolCounters.completedCommands =
       protocolCounters.completedCommands + 1;
+
+  if ((address & kRasterTimestampMask) == kRasterTimestampBase) {
+    const uint16_t timestamp = static_cast<uint16_t>(address & 0x00ff) |
+                               (static_cast<uint16_t>(data) << 8);
+    setRasterTimestamp(timestamp);
+    return;
+  }
+
+  if (address == kFrameMarkerAddress) {
+    beginRasterSourceFrame(data);
+    return;
+  }
+
+  if (address == kTimexControlAddress) {
+    if (!queueRasterTimexWrite(data)) {
+      applyTimexControl(data);
+    }
+    return;
+  }
+
+  if (address == kUlaPlusSelectAddress) {
+    ulaPlusSelectedRegister_ = data;
+    applyCommand(address, data);
+    return;
+  }
+
+  if (address == kUlaPlusDataAddress) {
+    if (!queueRasterUlaPlusWrite(ulaPlusSelectedRegister_, data)) {
+      applyUlaPlusRegister(ulaPlusSelectedRegister_, data);
+    }
+    return;
+  }
+
+  if (address == kResetAddress && data == kResetData) {
+    ulaPlusSelectedRegister_ = 0;
+    resetRasterEvents();
+  }
+
   if (!applyCommand(address, data)) {
     protocolCounters.unknownCommands =
         protocolCounters.unknownCommands + 1;
