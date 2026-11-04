@@ -136,10 +136,11 @@ pixels per word for a native 512-pixel active area. Each logical line is
 rendered once into a small cache and copied to the two physical lines requested
 by HSTX.
 
-The scanline path has no framebuffer. It reads the current emulated display
-state while the foreground loop applies USB commands, so a state change may
-become visible part-way through a frame. This is the same deliberately relaxed
-tearing policy used by the first implementation.
+The scanline path has no RGB framebuffer. Screen-memory writes are collected
+in an immutable source-frame snapshot, selected together with that frame's
+raster events at an HDMI frame boundary. This keeps screen contents aligned
+with border, palette, mode, and screen-selection changes without copying a
+whole display file in the HSTX DMA interrupt.
 
 ULAplus palette/mode, Timex control, ULA border, and 128K memory-control writes
 use source-frame raster timestamps. The Teensy detects the Z80 maskable-
@@ -147,8 +148,11 @@ interrupt acknowledge cycle (`M1` and `IORQ` active), divides the measured
 frame into 312 source lines, and sends a frame marker plus a timestamp before
 each timed video-control write.
 
-The Pico buffers up to 4096 video events in each of three source-frame buffers
-and replays a completed frame one HDMI frame later.
+The Pico buffers up to 4096 video events plus a complete screen-memory snapshot
+in each of three source-frame buffers and replays a completed frame one HDMI
+frame later. Screen writes have frame-level timing in this version: their final
+values for the source frame are visible from the start of its replayed HDMI
+frame.
 Repeated writes to the same video-state target at one timestamp are coalesced
 to their final value. State changes in the cropped lines before and after the
 visible area are captured as bounded state snapshots instead of being replayed

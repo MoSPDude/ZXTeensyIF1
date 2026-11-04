@@ -140,6 +140,10 @@ void CommandParser::dispatchWrite(uint16_t address, uint8_t data) {
     return;
   }
 
+  if (queueRasterDisplayWrite(address, data)) {
+    return;
+  }
+
   if (address == kTimexControlAddress) {
     if (!queueRasterTimexWrite(data)) {
       applyTimexControl(data);
@@ -176,7 +180,9 @@ void CommandParser::dispatchWrite(uint16_t address, uint8_t data) {
 
   if (address == kResetAddress && data == kResetData) {
     ulaPlusSelectedRegister_ = 0;
+    resetMachineState();
     resetRasterEvents();
+    return;
   }
 
   if (!applyCommand(address, data)) {

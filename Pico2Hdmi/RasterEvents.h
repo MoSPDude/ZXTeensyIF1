@@ -33,9 +33,10 @@ void resetRasterEvents();
 void beginRasterSourceFrame(uint8_t sequence);
 void setRasterTimestamp(uint16_t timestamp);
 
-// Resolve and queue video-control writes. Returns true once source-frame
-// timing is active, including when an event had to be dropped, so callers
-// never apply a late timed event immediately.
+// Resolve and queue screen-memory or video-control writes. Returns true once
+// source-frame timing is active, including when a write had to be dropped, so
+// callers never apply a late frame-buffered write immediately.
+bool queueRasterDisplayWrite(uint16_t address, uint8_t data);
 bool queueRasterUlaPlusWrite(uint8_t selectedRegister, uint8_t data);
 bool queueRasterTimexWrite(uint8_t data);
 bool queueRasterBorderWrite(uint8_t data);
@@ -46,5 +47,9 @@ bool queueRasterMemoryControlWrite(uint8_t data);
 void beginRasterOutputFrame();
 void applyRasterEventsForOutputLine(size_t outputLine);
 void finishRasterOutputLine(size_t outputLine);
+
+// Return the immutable display-file snapshot selected for the current HDMI
+// frame. Before source timing is established, this is the live source state.
+const uint8_t *rasterDisplayFile(size_t screen);
 
 }  // namespace zx

@@ -77,6 +77,35 @@ void restartAyEnvelope(uint8_t shape) {
 
 MachineState machineState;
 
+bool resolveDisplayFileAddress(uint16_t address, size_t &screen,
+                               size_t &offset) {
+  if (address >= kScreen0First && address <= kScreen0Last) {
+    screen = 0;
+    offset = address - kScreen0First;
+    return true;
+  }
+
+  if (address >= kScreen1First && address <= kScreen1Last) {
+    screen = 1;
+    offset = address - kScreen1First;
+    return true;
+  }
+
+  if (address >= kScreen0SecondFirst && address <= kScreen0SecondLast) {
+    screen = 0;
+    offset = address - kScreen0First;
+    return true;
+  }
+
+  if (address >= kScreen1SecondFirst && address <= kScreen1SecondLast) {
+    screen = 1;
+    offset = address - kScreen1First;
+    return true;
+  }
+
+  return false;
+}
+
 void resetMachineState() {
   memset(machineState.displayFile, 0, sizeof(machineState.displayFile));
   machineState.memoryControl = 0;
@@ -137,23 +166,10 @@ void queueBeeperSample(uint8_t levels) {
 }
 
 bool applyCommand(uint16_t address, uint8_t data) {
-  if (address >= kScreen0First && address <= kScreen0Last) {
-    machineState.displayFile[0][address - kScreen0First] = data;
-    return true;
-  }
-
-  if (address >= kScreen1First && address <= kScreen1Last) {
-    machineState.displayFile[1][address - kScreen1First] = data;
-    return true;
-  }
-
-  if (address >= kScreen0SecondFirst && address <= kScreen0SecondLast) {
-    machineState.displayFile[0][address - kScreen0First] = data;
-    return true;
-  }
-
-  if (address >= kScreen1SecondFirst && address <= kScreen1SecondLast) {
-    machineState.displayFile[1][address - kScreen1First] = data;
+  size_t screen;
+  size_t offset;
+  if (resolveDisplayFileAddress(address, screen, offset)) {
+    machineState.displayFile[screen][offset] = data;
     return true;
   }
 

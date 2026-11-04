@@ -80,6 +80,11 @@ struct MachineState {
 
 extern MachineState machineState;
 
+// Resolve one encoded display-file address into the mirrored screen storage.
+// Returns false for protocol addresses that do not represent screen memory.
+bool resolveDisplayFileAddress(uint16_t address, size_t &screen,
+                               size_t &offset);
+
 // Restore the Spectrum-facing state to the power-on state described by the
 // wire protocol. Protocol framing and diagnostic counters are intentionally
 // not part of the emulated machine, so they survive a reset command.

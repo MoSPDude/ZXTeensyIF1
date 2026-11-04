@@ -62,6 +62,8 @@ template <size_t BUFFER_SIZE> class RingBuffer
         inline __attribute__((always_inline)) void writeFixedBlock(
             const uint8_t (&data)[BLOCK_SIZE])
         {
+            static_assert((BLOCK_SIZE > 0) && (BLOCK_SIZE <= BUFFER_SIZE),
+                "Fixed block size must fit within the ring buffer");
             size_t head = bufferHead;
             for (size_t i = 0; i < BLOCK_SIZE; ++i)
             {
@@ -77,7 +79,7 @@ template <size_t BUFFER_SIZE> class RingBuffer
         inline __attribute__((always_inline)) void writeBlockWithToken(uint8_t token,
             uint8_t* data, size_t size)
         {
-            size_t tmpHead = (bufferHead + 1) % BUFFER_SIZE;;
+            size_t tmpHead = (bufferHead + 1) % BUFFER_SIZE;
             size_t head = (tmpHead + size) % BUFFER_SIZE;
             buffer[bufferHead] = token;
             if (head < tmpHead)
@@ -93,14 +95,62 @@ template <size_t BUFFER_SIZE> class RingBuffer
 
         inline __attribute__((always_inline)) uint8_t readRaw()
         {
-            uint8_t data = buffer[bufferTail];
-            bufferTail = (bufferTail + 1) % BUFFER_SIZE;
+            size_t tail = bufferTail;
+            uint8_t data = buffer[tail];
+            if (++tail == BUFFER_SIZE)
+            {
+                tail = 0;
+            }
+            bufferTail = tail;
             return data;
         }
 
         inline __attribute__((always_inline)) uint8_t peekRaw(size_t offset)
         {
-            return buffer[(bufferTail + offset) % BUFFER_SIZE];
+            size_t index = bufferTail + offset;
+            while (index >= BUFFER_SIZE)
+            {
+                index -= BUFFER_SIZE;
+            }
+            return buffer[index];
+        }
+
+        template <size_t BLOCK_SIZE>
+        inline __attribute__((always_inline)) void readFixedBlock(
+            uint8_t (&data)[BLOCK_SIZE])
+        {
+            peekFixedBlock(data);
+            discardFixedBlock<BLOCK_SIZE>();
+        }
+
+        template <size_t BLOCK_SIZE>
+        inline __attribute__((always_inline)) void peekFixedBlock(
+            uint8_t (&data)[BLOCK_SIZE])
+        {
+            static_assert((BLOCK_SIZE > 0) && (BLOCK_SIZE <= BUFFER_SIZE),
+                "Fixed block size must fit within the ring buffer");
+            size_t tail = bufferTail;
+            for (size_t i = 0; i < BLOCK_SIZE; ++i)
+            {
+                data[i] = buffer[tail];
+                if (++tail == BUFFER_SIZE)
+                {
+                    tail = 0;
+                }
+            }
+        }
+
+        template <size_t BLOCK_SIZE>
+        inline __attribute__((always_inline)) void discardFixedBlock()
+        {
+            static_assert((BLOCK_SIZE > 0) && (BLOCK_SIZE <= BUFFER_SIZE),
+                "Fixed block size must fit within the ring buffer");
+            size_t tail = bufferTail + BLOCK_SIZE;
+            if (tail >= BUFFER_SIZE)
+            {
+                tail -= BUFFER_SIZE;
+            }
+            bufferTail = tail;
         }
 
         inline __attribute__((always_inline)) bool canRead()

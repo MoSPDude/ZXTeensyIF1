@@ -3,6 +3,7 @@
 #include <pico.h>
 
 #include "EmulationState.h"
+#include "RasterEvents.h"
 
 // Spectrum scanline layout adapted from fruit-bat/pico-zxspectrum's
 // ZxSpectrumPrepareDviScanline.cpp (MIT, copyright fruit-bat contributors).
@@ -123,7 +124,7 @@ void __not_in_flash_func(renderUlaScanline)(uint32_t *pixels, size_t y,
                                   : ((machineState.memoryControl & 0x08) != 0
                                          ? 1
                                          : 0);
-  const uint8_t *display = machineState.displayFile[screenNumber];
+  const uint8_t *display = rasterDisplayFile(screenNumber);
   uint32_t *output = pixels + kBorderLeft;
 
   if (timexMode == 0x06) {

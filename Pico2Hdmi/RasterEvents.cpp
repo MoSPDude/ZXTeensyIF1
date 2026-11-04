@@ -2,6 +2,7 @@
 
 #include <pico.h>
 #include <pico/sync.h>
+#include <string.h>
 
 #include "EmulationState.h"
 #include "UlaVideo.h"
@@ -45,6 +46,7 @@ struct RasterVideoState {
 
 struct RasterFrameBuffer {
   RasterEvent events[kRasterEventsPerFrame];
+  uint8_t displayFile[kScreenCount][kDisplayMemorySize];
   RasterVideoState visibleStartState;
   RasterVideoState endState;
   size_t count;
@@ -133,6 +135,11 @@ void captureSourceState(RasterVideoState &state) {
   state.timex = sourceTimex;
   state.borderColour = sourceBorderColour;
   state.memoryControl = sourceMemoryControl;
+}
+
+void captureSourceDisplay(RasterFrameBuffer &frame) {
+  memcpy(frame.displayFile, machineState.displayFile,
+         sizeof(frame.displayFile));
 }
 
 void applySourceState(const RasterVideoState &state) {
@@ -264,7 +271,6 @@ bool queueRasterEvent(EventType type, uint8_t selectedRegister, uint8_t data) {
 
 void stopPlayingAfterReset() {
   if (playingResetGeneration != resetGeneration) {
-    playingResetGeneration = resetGeneration;
     if (playingBuffer != kNoBuffer) {
       playingEvent = frameBuffers[playingBuffer].count;
     }
@@ -285,6 +291,7 @@ void initializeRasterEvents() {
   }
   collectingBuffer = 0;
   frameBuffers[collectingBuffer].state = BufferState::kCollecting;
+  captureSourceDisplay(frameBuffers[collectingBuffer]);
   playingBuffer = kNoBuffer;
   playingEvent = 0;
   currentTimestamp = 0;
@@ -303,6 +310,7 @@ void initializeRasterEvents() {
 }
 
 void resetRasterEvents() {
+  int8_t displayCaptureBuffer = kNoBuffer;
   critical_section_enter_blocking(&frameBufferLock);
   ++resetGeneration;
   sourceTimingActive = false;
@@ -326,12 +334,18 @@ void resetRasterEvents() {
   collectingBuffer = findFreeBuffer();
   if (collectingBuffer != kNoBuffer) {
     frameBuffers[collectingBuffer].count = 0;
+    frameBuffers[collectingBuffer].firstVisibleEvent = 0;
     frameBuffers[collectingBuffer].state = BufferState::kCollecting;
+    displayCaptureBuffer = collectingBuffer;
   }
   critical_section_exit(&frameBufferLock);
+  if (displayCaptureBuffer != kNoBuffer) {
+    captureSourceDisplay(frameBuffers[displayCaptureBuffer]);
+  }
 }
 
 void beginRasterSourceFrame(uint8_t sequence) {
+  int8_t displayCaptureBuffer = kNoBuffer;
   critical_section_enter_blocking(&frameBufferLock);
   rasterEventCounters.frameMarkers = rasterEventCounters.frameMarkers + 1;
   currentTimestamp = 0;
@@ -348,8 +362,12 @@ void beginRasterSourceFrame(uint8_t sequence) {
       collecting.sequence = sequence;
       captureSourceState(collecting.visibleStartState);
       collecting.state = BufferState::kCollecting;
+      displayCaptureBuffer = collectingBuffer;
     }
     critical_section_exit(&frameBufferLock);
+    if (displayCaptureBuffer != kNoBuffer) {
+      captureSourceDisplay(frameBuffers[displayCaptureBuffer]);
+    }
     return;
   }
 
@@ -383,12 +401,41 @@ void beginRasterSourceFrame(uint8_t sequence) {
     collecting.sequence = sequence;
     captureSourceState(collecting.visibleStartState);
     collecting.state = BufferState::kCollecting;
+    displayCaptureBuffer = collectingBuffer;
   }
   critical_section_exit(&frameBufferLock);
+  if (displayCaptureBuffer != kNoBuffer) {
+    captureSourceDisplay(frameBuffers[displayCaptureBuffer]);
+  }
 }
 
 void setRasterTimestamp(uint16_t timestamp) {
   currentTimestamp = timestamp;
+}
+
+bool queueRasterDisplayWrite(uint16_t address, uint8_t data) {
+  size_t screen;
+  size_t offset;
+  if (!resolveDisplayFileAddress(address, screen, offset) ||
+      !sourceTimingActive) {
+    return false;
+  }
+
+  // Keep a complete source-side image so a later buffer can recover after a
+  // marker gap or temporary lack of a free frame buffer.
+  machineState.displayFile[screen][offset] = data;
+
+  critical_section_enter_blocking(&frameBufferLock);
+  if (collectingBuffer == kNoBuffer) {
+    rasterEventCounters.eventOverflows =
+        rasterEventCounters.eventOverflows + 1;
+    critical_section_exit(&frameBufferLock);
+    return true;
+  }
+
+  frameBuffers[collectingBuffer].displayFile[screen][offset] = data;
+  critical_section_exit(&frameBufferLock);
+  return true;
 }
 
 bool queueRasterUlaPlusWrite(uint8_t selectedRegister, uint8_t data) {
@@ -409,14 +456,20 @@ bool queueRasterMemoryControlWrite(uint8_t data) {
 
 void beginRasterOutputFrame() {
   critical_section_enter_blocking(&frameBufferLock);
-  if (playingBuffer != kNoBuffer) {
+  if (playingResetGeneration != resetGeneration &&
+      playingBuffer != kNoBuffer) {
     frameBuffers[playingBuffer].count = 0;
     frameBuffers[playingBuffer].state = BufferState::kFree;
     playingBuffer = kNoBuffer;
   }
+  playingResetGeneration = resetGeneration;
 
   const int8_t ready = findOldestReadyBuffer();
   if (ready != kNoBuffer) {
+    if (playingBuffer != kNoBuffer) {
+      frameBuffers[playingBuffer].count = 0;
+      frameBuffers[playingBuffer].state = BufferState::kFree;
+    }
     playingBuffer = ready;
     frameBuffers[playingBuffer].state = BufferState::kPlaying;
     playingEvent = frameBuffers[playingBuffer].firstVisibleEvent;
@@ -455,6 +508,13 @@ void finishRasterOutputLine(size_t outputLine) {
     applySourceState(playing.endState);
     playingEvent = playing.count;
   }
+}
+
+const uint8_t *rasterDisplayFile(size_t screen) {
+  if (playingBuffer != kNoBuffer) {
+    return frameBuffers[playingBuffer].displayFile[screen];
+  }
+  return machineState.displayFile[screen];
 }
 
 }  // namespace zx
