@@ -562,6 +562,7 @@ static const uint16_t CDC_ULAPLUS_SELECT_ADDRESS = 0xBF3B;
 static const uint16_t CDC_ULAPLUS_DATA_ADDRESS = 0xFF3B;
 static const uint16_t CDC_RASTER_SOURCE_LINES = 312;
 static const uint8_t CDC_RASTER_PHASE_BITS = 7;
+static const uint16_t CDC_RASTER_TIMESTAMP_INVALID = UINT16_MAX;
 static const uint32_t CDC_AUDIO_SAMPLE_RATE = 44100;
 static const uint32_t CDC_AUDIO_SAMPLE_CYCLES = (TEENSY_CLK_FREQ / CDC_AUDIO_SAMPLE_RATE);
 static const uint32_t CDC_AUDIO_SAMPLE_REMAINDER = (TEENSY_CLK_FREQ % CDC_AUDIO_SAMPLE_RATE);
@@ -570,6 +571,7 @@ static const uint32_t CDC_FRAME_MIN_ACK_CYCLES = (TEENSY_CLK_FREQ / 100);
 
 USBSerial_BigBuffer hdmiCdc(usbHost, 1);
 DMAMEM RingBuffer<CDC_BUFFER_SIZE> hdmiCdcBuffer;
+uint8_t hdmiCdcOutputPacket[CDC_PACKET_SIZE] = {};
 volatile uint8_t hdmiCdcUlaBeeper = 0;
 volatile uint8_t hdmiCdcUlaBorder = 0;
 uint8_t hdmiCdcBeeperSentLevels = 0;
@@ -587,9 +589,9 @@ volatile uint32_t hdmiCdcFrameStartCycle = 0;
 volatile uint32_t hdmiCdcLastFrameAckCycle = 0;
 volatile uint32_t hdmiCdcFramePeriodCycles = CDC_FRAME_DEFAULT_CYCLES;
 volatile uint32_t hdmiCdcFrameLineCycles = (CDC_FRAME_DEFAULT_CYCLES / CDC_RASTER_SOURCE_LINES);
+volatile uint16_t hdmiCdcLastTimestamp = CDC_RASTER_TIMESTAMP_INVALID;
 volatile uint8_t hdmiCdcFrameSequence = 0;
-volatile uint32_t hdmiCdcFrameAcks = 0;
-volatile uint32_t hdmiCdcRejectedFrameAcks = 0;
+volatile uint8_t hdmiCdcLastAckSequence = 0;
 #endif
 
 // SPI and UART tick cycle counter
@@ -605,6 +607,7 @@ FASTRUN void loop() __attribute__((hot, optimize("O3")));
 #ifdef HDMI_CDC_OUTPUT
 FASTRUN void hdmiCdcServiceOutput() __attribute__((hot, optimize("O3")));
 inline void hdmiCdcSendData(uint16_t address, uint8_t data) __attribute__((optimize("O3")));
+inline void hdmiCdcOnReadTick(uint32_t cycle) __attribute__((always_inline, hot, optimize("O3")));
 inline void hdmiCdcOnInterruptAcknowledge(uint32_t cycle) __attribute__((always_inline, hot, optimize("O3")));
 #endif
 inline void sdSpiOnTick() __attribute__((always_inline, hot, optimize("O3")));
@@ -1043,23 +1046,20 @@ inline __attribute__((optimize("O3"))) void hdmiCdcBegin()
 {
     hdmiCdc.begin(115200);
     hdmiCdcBuffer.clear();
-    uint8_t output[CDC_PACKET_SIZE];
-    output[0] = 0xFF;
-    output[1] = 0xFF;
-    output[2] = 0xFF;
-    output[3] = 0x00;
-    for (size_t i = 4; i < CDC_PACKET_SIZE; i += 4)
-    {
-        output[i] = 0xFF;
-        output[i + 1] = 0xFF;
-        output[i + 2] = 0x00;
-        output[i + 3] = 0x00;
-    }
-    hdmiCdc.write(output, CDC_PACKET_SIZE);
+    hdmiCdcOutputPacket[0] = 0xFF;
+    hdmiCdcOutputPacket[1] = 0xFF;
+    hdmiCdcOutputPacket[2] = 0xFF;
+    hdmiCdcOutputPacket[3] = 0x00;
+    hdmiCdcOutputPacket[4] = 0xFF;
+    hdmiCdcOutputPacket[5] = 0xFF;
+    hdmiCdcOutputPacket[6] = 0x00;
+    hdmiCdcOutputPacket[7] = 0x00;
+    hdmiCdc.write(hdmiCdcOutputPacket, CDC_PACKET_SIZE);
     hdmiCdcBeeperSentValid = false;
     hdmiCdcAudioCycleCount = ARM_DWT_CYCCNT;
     hdmiCdcAudioRemainder = 0;
     hdmiCdcFrameSyncValid = false;
+    hdmiCdcLastTimestamp = CDC_RASTER_TIMESTAMP_INVALID;
     hdmiCdcConnected = true;
 }
 
@@ -1083,18 +1083,21 @@ inline __attribute__((optimize("O3"))) void hdmiCdcSendData(uint16_t address, ui
 inline __attribute__((always_inline, optimize("O3"))) uint16_t hdmiCdcRasterTimestamp(
     uint32_t cycle)
 {
-    uint32_t lineCycles = hdmiCdcFrameLineCycles;
-    if (!hdmiCdcFrameSyncValid || (lineCycles == 0))
+    if (hdmiCdcFrameSyncValid)
     {
-        return 0;
+        const uint32_t lineCycles = hdmiCdcFrameLineCycles;
+        if (lineCycles != 0)
+        {
+            uint32_t sourceLine =
+                (cycle - hdmiCdcFrameStartCycle) / lineCycles;
+            if (sourceLine >= CDC_RASTER_SOURCE_LINES)
+            {
+                sourceLine = CDC_RASTER_SOURCE_LINES - 1;
+            }
+            return (uint16_t)(sourceLine << CDC_RASTER_PHASE_BITS);
+        }
     }
-
-    uint32_t sourceLine = (cycle - hdmiCdcFrameStartCycle) / lineCycles;
-    if (sourceLine >= CDC_RASTER_SOURCE_LINES)
-    {
-        sourceLine = CDC_RASTER_SOURCE_LINES - 1;
-    }
-    return (uint16_t)(sourceLine << CDC_RASTER_PHASE_BITS);
+    return 0;
 }
 
 inline __attribute__((optimize("O3"))) void hdmiCdcSendTimedData(uint16_t address,
@@ -1105,30 +1108,60 @@ inline __attribute__((optimize("O3"))) void hdmiCdcSendTimedData(uint16_t addres
         if (!hdmiCdcFrameSyncValid)
         {
             hdmiCdcSendData(address, data);
-        } else if (hdmiCdcBuffer.getFree() >= 6)
-        {
+        } else {
             const uint16_t timestamp = hdmiCdcRasterTimestamp(cycle);
-            uint8_t buffer[6];
-            buffer[0] = timestamp & 0xFF;
-            buffer[1] = 0xFC;
-            buffer[2] = timestamp >> 8;
-            buffer[3] = address & 0xFF;
-            buffer[4] = address >> 8;
-            buffer[5] = data;
-            hdmiCdcBuffer.writeBlock(buffer, sizeof(buffer));
+            const bool timestampChanged =
+                (timestamp != hdmiCdcLastTimestamp);
+            const size_t required = timestampChanged ? 6 : 3;
+            if (hdmiCdcBuffer.getFree() >= required)
+            {
+                uint8_t buffer[3];
+                if (timestampChanged)
+                {
+                    buffer[0] = timestamp & 0xFF;
+                    buffer[1] = 0xFC;
+                    buffer[2] = timestamp >> 8;
+                    hdmiCdcBuffer.writeBlock(buffer, 3);
+                    hdmiCdcLastTimestamp = timestamp;
+                }
+
+                buffer[0] = address & 0xFF;
+                buffer[1] = address >> 8;
+                buffer[2] = data;
+                hdmiCdcBuffer.writeBlock(buffer, 3);
+            }
+        }
+    }
+}
+
+inline void hdmiCdcOnReadTick(uint32_t cycle)
+{
+    if (hdmiCdcFrameSyncValid)
+    {
+        const uint32_t frameCycles = hdmiCdcFramePeriodCycles;
+        const uint32_t elapsed = cycle - hdmiCdcFrameStartCycle;
+        if ((frameCycles != 0) && (elapsed >= frameCycles) &&
+            (hdmiCdcBuffer.getFree() >= 3))
+        {
+            const uint32_t elapsedFrames = elapsed / frameCycles;
+            hdmiCdcFrameStartCycle += elapsedFrames * frameCycles;
+            hdmiCdcFrameSequence += (uint8_t)elapsedFrames;
+            hdmiCdcLastTimestamp = CDC_RASTER_TIMESTAMP_INVALID;
+            hdmiCdcSendData(CDC_FRAME_MARKER_ADDRESS, hdmiCdcFrameSequence);
         }
     }
 }
 
 inline void hdmiCdcOnInterruptAcknowledge(uint32_t cycle)
 {
-    uint32_t elapsedFrames = 1;
+    bool markerNeeded;
+    uint32_t elapsedFrames;
+    uint8_t acknowledgedSequence;
     if (hdmiCdcFrameSyncValid)
     {
         const uint32_t elapsed = cycle - hdmiCdcLastFrameAckCycle;
         if (elapsed < CDC_FRAME_MIN_ACK_CYCLES)
         {
-            ++hdmiCdcRejectedFrameAcks;
             return;
         }
 
@@ -1150,7 +1183,6 @@ inline void hdmiCdcOnInterruptAcknowledge(uint32_t cycle)
             (elapsed - expected) : (expected - elapsed);
         if ((phaseError > (period / 8)) && (elapsed <= (period * 4)))
         {
-            ++hdmiCdcRejectedFrameAcks;
             return;
         }
 
@@ -1167,22 +1199,45 @@ inline void hdmiCdcOnInterruptAcknowledge(uint32_t cycle)
             hdmiCdcFramePeriodCycles = period;
             hdmiCdcFrameLineCycles = period / CDC_RASTER_SOURCE_LINES;
         }
+
+        acknowledgedSequence =
+            hdmiCdcLastAckSequence + (uint8_t)elapsedFrames;
+        markerNeeded =
+            (acknowledgedSequence != hdmiCdcFrameSequence);
+    } else {
+        elapsedFrames = 1;
+        acknowledgedSequence = hdmiCdcFrameSequence + 1;
+        markerNeeded = true;
     }
 
-    hdmiCdcFrameSequence += (uint8_t)elapsedFrames;
-    hdmiCdcFrameStartCycle = cycle;
+    // A synthetic marker may already represent this acknowledgement. Keep its
+    // predicted frame origin so timestamps already queued for that frame stay
+    // ordered; the next real marker will re-phase the origin.
+    if (markerNeeded)
+    {
+        if (hdmiCdcBuffer.getFree() < 3)
+        {
+            return;
+        } else {
+            hdmiCdcFrameStartCycle = cycle;
+            hdmiCdcLastTimestamp = CDC_RASTER_TIMESTAMP_INVALID;
+        }
+    }
+    hdmiCdcFrameSequence = acknowledgedSequence;
+    hdmiCdcLastAckSequence = acknowledgedSequence;
     hdmiCdcLastFrameAckCycle = cycle;
     hdmiCdcFrameSyncValid = true;
-    ++hdmiCdcFrameAcks;
-    hdmiCdcSendData(CDC_FRAME_MARKER_ADDRESS, hdmiCdcFrameSequence);
+    if (markerNeeded)
+    {
+        hdmiCdcSendData(CDC_FRAME_MARKER_ADDRESS, acknowledgedSequence);
+    }
 }
 
 FASTRUN void hdmiCdcServiceOutput()
 {
     // Experimentally send only complete 64-byte full-speed bulk packets. After
-    // encoding commands and incremental runs, fill every remaining complete
-    // four-byte slot with an audio-only no-op. The Pico ignores any final one
-    // to three filler bytes at the packet boundary.
+    // encoding commands and incremental runs, append one packet terminator.
+    // The Pico ignores that header and every remaining filler byte.
     size_t remainingCommands = hdmiCdcBuffer.getSize() / 3;
     uint32_t audioCycle = ARM_DWT_CYCCNT;
     if ((remainingCommands == 0) && !hdmiCdcAudioDue(audioCycle))
@@ -1194,7 +1249,6 @@ FASTRUN void hdmiCdcServiceOutput()
         return;
     }
 
-    uint8_t output[CDC_PACKET_SIZE];
     size_t outputSize = 0;
     while (outputSize + 4 <= CDC_PACKET_SIZE)
     {
@@ -1259,10 +1313,10 @@ FASTRUN void hdmiCdcServiceOutput()
             }
         }
 
-        output[outputSize++] = address & 0xFF;
-        output[outputSize++] = address >> 8;
-        output[outputSize++] = data;
-        output[outputSize++] = extension;
+        hdmiCdcOutputPacket[outputSize++] = address & 0xFF;
+        hdmiCdcOutputPacket[outputSize++] = address >> 8;
+        hdmiCdcOutputPacket[outputSize++] = data;
+        hdmiCdcOutputPacket[outputSize++] = extension;
 
         if (isRun)
         {
@@ -1285,32 +1339,28 @@ FASTRUN void hdmiCdcServiceOutput()
                 hdmiCdcBuffer.readRaw();
                 hdmiCdcBuffer.readRaw();
                 hdmiCdcBuffer.readRaw();
-                output[outputSize++] = data;
+                hdmiCdcOutputPacket[outputSize++] = data;
                 if (data == CDC_ESCAPE)
                 {
-                    output[outputSize++] = CDC_ESCAPE;
+                    hdmiCdcOutputPacket[outputSize++] = CDC_ESCAPE;
                 }
                 address = nextAddress;
                 --remainingCommands;
             }
-            output[outputSize++] = CDC_ESCAPE;
-            output[outputSize++] = CDC_RUN_END;
+            hdmiCdcOutputPacket[outputSize++] = CDC_ESCAPE;
+            hdmiCdcOutputPacket[outputSize++] = CDC_RUN_END;
         }
     }
     if (outputSize != 0)
     {
-        while (outputSize + 4 <= CDC_PACKET_SIZE)
+        if (outputSize + 4 <= CDC_PACKET_SIZE)
         {
-            output[outputSize++] = 0xFF;
-            output[outputSize++] = 0xFF;
-            output[outputSize++] = 0x00;
-            output[outputSize++] = 0x00;
+            hdmiCdcOutputPacket[outputSize++] = 0xFF;
+            hdmiCdcOutputPacket[outputSize++] = 0xFF;
+            hdmiCdcOutputPacket[outputSize++] = 0x00;
+            hdmiCdcOutputPacket[outputSize++] = 0x00;
         }
-        while (outputSize < CDC_PACKET_SIZE)
-        {
-            output[outputSize++] = 0x00;
-        }
-        hdmiCdc.write(output, CDC_PACKET_SIZE);
+        hdmiCdc.write(hdmiCdcOutputPacket, CDC_PACKET_SIZE);
     }
 }
 #endif
@@ -2475,6 +2525,7 @@ void handleStateReset()
     hdmiCdcTimexControl = 0;
     hdmiCdcTimexControlValid = false;
     hdmiCdcFrameSyncValid = false;
+    hdmiCdcLastTimestamp = CDC_RASTER_TIMESTAMP_INVALID;
     hdmiCdcFramePeriodCycles = CDC_FRAME_DEFAULT_CYCLES;
     hdmiCdcFrameLineCycles =
         CDC_FRAME_DEFAULT_CYCLES / CDC_RASTER_SOURCE_LINES;
@@ -3739,6 +3790,8 @@ FASTRUN void isrFastGpios()
 {
     // Interrupts on GPIO6 - assumes only RD_PIN and WR_PIN
 #ifdef HDMI_CDC_OUTPUT
+    uint32_t gpioSixStatus = GPIO6_ISR &
+        (RD_PIN_BITMASK | WR_PIN_BITMASK | IOREQ_PIN_BITMASK);
     GPIO6_ISR = (RD_PIN_BITMASK | WR_PIN_BITMASK | IOREQ_PIN_BITMASK);
 #else
     GPIO6_ISR = (RD_PIN_BITMASK | WR_PIN_BITMASK);
@@ -3770,6 +3823,13 @@ FASTRUN void isrFastGpios()
             }
         }
 
+#ifdef HDMI_CDC_OUTPUT
+        if (hdmiCdcConnected && ((gpioSixStatus & RD_PIN_BITMASK) != 0))
+        {
+            hdmiCdcOnReadTick(ARM_DWT_CYCCNT);
+        }
+#endif
+
         if ((gpioSix & WR_PIN_BITMASK) == 0)
         {
             isrWrEvent(gpioSix);
@@ -3781,7 +3841,7 @@ FASTRUN void isrFastGpios()
             // Software detection for a maskable interrupt acknowledge, of
             // M1 and IORQ low, whilst MREQ, RD and WR remain high.
             uint32_t gpioNine = (*(volatile uint32_t *)IMXRT_GPIO9_ADDRESS);
-            if ((gpioNine & M1_PIN_BITMASK) == 0)
+            if (hdmiCdcConnected && ((gpioNine & M1_PIN_BITMASK) == 0))
             {
                 hdmiCdcOnInterruptAcknowledge(ARM_DWT_CYCCNT);
             }
@@ -4245,7 +4305,7 @@ FASTRUN void isrWrEvent(uint32_t gpioSix)
                         divMmcState.toggle = true;
                     }
 #ifdef HDMI_CDC_OUTPUT
-                    hdmiCdcSendData(0x7FFD, data);
+                    hdmiCdcSendTimedData(0x7FFD, data, ARM_DWT_CYCCNT);
 #endif
                 } else if ((gpioSix & A13_PIN_BITMASK) != 0x0)
                 {
@@ -4551,7 +4611,8 @@ FASTRUN void isrWrEvent(uint32_t gpioSix)
                     data = data & 0x07;
                     if (data != hdmiCdcUlaBorder)
                     {
-                        hdmiCdcSendData(0xFFFE, data);
+                        hdmiCdcSendTimedData(0xFFFE, data,
+                            ARM_DWT_CYCCNT);
                         hdmiCdcUlaBorder = data;
                     }
 #endif

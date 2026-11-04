@@ -13,6 +13,7 @@ constexpr size_t kRasterFirstRenderedLine = 16;
 struct RasterEventCounters {
   uint32_t frameMarkers;
   uint32_t queuedEvents;
+  uint32_t coalescedEvents;
   uint32_t playedFrames;
   uint32_t eventOverflows;
   uint32_t droppedFrames;
@@ -37,6 +38,8 @@ void setRasterTimestamp(uint16_t timestamp);
 // never apply a late timed event immediately.
 bool queueRasterUlaPlusWrite(uint8_t selectedRegister, uint8_t data);
 bool queueRasterTimexWrite(uint8_t data);
+bool queueRasterBorderWrite(uint8_t data);
+bool queueRasterMemoryControlWrite(uint8_t data);
 
 // Core-1 HSTX input. Select one completed source frame at HDMI frame start,
 // then apply its events before each logical output line is rendered.

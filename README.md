@@ -394,7 +394,8 @@ and its build instructions are in [`Pico2Hdmi`](Pico2Hdmi/README.md).
 ULA, ULAplus, Timex-video, and AY bus writes are sent as address/data messages, with
 consecutive addresses coalesced into escaped data runs. The Teensy currently
 sends complete 64-byte packets to encourage it to send immediately (without the write
-timeout), and pads every remaining complete four-byte slot with a "No-Op".
+timeout). One `FF FF 00 00` header terminates the useful packet contents, and
+the Pico discards every remaining filler byte.
 
 The RP2350 emulates the ULA, ULAplus, Timex hi-colour/hi-res modes, and AY, generating
 video and sound over HDMI. The Z80 video refresh interrupt-acknowledge cycles provide

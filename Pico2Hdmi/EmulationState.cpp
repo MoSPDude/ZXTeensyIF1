@@ -61,7 +61,7 @@ void writeUlaPort(uint8_t data) {
   UlaState &ula = machineState.ula;
 
   ula.portValue = data;
-  ula.borderColour = data & 0x07;
+  applyBorderColour(data);
   ula.micHigh = (data & kMicMask) != 0;
   ula.earHigh = (data & kEarMask) != 0;
 }
@@ -159,7 +159,7 @@ bool applyCommand(uint16_t address, uint8_t data) {
 
   switch (address) {
     case kMemoryControlAddress:
-      machineState.memoryControl = data;
+      applyMemoryControl(data);
       return true;
 
     case kUlaPlusSelectAddress:
@@ -205,6 +205,14 @@ bool applyCommand(uint16_t address, uint8_t data) {
     default:
       return false;
   }
+}
+
+void applyBorderColour(uint8_t data) {
+  machineState.ula.borderColour = data & 0x07;
+}
+
+void applyMemoryControl(uint8_t data) {
+  machineState.memoryControl = data;
 }
 
 void applyUlaPlusRegister(uint8_t selectedRegister, uint8_t data) {

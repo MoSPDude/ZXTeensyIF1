@@ -23,6 +23,8 @@ enum class BufferState : uint8_t {
 enum class EventType : uint8_t {
   kUlaPlus,
   kTimex,
+  kBorder,
+  kMemoryControl,
 };
 
 struct RasterEvent {
@@ -32,13 +34,21 @@ struct RasterEvent {
   uint8_t data;
 };
 
-struct RasterFrameBuffer {
-  RasterEvent events[kRasterEventsPerFrame];
+struct RasterVideoState {
   uint8_t palette[kUlaPlusPaletteSize];
   uint8_t modeRegister;
   uint8_t mode;
   TimexState timex;
+  uint8_t borderColour;
+  uint8_t memoryControl;
+};
+
+struct RasterFrameBuffer {
+  RasterEvent events[kRasterEventsPerFrame];
+  RasterVideoState visibleStartState;
+  RasterVideoState endState;
   size_t count;
+  size_t firstVisibleEvent;
   uint32_t ordinal;
   uint8_t sequence;
   BufferState state;
@@ -58,6 +68,8 @@ uint8_t sourcePalette[kUlaPlusPaletteSize] = {};
 uint8_t sourceModeRegister = 0x40;
 uint8_t sourceMode = 0;
 TimexState sourceTimex = {};
+uint8_t sourceBorderColour = 0;
+uint8_t sourceMemoryControl = 0;
 
 int8_t findFreeBuffer() {
   for (size_t i = 0; i < kRasterBufferCount; ++i) {
@@ -93,28 +105,44 @@ size_t eventSourceLine(const RasterEvent &event) {
 }
 
 void applyEvent(const RasterEvent &event) {
-  if (event.type == EventType::kUlaPlus) {
-    applyUlaPlusRegister(event.selectedRegister, event.data);
-  } else {
-    applyTimexControl(event.data);
+  switch (event.type) {
+    case EventType::kUlaPlus:
+      applyUlaPlusRegister(event.selectedRegister, event.data);
+      break;
+
+    case EventType::kTimex:
+      applyTimexControl(event.data);
+      break;
+
+    case EventType::kBorder:
+      applyBorderColour(event.data);
+      break;
+
+    case EventType::kMemoryControl:
+      applyMemoryControl(event.data);
+      break;
   }
 }
 
-void captureSourceState(RasterFrameBuffer &frame) {
+void captureSourceState(RasterVideoState &state) {
   for (size_t i = 0; i < kUlaPlusPaletteSize; ++i) {
-    frame.palette[i] = sourcePalette[i];
+    state.palette[i] = sourcePalette[i];
   }
-  frame.modeRegister = sourceModeRegister;
-  frame.mode = sourceMode;
-  frame.timex = sourceTimex;
+  state.modeRegister = sourceModeRegister;
+  state.mode = sourceMode;
+  state.timex = sourceTimex;
+  state.borderColour = sourceBorderColour;
+  state.memoryControl = sourceMemoryControl;
 }
 
-void applySourceState(const RasterFrameBuffer &frame) {
+void applySourceState(const RasterVideoState &state) {
   for (size_t i = 0; i < kUlaPlusPaletteSize; ++i) {
-    applyUlaPlusRegister(static_cast<uint8_t>(i), frame.palette[i]);
+    applyUlaPlusRegister(static_cast<uint8_t>(i), state.palette[i]);
   }
-  applyUlaPlusRegister(frame.modeRegister, frame.mode);
-  machineState.timex = frame.timex;
+  applyUlaPlusRegister(state.modeRegister, state.mode);
+  machineState.timex = state.timex;
+  applyBorderColour(state.borderColour);
+  applyMemoryControl(state.memoryControl);
 }
 
 void updateSourceState(uint8_t selectedRegister, uint8_t data) {
@@ -131,11 +159,50 @@ void updateSourceTimexState(uint8_t data) {
   sourceTimex = decodeTimexControl(data, false);
 }
 
+void updateSourceBorderState(uint8_t data) {
+  sourceBorderColour = data & 0x07;
+}
+
+void updateSourceMemoryControlState(uint8_t data) {
+  sourceMemoryControl = data;
+}
+
+bool sameEventTarget(const RasterEvent &left, EventType rightType,
+                     uint8_t rightSelectedRegister) {
+  if (left.type != rightType) {
+    return false;
+  }
+  if (rightType != EventType::kUlaPlus) {
+    return true;
+  }
+
+  constexpr uint8_t kUlaPlusModeGroup = 0x40;
+  constexpr uint8_t kUlaPlusGroupMask = 0xc0;
+  const bool leftIsMode =
+      (left.selectedRegister & kUlaPlusGroupMask) == kUlaPlusModeGroup;
+  const bool rightIsMode =
+      (rightSelectedRegister & kUlaPlusGroupMask) == kUlaPlusModeGroup;
+  return (leftIsMode && rightIsMode) ||
+         (left.selectedRegister == rightSelectedRegister);
+}
+
 bool queueRasterEvent(EventType type, uint8_t selectedRegister, uint8_t data) {
-  if (type == EventType::kUlaPlus) {
-    updateSourceState(selectedRegister, data);
-  } else {
-    updateSourceTimexState(data);
+  switch (type) {
+    case EventType::kUlaPlus:
+      updateSourceState(selectedRegister, data);
+      break;
+
+    case EventType::kTimex:
+      updateSourceTimexState(data);
+      break;
+
+    case EventType::kBorder:
+      updateSourceBorderState(data);
+      break;
+
+    case EventType::kMemoryControl:
+      updateSourceMemoryControlState(data);
+      break;
   }
   if (!sourceTimingActive) {
     return false;
@@ -150,6 +217,27 @@ bool queueRasterEvent(EventType type, uint8_t selectedRegister, uint8_t data) {
   }
 
   RasterFrameBuffer &collecting = frameBuffers[collectingBuffer];
+  for (size_t i = collecting.count; i != 0; --i) {
+    const size_t existingIndex = i - 1;
+    const RasterEvent &existing = collecting.events[existingIndex];
+    if (existing.timestamp != currentTimestamp) {
+      break;
+    }
+    if (!sameEventTarget(existing, type, selectedRegister)) {
+      continue;
+    }
+
+    // Move the replacement to the end so its ordering relative to other
+    // state targets at this timestamp remains the same as the source writes.
+    for (size_t move = existingIndex; move + 1 < collecting.count; ++move) {
+      collecting.events[move] = collecting.events[move + 1];
+    }
+    --collecting.count;
+    rasterEventCounters.coalescedEvents =
+        rasterEventCounters.coalescedEvents + 1;
+    break;
+  }
+
   if (collecting.count == kRasterEventsPerFrame) {
     rasterEventCounters.eventOverflows =
         rasterEventCounters.eventOverflows + 1;
@@ -163,6 +251,13 @@ bool queueRasterEvent(EventType type, uint8_t selectedRegister, uint8_t data) {
   event.selectedRegister = selectedRegister;
   event.data = data;
   rasterEventCounters.queuedEvents = rasterEventCounters.queuedEvents + 1;
+  if (eventSourceLine(event) <= kRasterFirstRenderedLine) {
+    // Top-cropped writes only establish the state for the first visible line.
+    // Capture that state on core 0 so core 1 never has to replay the cropped
+    // prefix in its HSTX DMA interrupt.
+    captureSourceState(collecting.visibleStartState);
+    collecting.firstVisibleEvent = collecting.count;
+  }
   critical_section_exit(&frameBufferLock);
   return true;
 }
@@ -203,6 +298,8 @@ void initializeRasterEvents() {
   sourceModeRegister = 0x40;
   sourceMode = 0;
   sourceTimex = {};
+  sourceBorderColour = 0;
+  sourceMemoryControl = 0;
 }
 
 void resetRasterEvents() {
@@ -216,6 +313,8 @@ void resetRasterEvents() {
   sourceModeRegister = 0x40;
   sourceMode = 0;
   sourceTimex = {};
+  sourceBorderColour = 0;
+  sourceMemoryControl = 0;
 
   for (size_t i = 0; i < kRasterBufferCount; ++i) {
     if (static_cast<int8_t>(i) != playingBuffer) {
@@ -245,8 +344,9 @@ void beginRasterSourceFrame(uint8_t sequence) {
     if (collectingBuffer != kNoBuffer) {
       RasterFrameBuffer &collecting = frameBuffers[collectingBuffer];
       collecting.count = 0;
+      collecting.firstVisibleEvent = 0;
       collecting.sequence = sequence;
-      captureSourceState(collecting);
+      captureSourceState(collecting.visibleStartState);
       collecting.state = BufferState::kCollecting;
     }
     critical_section_exit(&frameBufferLock);
@@ -258,6 +358,7 @@ void beginRasterSourceFrame(uint8_t sequence) {
     const uint8_t sequenceDelta =
         static_cast<uint8_t>(sequence - completed.sequence);
     if (sequenceDelta == 1) {
+      captureSourceState(completed.endState);
       completed.ordinal = nextFrameOrdinal++;
       completed.state = BufferState::kReady;
     } else {
@@ -278,8 +379,9 @@ void beginRasterSourceFrame(uint8_t sequence) {
   if (collectingBuffer != kNoBuffer) {
     RasterFrameBuffer &collecting = frameBuffers[collectingBuffer];
     collecting.count = 0;
+    collecting.firstVisibleEvent = 0;
     collecting.sequence = sequence;
-    captureSourceState(collecting);
+    captureSourceState(collecting.visibleStartState);
     collecting.state = BufferState::kCollecting;
   }
   critical_section_exit(&frameBufferLock);
@@ -297,6 +399,14 @@ bool queueRasterTimexWrite(uint8_t data) {
   return queueRasterEvent(EventType::kTimex, 0, data);
 }
 
+bool queueRasterBorderWrite(uint8_t data) {
+  return queueRasterEvent(EventType::kBorder, 0, data);
+}
+
+bool queueRasterMemoryControlWrite(uint8_t data) {
+  return queueRasterEvent(EventType::kMemoryControl, 0, data);
+}
+
 void beginRasterOutputFrame() {
   critical_section_enter_blocking(&frameBufferLock);
   if (playingBuffer != kNoBuffer) {
@@ -309,9 +419,9 @@ void beginRasterOutputFrame() {
   if (ready != kNoBuffer) {
     playingBuffer = ready;
     frameBuffers[playingBuffer].state = BufferState::kPlaying;
-    playingEvent = 0;
+    playingEvent = frameBuffers[playingBuffer].firstVisibleEvent;
     playingResetGeneration = resetGeneration;
-    applySourceState(frameBuffers[playingBuffer]);
+    applySourceState(frameBuffers[playingBuffer].visibleStartState);
     rasterEventCounters.playedFrames = rasterEventCounters.playedFrames + 1;
   }
   critical_section_exit(&frameBufferLock);
@@ -337,11 +447,13 @@ void finishRasterOutputLine(size_t outputLine) {
     return;
   }
 
-  // Apply writes from the final cropped/blank source lines after the last
-  // visible line so their persistent state is correct for the next frame.
+  // Writes from the final cropped/blank source lines are not visible. Restore
+  // their already captured final state in bounded time rather than replaying
+  // an arbitrary number of events in the HSTX DMA interrupt.
   RasterFrameBuffer &playing = frameBuffers[playingBuffer];
-  while (playingEvent < playing.count) {
-    applyEvent(playing.events[playingEvent++]);
+  if (playingEvent < playing.count) {
+    applySourceState(playing.endState);
+    playingEvent = playing.count;
   }
 }
 

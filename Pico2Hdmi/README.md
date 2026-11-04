@@ -8,10 +8,12 @@ stereo audio.
 ## USB command protocol
 
 USB CDC is a byte stream. The experimental Teensy sender always transmits a
-complete 64-byte packet. After its commands and incremental runs, every
-remaining complete four-byte slot is padded with the audio-only no-op
-`FF FF 00 00`; at most three final filler bytes are ignored. The Pico waits for
-all 64 bytes before parsing a packet. Every message begins with:
+complete 64-byte packet. After its commands and incremental runs, one
+`FF FF 00 00` header terminates the useful packet contents. The Pico discards
+that header and every remaining filler byte; when fewer than four bytes remain,
+it discards those bytes directly. Audio-bearing no-ops have a nonzero extension
+byte and do not terminate the packet. The Pico waits for all 64 bytes before
+parsing a packet. Every message begins with:
 
 | Byte | Meaning |
 | --- | --- |
@@ -72,7 +74,7 @@ incremental-address run.
 | `0xFFFC` | 1 | Source-frame marker; data is an 8-bit wrapping frame sequence |
 | `0xFF3B` | 1 | ULAplus data |
 | `0xFFFD` | 1 | AY register select |
-| `0xFFFE` | 1 | Complete ULA-port value |
+| `0xFFFE` | 1 | ULA border colour in bits 2-0; EAR/MIC use command extension bits |
 | `0xFFFF`, data `0x00` | 1 | Audio-only no-op |
 | `0xFFFF`, data `0xFF` | 1 | Reset notification |
 
@@ -82,9 +84,10 @@ diagnostics or discarding bytes after that message.
 
 The 16-bit raster timestamp uses bits 15-7 for a source scanline and bits 6-0
 for a reserved position within that line. A timestamp is stateful and applies
-to following ULAplus data or Timex control writes until another timestamp
-arrives. For example, a timestamp value of `0x3200` means source line 100,
-phase zero, and is encoded as the message `00 FC 32 00`.
+to following ULAplus data, Timex control, ULA border, or 128K memory-control
+writes until another timestamp arrives. For example, a timestamp value of
+`0x3200` means source line 100, phase zero, and is encoded as the message
+`00 FC 32 00`.
 
 ULAplus implements the official 64-entry `GGGRRRBB` palette. While mode bit 0
 is set, attribute bits 7-6 choose one of four 16-colour CLUTs, FLASH animation
@@ -138,21 +141,27 @@ state while the foreground loop applies USB commands, so a state change may
 become visible part-way through a frame. This is the same deliberately relaxed
 tearing policy used by the first implementation.
 
-ULAplus palette/mode and Timex control writes use source-frame raster
-timestamps. The Teensy detects the Z80 maskable-interrupt acknowledge cycle
-(`M1` and `IORQ` active), divides the measured frame into 312 source lines, and
-sends a frame marker plus a timestamp before each timed video-control write.
+ULAplus palette/mode, Timex control, ULA border, and 128K memory-control writes
+use source-frame raster timestamps. The Teensy detects the Z80 maskable-
+interrupt acknowledge cycle (`M1` and `IORQ` active), divides the measured
+frame into 312 source lines, and sends a frame marker plus a timestamp before
+each timed video-control write.
 
 The Pico buffers up to 4096 video events in each of three source-frame buffers
 and replays a completed frame one HDMI frame later.
+Repeated writes to the same video-state target at one timestamp are coalesced
+to their final value. State changes in the cropped lines before and after the
+visible area are captured as bounded state snapshots instead of being replayed
+as an unbounded event burst inside the HSTX DMA interrupt.
 
 Source lines 16-303 map to the 288 logical HDMI lines; writes in the cropped lines
 are applied before or after the visible area. The seven low timestamp bits reserve
 sub-line precision, but this version deliberately rounds events to scanline boundaries.
-Each buffered frame also carries its starting palette and Timex mode. If a marker or whole
-frame is lost, the Pico discards ambiguous raster timing and restores persistent
-video state from the next complete frame instead of replaying a multi-frame
-event list as one frame.
+Each buffered frame also carries its starting palette, Timex mode, border
+colour, and 128K memory-control value. If a marker or whole frame is lost, the
+Pico discards ambiguous raster timing and restores persistent video state from
+the next complete frame instead of replaying a multi-frame event list as one
+frame.
 
 The acknowledge cycle is a software-only frame reference rather than the
 ULA's physical vertical-sync edge. It is absent while the Spectrum has
@@ -162,6 +171,14 @@ or do not fit the measured frame phase. Debugger-visible counters record
 accepted and rejected acknowledgements, event overflow, and dropped frames.
 After a long gap it accepts a fresh reference, allowing recovery from a wrap
 of the Teensy's 32-bit cycle counter.
+
+The Teensy advances a predicted raster clock while interrupt acknowledgements
+are absent. At the end of each Z80 read cycle, a lightweight ISR tick closes
+any elapsed source frame with a synthetic marker. This also runs during normal
+RAM reads and HALT fetch cycles, without adding another producer to the CDC
+ring buffer. A sequence jump represents multiple elapsed frames. When real
+acknowledgements resume, their sequence is reconciled with the predicted
+markers so an already represented frame is not marked twice.
 
 Adafruit DVI HSTX inserts HDMI data islands and accepts interleaved signed
 16-bit stereo frames through `audioWrite()`. The foreground loop keeps its queue

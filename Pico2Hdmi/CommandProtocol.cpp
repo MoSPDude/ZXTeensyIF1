@@ -16,14 +16,24 @@ void CommandParser::push(const uint8_t *data, size_t size) {
 
 void CommandParser::pushPacket(const uint8_t *data, size_t size) {
   while (size != 0) {
-    // A fixed-size packet contains as many complete no-op headers as fit after
-    // its useful commands. Ignore the final one to three filler bytes rather
-    // than carrying a partial header into the next packet.
-    if (state_ == State::kMessage && pendingByteCount_ == 0 &&
-        size < kMessageSize) {
-      protocolCounters.receivedBytes =
-          protocolCounters.receivedBytes + size;
-      break;
+    if (state_ == State::kMessage && pendingByteCount_ == 0) {
+      // FF FF 00 00 terminates this fixed-size packet. Count but do not parse
+      // it or any following filler bytes. Audio-bearing no-ops have a nonzero
+      // extension byte, so they remain ordinary messages.
+      if (size >= kMessageSize && data[0] == 0xff && data[1] == 0xff &&
+          data[2] == 0x00 && data[3] == 0x00) {
+        protocolCounters.receivedBytes =
+            protocolCounters.receivedBytes + size;
+        break;
+      }
+
+      // Ignore one to three final filler bytes rather than carrying a partial
+      // header into the next packet.
+      if (size < kMessageSize) {
+        protocolCounters.receivedBytes =
+            protocolCounters.receivedBytes + size;
+        break;
+      }
     }
     push(*data++);
     --size;
@@ -108,8 +118,10 @@ void CommandParser::dispatchWrite(uint16_t address, uint8_t data) {
   constexpr uint16_t kRasterTimestampBase = 0xfc00;
   constexpr uint16_t kFrameMarkerAddress = 0xfffc;
   constexpr uint16_t kTimexControlAddress = 0xfffb;
+  constexpr uint16_t kMemoryControlAddress = 0x7ffd;
   constexpr uint16_t kUlaPlusSelectAddress = 0xbf3b;
   constexpr uint16_t kUlaPlusDataAddress = 0xff3b;
+  constexpr uint16_t kUlaPortAddress = 0xfffe;
   constexpr uint16_t kResetAddress = 0xffff;
   constexpr uint8_t kResetData = 0xff;
 
@@ -131,6 +143,20 @@ void CommandParser::dispatchWrite(uint16_t address, uint8_t data) {
   if (address == kTimexControlAddress) {
     if (!queueRasterTimexWrite(data)) {
       applyTimexControl(data);
+    }
+    return;
+  }
+
+  if (address == kMemoryControlAddress) {
+    if (!queueRasterMemoryControlWrite(data)) {
+      applyMemoryControl(data);
+    }
+    return;
+  }
+
+  if (address == kUlaPortAddress) {
+    if (!queueRasterBorderWrite(data)) {
+      applyBorderColour(data);
     }
     return;
   }

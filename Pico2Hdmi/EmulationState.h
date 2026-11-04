@@ -97,6 +97,12 @@ bool applyCommand(uint16_t address, uint8_t data);
 // requested source scanline.
 void applyUlaPlusRegister(uint8_t selectedRegister, uint8_t data);
 
+// Apply video state resolved by the raster scheduler. Only the low three ULA
+// port bits are mirrored for video; EAR and MIC use their separate sampled
+// audio path.
+void applyBorderColour(uint8_t data);
+void applyMemoryControl(uint8_t data);
+
 // Resolve the Timex control port directly or through the optional ULAplus
 // mode-register mirror. The latter extends the mode encoding with bank 7.
 TimexState decodeTimexControl(uint8_t control, bool ulaPlusModeRegister);
