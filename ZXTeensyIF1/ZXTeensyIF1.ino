@@ -1076,7 +1076,7 @@ inline __attribute__((optimize("O3"))) void hdmiCdcSendData(uint16_t address, ui
         buffer[0] = address & 0xFF;
         buffer[1] = address >> 8;
         buffer[2] = data;
-        hdmiCdcBuffer.writeBlock(buffer, 3);
+        hdmiCdcBuffer.writeFixedBlock(buffer);
     }
 }
 
@@ -1121,14 +1121,14 @@ inline __attribute__((optimize("O3"))) void hdmiCdcSendTimedData(uint16_t addres
                     buffer[0] = timestamp & 0xFF;
                     buffer[1] = 0xFC;
                     buffer[2] = timestamp >> 8;
-                    hdmiCdcBuffer.writeBlock(buffer, 3);
+                    hdmiCdcBuffer.writeFixedBlock(buffer);
                     hdmiCdcLastTimestamp = timestamp;
                 }
 
                 buffer[0] = address & 0xFF;
                 buffer[1] = address >> 8;
                 buffer[2] = data;
-                hdmiCdcBuffer.writeBlock(buffer, 3);
+                hdmiCdcBuffer.writeFixedBlock(buffer);
             }
         }
     }
@@ -3824,7 +3824,7 @@ FASTRUN void isrFastGpios()
         }
 
 #ifdef HDMI_CDC_OUTPUT
-        if (hdmiCdcConnected && ((gpioSixStatus & RD_PIN_BITMASK) != 0))
+        if (((gpioSixStatus & RD_PIN_BITMASK) != 0) && hdmiCdcConnected)
         {
             hdmiCdcOnReadTick(ARM_DWT_CYCCNT);
         }
@@ -3835,15 +3835,24 @@ FASTRUN void isrFastGpios()
             isrWrEvent(gpioSix);
         }
 #ifdef HDMI_CDC_OUTPUT
-        else if (((gpioSix & IOREQ_PIN_BITMASK) == 0) &&
-            ((gpioSix & MREQ_PIN_BITMASK) != 0))
+        else if (((gpioSixStatus & IOREQ_PIN_BITMASK) != 0) &&
+            ((gpioSix & IOREQ_PIN_BITMASK) == 0))
         {
-            // Software detection for a maskable interrupt acknowledge, of
+            // On IORQ falling interrupt for detection of a maskable IRQ ACK.
             // M1 and IORQ low, whilst MREQ, RD and WR remain high.
-            uint32_t gpioNine = (*(volatile uint32_t *)IMXRT_GPIO9_ADDRESS);
-            if (hdmiCdcConnected && ((gpioNine & M1_PIN_BITMASK) == 0))
+            if (((gpioSix & MREQ_PIN_BITMASK) != 0) && hdmiCdcConnected)
             {
-                hdmiCdcOnInterruptAcknowledge(ARM_DWT_CYCCNT);
+                uint32_t gpioNine = (*(volatile uint32_t *)IMXRT_GPIO9_ADDRESS);
+                if ((gpioNine & M1_PIN_BITMASK) == 0)
+                {
+                    hdmiCdcOnInterruptAcknowledge(ARM_DWT_CYCCNT);
+                }
+            }
+
+            if ((gpioSixStatus & (RD_PIN_BITMASK | WR_PIN_BITMASK)) == 0)
+            {
+                asm volatile ("dsb":::"memory");
+                return;
             }
         }
 #endif

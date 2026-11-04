@@ -58,6 +58,22 @@ template <size_t BUFFER_SIZE> class RingBuffer
             bufferHead = head;
         }
 
+        template <size_t BLOCK_SIZE>
+        inline __attribute__((always_inline)) void writeFixedBlock(
+            const uint8_t (&data)[BLOCK_SIZE])
+        {
+            size_t head = bufferHead;
+            for (size_t i = 0; i < BLOCK_SIZE; ++i)
+            {
+                buffer[head] = data[i];
+                if (++head == BUFFER_SIZE)
+                {
+                    head = 0;
+                }
+            }
+            bufferHead = head;
+        }
+
         inline __attribute__((always_inline)) void writeBlockWithToken(uint8_t token,
             uint8_t* data, size_t size)
         {
