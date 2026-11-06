@@ -1272,7 +1272,7 @@ FASTRUN void hdmiCdcOnTick()
     // The Pico ignores that header and every remaining filler byte.
     uint32_t audioCycle = ARM_DWT_CYCCNT;
     size_t remainingBytes = hdmiCdcBuffer.getSize();
-    if (((remainingBytes >= 3)  || hdmiCdcAudioDue(audioCycle)) &&
+    if (((remainingBytes >= 3) || hdmiCdcAudioDue(audioCycle)) &&
         (hdmiCdc.availableForWrite() >= CDC_PACKET_SIZE))
     {
         size_t outputSize = 0;
@@ -1382,6 +1382,8 @@ FASTRUN void hdmiCdcOnTick()
                     hdmiCdcOutputPacket[outputSize++] = CDC_ESCAPE;
                     hdmiCdcOutputPacket[outputSize++] = CDC_RUN_END;
                 }
+            } else {
+                break;
             }
         }
         if (outputSize != 0)

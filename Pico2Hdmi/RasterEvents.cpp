@@ -12,6 +12,7 @@ namespace {
 
 constexpr size_t kRasterBufferCount = 3;
 constexpr size_t kRasterEventsPerFrame = 4096;
+constexpr size_t kOutputLockAttempts = 64;
 constexpr int8_t kNoBuffer = -1;
 
 enum class BufferState : uint8_t {
@@ -72,6 +73,18 @@ uint8_t sourceMode = 0;
 TimexState sourceTimex = {};
 uint8_t sourceBorderColour = 0;
 uint8_t sourceMemoryControl = 0;
+
+bool tryEnterFrameBufferLock() {
+  const uint32_t savedInterruptState = save_and_disable_interrupts();
+  for (size_t attempt = 0; attempt < kOutputLockAttempts; ++attempt) {
+    if (spin_try_lock_unsafe(frameBufferLock.spin_lock)) {
+      frameBufferLock.save = savedInterruptState;
+      return true;
+    }
+  }
+  restore_interrupts_from_disabled(savedInterruptState);
+  return false;
+}
 
 int8_t findFreeBuffer() {
   for (size_t i = 0; i < kRasterBufferCount; ++i) {
@@ -455,7 +468,17 @@ bool queueRasterMemoryControlWrite(uint8_t data) {
 }
 
 void beginRasterOutputFrame() {
-  critical_section_enter_blocking(&frameBufferLock);
+  // This runs in the core-1 HSTX scanline interrupt. Waiting for core 0 here
+  // can miss a DMA deadline and make the HSTX driver restart the HDMI stream.
+  // The source and output frame boundaries are both 50 Hz and can repeatedly
+  // coincide, so allow a short fixed retry window for the normal handoff. If
+  // core 0 is doing longer USB work, keep the current immutable frame instead
+  // of waiting without a deadline.
+  if (!tryEnterFrameBufferLock()) {
+    rasterEventCounters.outputLockMisses =
+        rasterEventCounters.outputLockMisses + 1;
+    return;
+  }
   if (playingResetGeneration != resetGeneration &&
       playingBuffer != kNoBuffer) {
     frameBuffers[playingBuffer].count = 0;

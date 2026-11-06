@@ -185,10 +185,20 @@ acknowledgements resume, their sequence is reconciled with the predicted
 markers so an already represented frame is not marked twice.
 
 Adafruit DVI HSTX inserts HDMI data islands and accepts interleaved signed
-16-bit stereo frames through `audioWrite()`. The foreground loop keeps its queue
-fed in bounded batches at 44.1 kHz. Audio synthesis stays on core 0 with USB
-command application, while HSTX consumes the encoded audio queue from its
-core-1 interrupt.
+16-bit stereo frames through `audioWrite()`. The foreground loop keeps a
+256-frame queue target, about 5.8 ms at 44.1 kHz, fed in bounded batches. USB
+command parsing is limited to four packets per foreground pass so sustained
+video or beeper traffic cannot starve audio generation. Audio synthesis stays
+on core 0 with USB command application, while HSTX consumes the encoded audio
+queue from its core-1 interrupt.
+
+At each HDMI frame boundary, the core-1 scanline interrupt uses a short, fixed
+retry window to select the next completed raster buffer. This permits the
+50 Hz source-frame and output-frame handoffs to coincide normally. If core 0
+is still updating the buffer state when that window expires, core 1 keeps the
+current immutable frame and retries at the next boundary. It never waits
+without a deadline, because delaying the scanline DMA callback can force the
+HSTX driver to restart the HDMI stream.
 
 The ULA beeper uses resistor-weighted unipolar EAR and MIC levels followed by a
 fixed-point 160 Hz high-pass and 10 kHz low-pass at the HDMI sample rate. This

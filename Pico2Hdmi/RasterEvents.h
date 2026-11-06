@@ -17,6 +17,7 @@ struct RasterEventCounters {
   uint32_t playedFrames;
   uint32_t eventOverflows;
   uint32_t droppedFrames;
+  uint32_t outputLockMisses;
 };
 
 extern volatile RasterEventCounters rasterEventCounters;

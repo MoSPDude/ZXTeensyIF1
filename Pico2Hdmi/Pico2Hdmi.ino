@@ -21,7 +21,9 @@
 namespace {
 
 constexpr size_t kAudioServiceBatch = 64;  // Must be a multiple of four.
+constexpr size_t kAudioQueueTargetFrames = 256;  // About 5.8 ms at 44.1 kHz.
 constexpr size_t kUsbPacketSize = 64;
+constexpr size_t kUsbPacketsPerService = 4;
 constexpr size_t kUsbStagingBufferSize = 4096;  // Must be a power of two.
 static_assert((kUsbStagingBufferSize & (kUsbStagingBufferSize - 1)) == 0,
               "USB staging buffer size must be a power of two");
@@ -29,12 +31,15 @@ static_assert((kUsbStagingBufferSize % kUsbPacketSize) == 0,
               "USB staging buffer must hold complete packets");
 static_assert((kAudioServiceBatch & 3) == 0,
               "HSTX audio is queued in four-frame packets");
+static_assert((kAudioQueueTargetFrames & 3) == 0,
+              "HSTX audio target must contain whole four-frame packets");
 constexpr uint32_t kCommandLedPulseMs = 30;
 
 DVHSTXPinout pinConfig = ADAFRUIT_HSTXDVIBELL_CFG;
 DVHSTXScanline display(pinConfig, DVHSTX_RESOLUTION_360x288);
 
 int16_t audioBuffer[kAudioServiceBatch * 2];
+size_t audioQueueCapacityFrames = 0;
 uint32_t scanlineCache[zx::kVideoWidth];
 uint32_t displayedCommandCount = 0;
 uint32_t commandLedOffAt = 0;
@@ -69,14 +74,27 @@ static void __not_in_flash_func(drawVideoScanline)(uint32_t vScanline,
   }
 }
 
-void serviceAudio() {
-  size_t count = display.audioAvailableForWrite();
+size_t serviceAudio() {
+  const size_t available = display.audioAvailableForWrite();
+  if (audioQueueCapacityFrames == 0 || available > audioQueueCapacityFrames) {
+    return 0;
+  }
+
+  const size_t queued = audioQueueCapacityFrames - available;
+  if (queued >= kAudioQueueTargetFrames) {
+    return 0;
+  }
+
+  size_t count = kAudioQueueTargetFrames - queued;
+  if (count > available) {
+    count = available;
+  }
   if (count > kAudioServiceBatch) {
     count = kAudioServiceBatch;
   }
   count &= ~static_cast<size_t>(3);
   if (count == 0) {
-    return;
+    return 0;
   }
 
   for (size_t i = 0; i < count; ++i) {
@@ -87,12 +105,11 @@ void serviceAudio() {
 
   // Only this function produces audio. Space can increase while samples are
   // rendered, so audioWrite() accepts every frame advertised above.
-  display.audioWrite(audioBuffer, count);
+  return display.audioWrite(audioBuffer, count);
 }
 
 void primeAudio() {
-  while (display.audioAvailableForWrite() != 0) {
-    serviceAudio();
+  while (serviceAudio() != 0) {
   }
 }
 
@@ -138,13 +155,18 @@ void drainUsbInput() {
 void serviceUsbCommands() {
   // The experimental Teensy sender pads every transmission to one complete
   // full-speed CDC packet. Retain a partial packet until all 64 bytes arrive.
-  while (usbStagingCount >= kUsbPacketSize) {
+  // Bound each pass so a burst cannot starve HDMI audio generation or contend
+  // with the core-1 scanline callback for an unbounded interval.
+  size_t packets = 0;
+  while (usbStagingCount >= kUsbPacketSize &&
+         packets < kUsbPacketsPerService) {
     // The staging buffer and tail are packet-aligned, so a packet never wraps.
     zx::commandParser.pushPacket(usbStagingBuffer + usbStagingTail,
                                  kUsbPacketSize);
     usbStagingTail =
         (usbStagingTail + kUsbPacketSize) & (kUsbStagingBufferSize - 1);
     usbStagingCount -= kUsbPacketSize;
+    ++packets;
   }
 }
 
@@ -204,6 +226,7 @@ void setup1() {
     displayStartupStatus = -1;
     return;
   }
+  audioQueueCapacityFrames = display.audioAvailableForWrite();
   primeAudio();
 
   __dmb();
