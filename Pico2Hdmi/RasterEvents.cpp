@@ -38,6 +38,7 @@ struct RasterEvent {
 
 struct RasterVideoState {
   uint8_t palette[kUlaPlusPaletteSize];
+  uint16_t paletteRgb565[kUlaPlusPaletteSize];
   uint8_t modeRegister;
   uint8_t mode;
   TimexState timex;
@@ -74,7 +75,7 @@ TimexState sourceTimex = {};
 uint8_t sourceBorderColour = 0;
 uint8_t sourceMemoryControl = 0;
 
-bool tryEnterFrameBufferLock() {
+bool __not_in_flash_func(tryEnterFrameBufferLock)() {
   const uint32_t savedInterruptState = save_and_disable_interrupts();
   for (size_t attempt = 0; attempt < kOutputLockAttempts; ++attempt) {
     if (spin_try_lock_unsafe(frameBufferLock.spin_lock)) {
@@ -95,7 +96,7 @@ int8_t findFreeBuffer() {
   return kNoBuffer;
 }
 
-int8_t findOldestReadyBuffer() {
+int8_t __not_in_flash_func(findOldestReadyBuffer)() {
   int8_t oldest = kNoBuffer;
   for (size_t i = 0; i < kRasterBufferCount; ++i) {
     if (frameBuffers[i].state != BufferState::kReady) {
@@ -109,7 +110,7 @@ int8_t findOldestReadyBuffer() {
   return oldest;
 }
 
-size_t eventSourceLine(const RasterEvent &event) {
+size_t __not_in_flash_func(eventSourceLine)(const RasterEvent &event) {
   size_t line = event.timestamp >> kRasterPhaseBits;
   // The first implementation schedules at line boundaries. Preserve the
   // sub-line field on the wire and round a future non-zero phase forward.
@@ -119,7 +120,7 @@ size_t eventSourceLine(const RasterEvent &event) {
   return line;
 }
 
-void applyEvent(const RasterEvent &event) {
+void __not_in_flash_func(applyEvent)(const RasterEvent &event) {
   switch (event.type) {
     case EventType::kUlaPlus:
       applyUlaPlusRegister(event.selectedRegister, event.data);
@@ -142,6 +143,8 @@ void applyEvent(const RasterEvent &event) {
 void captureSourceState(RasterVideoState &state) {
   for (size_t i = 0; i < kUlaPlusPaletteSize; ++i) {
     state.palette[i] = sourcePalette[i];
+    // Decode on core 0, never rebuild 64 colours in the video DMA interrupt.
+    state.paletteRgb565[i] = ulaPlusColourRgb565(sourcePalette[i]);
   }
   state.modeRegister = sourceModeRegister;
   state.mode = sourceMode;
@@ -155,11 +158,13 @@ void captureSourceDisplay(RasterFrameBuffer &frame) {
          sizeof(frame.displayFile));
 }
 
-void applySourceState(const RasterVideoState &state) {
+void __not_in_flash_func(applySourceState)(const RasterVideoState &state) {
   for (size_t i = 0; i < kUlaPlusPaletteSize; ++i) {
-    applyUlaPlusRegister(static_cast<uint8_t>(i), state.palette[i]);
+    machineState.ulaPlus.palette[i] = state.palette[i];
+    machineState.ulaPlus.paletteRgb565[i] = state.paletteRgb565[i];
   }
-  applyUlaPlusRegister(state.modeRegister, state.mode);
+  machineState.ulaPlus.modeRegister = state.modeRegister;
+  machineState.ulaPlus.mode = state.mode;
   machineState.timex = state.timex;
   applyBorderColour(state.borderColour);
   applyMemoryControl(state.memoryControl);
@@ -282,7 +287,7 @@ bool queueRasterEvent(EventType type, uint8_t selectedRegister, uint8_t data) {
   return true;
 }
 
-void stopPlayingAfterReset() {
+void __not_in_flash_func(stopPlayingAfterReset)() {
   if (playingResetGeneration != resetGeneration) {
     if (playingBuffer != kNoBuffer) {
       playingEvent = frameBuffers[playingBuffer].count;
@@ -467,7 +472,7 @@ bool queueRasterMemoryControlWrite(uint8_t data) {
   return queueRasterEvent(EventType::kMemoryControl, 0, data);
 }
 
-void beginRasterOutputFrame() {
+void __not_in_flash_func(beginRasterOutputFrame)() {
   // This runs in the core-1 HSTX scanline interrupt. Waiting for core 0 here
   // can miss a DMA deadline and make the HSTX driver restart the HDMI stream.
   // The source and output frame boundaries are both 50 Hz and can repeatedly
@@ -503,7 +508,7 @@ void beginRasterOutputFrame() {
   critical_section_exit(&frameBufferLock);
 }
 
-void applyRasterEventsForOutputLine(size_t outputLine) {
+void __not_in_flash_func(applyRasterEventsForOutputLine)(size_t outputLine) {
   stopPlayingAfterReset();
   if (playingBuffer == kNoBuffer) {
     return;
@@ -517,7 +522,7 @@ void applyRasterEventsForOutputLine(size_t outputLine) {
   }
 }
 
-void finishRasterOutputLine(size_t outputLine) {
+void __not_in_flash_func(finishRasterOutputLine)(size_t outputLine) {
   stopPlayingAfterReset();
   if (playingBuffer == kNoBuffer || outputLine + 1 != kVideoHeight) {
     return;
@@ -533,7 +538,7 @@ void finishRasterOutputLine(size_t outputLine) {
   }
 }
 
-const uint8_t *rasterDisplayFile(size_t screen) {
+const uint8_t *__not_in_flash_func(rasterDisplayFile)(size_t screen) {
   if (playingBuffer != kNoBuffer) {
     return frameBuffers[playingBuffer].displayFile[screen];
   }

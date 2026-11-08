@@ -3,6 +3,7 @@
 #include <Adafruit_TinyUSB.h>
 #define DVHSTX_NO_DEFAULT_PINOUT_WARNING
 #include <Adafruit_dvhstx.h>
+#include <hardware/timer.h>
 
 #include "AudioSynth.h"
 #include "CommandProtocol.h"
@@ -51,6 +52,14 @@ size_t usbStagingCount = 0;
 volatile bool machineStateReady = false;
 volatile int8_t displayStartupStatus = 0;
 
+struct HdmiTimingCounters {
+  uint32_t longestScanlineUs;
+  uint32_t scanlinesOverBudget;
+  uint32_t audioQueueUnderruns;
+};
+// Inspect in a debugger; never print into the binary CDC command stream.
+volatile HdmiTimingCounters hdmiTimingCounters = {};
+
 // The HSTX scanline callback supplies a complete 720-pixel RGB565 line. The
 // The ULA renderer writes two packed 16-bit output pixels in each 32-bit word;
 // they are duplicates in 256-pixel modes and distinct in Timex hi-res. Render
@@ -58,6 +67,7 @@ volatile int8_t displayStartupStatus = 0;
 static void __not_in_flash_func(drawVideoScanline)(uint32_t vScanline,
                                                     uint32_t activeLine,
                                                     uint32_t *destination) {
+  const uint32_t started = time_us_32();
   (void)vScanline;
   if ((activeLine & 1) == 0) {
     const size_t logicalLine = activeLine >> 1;
@@ -72,9 +82,20 @@ static void __not_in_flash_func(drawVideoScanline)(uint32_t vScanline,
   for (size_t x = 0; x < zx::kVideoWidth; ++x) {
     destination[x] = scanlineCache[x];
   }
+  const uint32_t elapsed = time_us_32() - started;
+  if (elapsed > hdmiTimingCounters.longestScanlineUs) {
+    hdmiTimingCounters.longestScanlineUs = elapsed;
+  }
+  // 720x576p50 has a 32 us physical line period. This measures our callback,
+  // not the remaining DMA handler work or delays before interrupt entry.
+  if (elapsed >= 32) {
+    hdmiTimingCounters.scanlinesOverBudget =
+        hdmiTimingCounters.scanlinesOverBudget + 1;
+  }
 }
 
 size_t serviceAudio() {
+  hdmiTimingCounters.audioQueueUnderruns = display.audioUnderruns();
   const size_t available = display.audioAvailableForWrite();
   if (audioQueueCapacityFrames == 0 || available > audioQueueCapacityFrames) {
     return 0;

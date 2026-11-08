@@ -13,7 +13,9 @@ namespace {
 
 // RGB565 approximations of the Spectrum's normal (0xcd) and BRIGHT (0xff)
 // component levels. Spectrum colour numbers are encoded as G-R-B.
-constexpr uint16_t kNormalColours[8] = {
+// Keep lookup data in SRAM too: a RAM renderer must not fetch its palette
+// through the flash cache while USB/audio processing runs on the other core.
+uint16_t kNormalColours[8] = {
     0x0000,  // black
     0x0019,  // blue
     0xc800,  // red
@@ -24,7 +26,7 @@ constexpr uint16_t kNormalColours[8] = {
     0xce79,  // white
 };
 
-constexpr uint16_t kBrightColours[8] = {
+uint16_t kBrightColours[8] = {
     0x0000,  // black remains black
     0x001f,  // blue
     0xf800,  // red
@@ -49,9 +51,9 @@ constexpr size_t bitmapOffset(size_t y, size_t characterColumn) {
          ((y & 0x38) << 2) | characterColumn;
 }
 
-inline void attributeColours(uint8_t attribute, bool ulaPlusEnabled,
-                             uint32_t frameNumber, uint16_t &ink,
-                             uint16_t &paper) {
+inline __attribute__((always_inline)) void attributeColours(
+    uint8_t attribute, bool ulaPlusEnabled, uint32_t frameNumber, uint16_t &ink,
+    uint16_t &paper) {
   if (ulaPlusEnabled) {
     const size_t group = static_cast<size_t>(attribute >> 6) << 4;
     ink = machineState.ulaPlus.paletteRgb565[group + (attribute & 0x07)];
@@ -74,8 +76,8 @@ inline void attributeColours(uint8_t attribute, bool ulaPlusEnabled,
   }
 }
 
-inline void highResolutionColours(bool ulaPlusEnabled, uint8_t colour,
-                                  uint16_t &ink, uint16_t &paper) {
+inline __attribute__((always_inline)) void highResolutionColours(
+    bool ulaPlusEnabled, uint8_t colour, uint16_t &ink, uint16_t &paper) {
   const uint8_t inkIndex = colour & 0x07;
   const uint8_t paperIndex = 7 - inkIndex;
   if (ulaPlusEnabled) {

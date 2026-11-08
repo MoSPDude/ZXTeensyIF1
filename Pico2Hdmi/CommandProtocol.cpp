@@ -34,6 +34,16 @@ void CommandParser::pushPacket(const uint8_t *data, size_t size) {
             protocolCounters.receivedBytes + size;
         break;
       }
+
+      // A PCM block is packet-local, like an incremental run. Reject an
+      // invalid length before any payload/filler can be parsed as commands.
+      if (data[0] == 0xfa && data[1] == 0xff &&
+          (data[2] == 0 || data[2] > 60 || data[2] > size - kMessageSize ||
+           data[3] != 0)) {
+        protocolCounters.framingErrors = protocolCounters.framingErrors + 1;
+        protocolCounters.receivedBytes = protocolCounters.receivedBytes + size;
+        break;
+      }
     }
     push(*data++);
     --size;
@@ -44,6 +54,7 @@ void CommandParser::pushPacket(const uint8_t *data, size_t size) {
   if (state_ != State::kMessage || pendingByteCount_ != 0) {
     protocolCounters.framingErrors = protocolCounters.framingErrors + 1;
     pendingByteCount_ = 0;
+    beeperPcmRemaining_ = 0;
     state_ = State::kMessage;
   }
 }
@@ -54,6 +65,7 @@ void CommandParser::push(uint8_t byte) {
   constexpr uint8_t kEscape = 0xb6;
   constexpr uint8_t kRunEnd = 0xe0;
   constexpr uint16_t kAudioOnlyAddress = 0xffff;
+  constexpr uint16_t kBeeperPcmAddress = 0xfffa;
   constexpr uint8_t kAudioOnlyData = 0x00;
   constexpr uint8_t kMicMask = 0x08;
   constexpr uint8_t kEarMask = 0x10;
@@ -67,13 +79,29 @@ void CommandParser::push(uint8_t byte) {
         incrementalAddress_ = static_cast<uint16_t>(message_[0]) |
                               (static_cast<uint16_t>(message_[1]) << 8);
         const uint8_t extension = message_[3];
+        if (incrementalAddress_ == kBeeperPcmAddress) {
+          pendingByteCount_ = 0;
+          if (message_[2] == 0 || message_[2] > 60 || extension != 0) {
+            protocolCounters.framingErrors = protocolCounters.framingErrors + 1;
+          } else {
+            beeperPcmRemaining_ = message_[2];
+            state_ = State::kBeeperPcmData;
+          }
+          break;
+        }
         const bool audioOnly = incrementalAddress_ == kAudioOnlyAddress &&
                                message_[2] == kAudioOnlyData;
         if (!audioOnly) {
           dispatchWrite(incrementalAddress_, message_[2]);
         }
         if ((extension & kAudioValidFlag) != 0) {
-          queueBeeperSample(extension & kBeeperMask);
+          // Retain decoding of legacy EAR/MIC level extensions. New senders
+          // use PCM blocks, including repeated values to preserve duration.
+          const uint8_t levels = extension & kBeeperMask;
+          const uint16_t amplitude = ((levels & kEarMask) ? 55 : 0) +
+                                     ((levels & kMicMask) ? 14 : 0);
+          queueBeeperSample((amplitude * 255 + 34) / 69);
+          machineState.ula.beeperSampleReady = true;
           protocolCounters.audioSamples = protocolCounters.audioSamples + 1;
         }
         pendingByteCount_ = 0;
@@ -107,6 +135,14 @@ void CommandParser::push(uint8_t byte) {
             protocolCounters.framingErrors + 1;
         message_[0] = byte;
         pendingByteCount_ = 1;
+        state_ = State::kMessage;
+      }
+      break;
+
+    case State::kBeeperPcmData:
+      queueBeeperSample(byte);
+      protocolCounters.audioSamples = protocolCounters.audioSamples + 1;
+      if (--beeperPcmRemaining_ == 0) {
         state_ = State::kMessage;
       }
       break;

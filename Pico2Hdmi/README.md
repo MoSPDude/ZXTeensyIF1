@@ -35,7 +35,7 @@ The extension bits are:
 | Bit | Meaning |
 | ---: | --- |
 | 0 | Start an incremental-address run |
-| 1 | Bits 3-4 contain a changed beeper level sampled on the 44.1 kHz clock |
+| 1 | Legacy EAR/MIC level sample in bits 3-4; new senders use PCM blocks |
 | 2 | Reserved; currently ignored |
 | 3 | MIC level for the beeper sample; matches ULA-port bit 3 |
 | 4 | EAR level for the beeper sample; matches ULA-port bit 4 |
@@ -49,16 +49,28 @@ sequence `B6 E0` ends the run. A data byte of `B6` is escaped as `B6 B6`.
 For example, `10 00 AA 01 FF B6 B6 CC B6 E0` writes `AA FF B6 CC` to addresses
 `0x0010` through `0x0013`. Runs always terminate within their 64-byte packet.
 
-The Teensy samples EAR and MIC at 44.1 kHz but transmits a level only when it
-differs from the last transmitted level. When a bus command is waiting, that
-command and the changed level share the header. Otherwise `FF FF 00` is used as
-an audio-only no-op command. The Pico ignores that address/data pair while
-queuing the changed level encoded in the extension byte. It applies at most one
-queued change per PCM frame and holds the existing level when the queue is
-empty. Audio-only headers therefore use `FF FF 00 02`, `FF FF 00 0A`,
-`FF FF 00 12`, or `FF FF 00 1A` for the four EAR/MIC levels.
-An audio-bearing bus command may also set bit 0 and begin an
-incremental-address run.
+The Teensy sends unsigned 8-bit beeper PCM in blocks. Header `FA FF nn 00`
+is followed by `nn` raw sample bytes (1-60), with no escaping. Every byte value,
+including `B6` and `FF`, is valid PCM. The block must fit in its 64-byte packet;
+normal senders use 60 samples, filling the packet exactly. Short blocks can be
+followed by ordinary commands or the packet terminator. Zero/oversized lengths,
+nonzero flags, and blocks extending beyond their packet are framing errors.
+
+Every sample represents one 44.1 kHz period, including unchanged values. Zero
+means EAR and MIC both low; 255 means both high. The Teensy applies a 55:14
+EAR/MIC weighting while averaging measured high time between foreground
+snapshots. Its 256-byte sample ring holds about 5.8 ms; full 60-sample packets
+carry audio at 47,040 bytes/s, including their headers.
+
+The Pico reuses its 2048-byte beeper ring, starts after 120 samples (about
+2.7 ms) have arrived, and consumes one sample per HDMI PCM frame. If it runs
+dry, it holds the previous level and refills before restarting. Debugger-visible
+`beeperSampleUnderflows` and `beeperSampleOverflows` count these events.
+
+Legacy extension samples remain supported: audio-only headers are
+`FF FF 00 02`, `FF FF 00 0A`, `FF FF 00 12`, or `FF FF 00 1A`.
+They are converted to the same weighted PCM range and applied without prefill.
+New PCM-block senders require the updated Pico firmware.
 
 | Encoded address | Size | Meaning |
 | --- | ---: | --- |
@@ -70,11 +82,12 @@ incremental-address run.
 | `0xBF3B` | 1 | ULAplus register select |
 | `0xBFFD` | 1 | AY data for the selected register |
 | `0xFC00`-`0xFCFF` | 1 | Raster timestamp metadata; address low byte is timestamp bits 7-0 and data is bits 15-8 |
+| `0xFFFA` | 1-60 | Beeper PCM block; data is the following raw sample count, flags must be zero |
 | `0xFFFB` | 1 | Timex video-control port `FF` |
 | `0xFFFC` | 1 | Source-frame marker; data is an 8-bit wrapping frame sequence |
 | `0xFF3B` | 1 | ULAplus data |
 | `0xFFFD` | 1 | AY register select |
-| `0xFFFE` | 1 | ULA border colour in bits 2-0; EAR/MIC use command extension bits |
+| `0xFFFE` | 1 | ULA border colour in bits 2-0; EAR/MIC use separate PCM blocks |
 | `0xFFFF`, data `0x00` | 1 | Audio-only no-op |
 | `0xFFFF`, data `0xFF` | 1 | Reset notification |
 
@@ -200,11 +213,40 @@ current immutable frame and retries at the next boundary. It never waits
 without a deadline, because delaying the scanline DMA callback can force the
 HSTX driver to restart the HDMI stream.
 
+The entire sketch scanline callback path, including raster playback, state
+application, Timex decoding, and normal/BRIGHT colour tables, resides in SRAM.
+This prevents USB/audio processing on core 0 from evicting code or lookup data
+needed by the core-1 video interrupt from the shared flash cache. Core 0 also
+prepares RGB565 palette snapshots: the video interrupt copies prepared colours
+at frame boundaries instead of making 64 palette-conversion calls. These
+snapshots add 768 bytes across the three raster buffers.
+
+Debugger-visible `hdmiTimingCounters` records the longest scanline callback in
+microseconds, callbacks lasting at least the 32 us physical line period, and
+the HSTX audio-queue underrun count. Callback time excludes DMA handler work
+outside the sketch and time waiting to enter the interrupt, so a value below
+32 us does not by itself prove that every DMA deadline was met.
+
 The ULA beeper uses resistor-weighted unipolar EAR and MIC levels followed by a
 fixed-point 160 Hz high-pass and 10 kHz low-pass at the HDMI sample rate. This
 approximates the AC-coupled grey +2 SOUND output: a held ULA level decays to
 silence, while edges and audible square-wave content pass without the previous
 per-source hard clipping.
+
+On each EAR/MIC transition, the Teensy GPIO ISR adds the elapsed CPU cycles to
+two unsigned high-time counters and publishes the new level and timestamp.
+This path has no division, multiplication, modulo, loops, or sample-buffer work.
+Foreground code takes coherent snapshots without masking GPIO interrupts,
+includes the unfinished held level, normalizes to 8-bit PCM, and queues samples
+independently of USB availability. Unsigned differences handle cycle/counter wrap.
+
+This pulse-area averaging reduces point-sampling aliasing but is not a steep
+anti-alias filter. Snapshots have foreground scheduling jitter. If a snapshot
+spans multiple sample periods, its average is repeated for those periods;
+individual missed boundaries cannot be recovered without edge history.
+`hdmiCdcAudioLateSamples` counts those extra periods, while
+`hdmiCdcAudioOverflows` counts samples discarded when the 256-byte transmit ring
+fills. Oldest samples are discarded to bound latency after a long USB stall.
 
 ## Building
 
@@ -228,13 +270,13 @@ arduino-cli lib install "Adafruit DVI HSTX@2.1.0"
 From the ZXTeensyIF1 repository root:
 
 ```powershell
-arduino-cli compile `
+& "C:\Program Files\Arduino IDE\resources\app\lib\backend\resources\arduino-cli.exe" compile --clean `
   --fqbn "rp2040:rp2040:rpipico2:arch=arm,freq=150,usbstack=tinyusb,flash=4194304_0" `
-  --output-dir "Pico2Hdmi/build" `
+  --build-path "build/Pico2Hdmi" `
   "Pico2Hdmi"
 ```
 
-The flashable artifact is `Pico2Hdmi/build/Pico2Hdmi.ino.uf2`.
+The flashable artifact is `build/Pico2Hdmi/Pico2Hdmi.ino.uf2`.
 
 Adafruit DVI HSTX 2.1.0 emits a default-pinout warning while compiling its own
 source even though this sketch explicitly uses `ADAFRUIT_HSTXDVIBELL_CFG`. The

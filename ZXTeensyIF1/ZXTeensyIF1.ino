@@ -552,10 +552,10 @@ volatile uint8_t spectrumAyReg = 0x00;
 static const uint8_t CDC_PACKET_SIZE = 64;
 static const size_t CDC_BUFFER_SIZE = 6912 * 3;
 static const uint8_t CDC_EXTENSION_INCREMENTAL = 0x01;
-static const uint8_t CDC_EXTENSION_AUDIO_VALID = 0x02;
 static const uint8_t CDC_ESCAPE = 0xB6;
 static const uint8_t CDC_RUN_END = 0xE0;
 static const uint16_t CDC_FRAME_MARKER_ADDRESS = 0xFFFC;
+static const uint16_t CDC_AUDIO_BLOCK_ADDRESS = 0xFFFA;
 // Synthetic protocol address, outside all mirrored display-file ranges.
 static const uint16_t CDC_TIMEX_CONTROL_ADDRESS = 0xFFFB;
 static const uint16_t CDC_ULAPLUS_SELECT_ADDRESS = 0xBF3B;
@@ -564,8 +564,10 @@ static const uint16_t CDC_RASTER_SOURCE_LINES = 312;
 static const uint8_t CDC_RASTER_PHASE_BITS = 7;
 static const uint16_t CDC_RASTER_TIMESTAMP_INVALID = UINT16_MAX;
 static const uint32_t CDC_AUDIO_SAMPLE_RATE = 44100;
-static const uint32_t CDC_AUDIO_SAMPLE_CYCLES = (TEENSY_CLK_FREQ / CDC_AUDIO_SAMPLE_RATE);
-static const uint32_t CDC_AUDIO_SAMPLE_REMAINDER = (TEENSY_CLK_FREQ % CDC_AUDIO_SAMPLE_RATE);
+static const size_t CDC_AUDIO_BUFFER_SIZE = 256;
+static const size_t CDC_AUDIO_BLOCK_SAMPLES = CDC_PACKET_SIZE - 4;
+static_assert((CDC_AUDIO_BUFFER_SIZE & (CDC_AUDIO_BUFFER_SIZE - 1)) == 0,
+    "Audio sample buffer size must be a power of two");
 static const uint32_t CDC_FRAME_DEFAULT_CYCLES = (TEENSY_CLK_FREQ / 50);
 static const uint32_t CDC_FRAME_MIN_ACK_CYCLES = (TEENSY_CLK_FREQ / 100);
 // Approximate 50 Hz timing constants for the required 720 MHz build. Keep
@@ -581,10 +583,20 @@ DMAMEM RingBuffer<CDC_BUFFER_SIZE> hdmiCdcBuffer;
 uint8_t hdmiCdcOutputPacket[CDC_PACKET_SIZE] = {};
 volatile uint8_t hdmiCdcUlaBeeper = 0;
 volatile uint8_t hdmiCdcUlaBorder = 0;
-uint8_t hdmiCdcBeeperSentLevels = 0;
-bool hdmiCdcBeeperSentValid = false;
+volatile uint32_t hdmiCdcBeeperLastCycle = 0;
+volatile uint32_t hdmiCdcBeeperEarHighCycles = 0;
+volatile uint32_t hdmiCdcBeeperMicHighCycles = 0;
+DMAMEM uint8_t hdmiCdcAudioBuffer[CDC_AUDIO_BUFFER_SIZE];
+uint16_t hdmiCdcAudioRead = 0;
+uint16_t hdmiCdcAudioWrite = 0;
+uint16_t hdmiCdcAudioCount = 0;
 uint32_t hdmiCdcAudioCycleCount = 0;
+uint32_t hdmiCdcAudioEarHighCycles = 0;
+uint32_t hdmiCdcAudioMicHighCycles = 0;
 uint32_t hdmiCdcAudioRemainder = 0;
+uint32_t hdmiCdcAudioWaitCycles = 0;
+volatile uint32_t hdmiCdcAudioOverflows = 0;
+volatile uint32_t hdmiCdcAudioLateSamples = 0;
 volatile bool hdmiCdcConnected = false;
 volatile uint8_t hdmiCdcUlaPlusRegister = 0;
 volatile uint8_t hdmiCdcUlaPlusMode = 0;
@@ -1057,6 +1069,43 @@ inline __attribute__((always_inline, optimize("O3"))) void enableInternalRom()
 }
 
 #ifdef HDMI_CDC_OUTPUT
+struct HdmiCdcBeeperSnapshot
+{
+    uint32_t cycle;
+    uint32_t earHighCycles;
+    uint32_t micHighCycles;
+};
+
+inline __attribute__((always_inline, optimize("O3"))) HdmiCdcBeeperSnapshot hdmiCdcReadBeeperSnapshot();
+
+inline __attribute__((always_inline, optimize("O3"))) HdmiCdcBeeperSnapshot hdmiCdcReadBeeperSnapshot()
+{
+    // Synchronise with the ISR to get latest beeper values
+    HdmiCdcBeeperSnapshot snapshot;
+    uint32_t lastCycle;
+    uint8_t levels;
+    do
+    {
+        lastCycle = hdmiCdcBeeperLastCycle;
+        snapshot.earHighCycles = hdmiCdcBeeperEarHighCycles;
+        snapshot.micHighCycles = hdmiCdcBeeperMicHighCycles;
+        levels = hdmiCdcUlaBeeper;
+        snapshot.cycle = ARM_DWT_CYCCNT;
+    } while (lastCycle != hdmiCdcBeeperLastCycle);
+
+    // Calculate the beeper snapshot
+    const uint32_t elapsed = snapshot.cycle - lastCycle;
+    if (levels & 0x10)
+    {
+        snapshot.earHighCycles += elapsed;
+    }
+    if (levels & 0x08)
+    {
+        snapshot.micHighCycles += elapsed;
+    }
+    return snapshot;
+}
+
 inline __attribute__((optimize("O3"))) void hdmiCdcBegin()
 {
     hdmiCdc.begin(115200);
@@ -1070,9 +1119,16 @@ inline __attribute__((optimize("O3"))) void hdmiCdcBegin()
     hdmiCdcOutputPacket[6] = 0x00;
     hdmiCdcOutputPacket[7] = 0x00;
     hdmiCdc.write(hdmiCdcOutputPacket, CDC_PACKET_SIZE);
-    hdmiCdcBeeperSentValid = false;
-    hdmiCdcAudioCycleCount = ARM_DWT_CYCCNT;
+    const HdmiCdcBeeperSnapshot snapshot = hdmiCdcReadBeeperSnapshot();
+    hdmiCdcAudioCycleCount = snapshot.cycle;
+    hdmiCdcAudioEarHighCycles = snapshot.earHighCycles;
+    hdmiCdcAudioMicHighCycles = snapshot.micHighCycles;
     hdmiCdcAudioRemainder = 0;
+    hdmiCdcAudioWaitCycles =
+        (TEENSY_CLK_FREQ + CDC_AUDIO_SAMPLE_RATE - 1) / CDC_AUDIO_SAMPLE_RATE;
+    hdmiCdcAudioRead = 0;
+    hdmiCdcAudioWrite = 0;
+    hdmiCdcAudioCount = 0;
     hdmiCdcFrameSyncValid = false;
     hdmiCdcLastTimestamp = CDC_RASTER_TIMESTAMP_INVALID;
     hdmiCdcFrameHasDisplayWrites = false;
@@ -1081,9 +1137,60 @@ inline __attribute__((optimize("O3"))) void hdmiCdcBegin()
     hdmiCdcConnected = true;
 }
 
-inline __attribute__((always_inline, optimize("O3"))) bool hdmiCdcAudioDue(uint32_t cycle)
+inline __attribute__((optimize("O3"))) void hdmiCdcSampleAudio()
 {
-    return ((cycle - hdmiCdcAudioCycleCount) >= CDC_AUDIO_SAMPLE_CYCLES);
+    if (!hdmiCdcConnected ||
+        ((ARM_DWT_CYCCNT - hdmiCdcAudioCycleCount) < hdmiCdcAudioWaitCycles))
+    {
+        return;
+    }
+
+    const HdmiCdcBeeperSnapshot snapshot = hdmiCdcReadBeeperSnapshot();
+    const uint32_t elapsed = snapshot.cycle - hdmiCdcAudioCycleCount;
+    const uint64_t phase = (uint64_t)elapsed * CDC_AUDIO_SAMPLE_RATE +
+        hdmiCdcAudioRemainder;
+    uint32_t sampleCount = phase / TEENSY_CLK_FREQ;
+    hdmiCdcAudioRemainder = phase % TEENSY_CLK_FREQ;
+    hdmiCdcAudioWaitCycles = (TEENSY_CLK_FREQ - hdmiCdcAudioRemainder +
+        CDC_AUDIO_SAMPLE_RATE - 1) / CDC_AUDIO_SAMPLE_RATE;
+
+    const uint32_t earCycles = snapshot.earHighCycles - hdmiCdcAudioEarHighCycles;
+    const uint32_t micCycles = snapshot.micHighCycles - hdmiCdcAudioMicHighCycles;
+    hdmiCdcAudioCycleCount = snapshot.cycle;
+    hdmiCdcAudioEarHighCycles = snapshot.earHighCycles;
+    hdmiCdcAudioMicHighCycles = snapshot.micHighCycles;
+
+    // Match the Pico's 55:14 EAR/MIC resistor weighting. All normalization is
+    // foreground-only; the ISR just accumulates unsigned cycle counts.
+    const uint64_t weightedCycles = (uint64_t)earCycles * 55 +
+        (uint64_t)micCycles * 14;
+    const uint64_t fullScale = (uint64_t)elapsed * 69;
+    const uint8_t sample = (weightedCycles * 255 + fullScale / 2) / fullScale;
+
+    // A late snapshot preserves total pulse area but cannot reconstruct past
+    // sample boundaries. Spread its average across the elapsed periods.
+    if (sampleCount > 1)
+    {
+        hdmiCdcAudioLateSamples += sampleCount - 1;
+    }
+    if (sampleCount > CDC_AUDIO_BUFFER_SIZE)
+    {
+        hdmiCdcAudioOverflows += sampleCount - CDC_AUDIO_BUFFER_SIZE;
+        sampleCount = CDC_AUDIO_BUFFER_SIZE;
+    }
+    if (hdmiCdcAudioCount + sampleCount > CDC_AUDIO_BUFFER_SIZE)
+    {
+        const uint32_t discard = hdmiCdcAudioCount + sampleCount - CDC_AUDIO_BUFFER_SIZE;
+        hdmiCdcAudioRead = (hdmiCdcAudioRead + discard) & (CDC_AUDIO_BUFFER_SIZE - 1);
+        hdmiCdcAudioCount -= discard;
+        hdmiCdcAudioOverflows += discard;
+    }
+    while (sampleCount-- != 0)
+    {
+        hdmiCdcAudioBuffer[hdmiCdcAudioWrite] = sample;
+        hdmiCdcAudioWrite = (hdmiCdcAudioWrite + 1) & (CDC_AUDIO_BUFFER_SIZE - 1);
+        ++hdmiCdcAudioCount;
+    }
 }
 
 inline __attribute__((optimize("O3"))) bool hdmiCdcSendData(uint16_t address, uint8_t data)
@@ -1210,6 +1317,7 @@ inline __attribute__((optimize("O3"))) void hdmiCdcSendTimedData(uint16_t addres
             const size_t required = timestampChanged ? 6 : 3;
             if (hdmiCdcBuffer.getFree() >= required)
             {
+                // Write timestamp marker first
                 uint8_t buffer[3];
                 if (timestampChanged)
                 {
@@ -1220,6 +1328,7 @@ inline __attribute__((optimize("O3"))) void hdmiCdcSendTimedData(uint16_t addres
                     hdmiCdcLastTimestamp = timestamp;
                 }
 
+                // Write data
                 buffer[0] = address & 0xFF;
                 buffer[1] = address >> 8;
                 buffer[2] = data;
@@ -1270,39 +1379,34 @@ FASTRUN void hdmiCdcOnTick()
     // Experimentally send only complete 64-byte full-speed bulk packets. After
     // encoding commands and incremental runs, append one packet terminator.
     // The Pico ignores that header and every remaining filler byte.
-    uint32_t audioCycle = ARM_DWT_CYCCNT;
     size_t remainingBytes = hdmiCdcBuffer.getSize();
-    if (((remainingBytes >= 3) || hdmiCdcAudioDue(audioCycle)) &&
+    const bool audioReady = (hdmiCdcAudioCount >= CDC_AUDIO_BLOCK_SAMPLES);
+    if (((remainingBytes >= 3) || audioReady) &&
         (hdmiCdc.availableForWrite() >= CDC_PACKET_SIZE))
     {
+        if (audioReady)
+        {
+            // One header plus 60 PCM bytes, rather than one padded packet per
+            // changed level. Sampling continues even while CDC is backpressured.
+            hdmiCdcOutputPacket[0] = CDC_AUDIO_BLOCK_ADDRESS & 0xFF;
+            hdmiCdcOutputPacket[1] = CDC_AUDIO_BLOCK_ADDRESS >> 8;
+            hdmiCdcOutputPacket[2] = CDC_AUDIO_BLOCK_SAMPLES;
+            hdmiCdcOutputPacket[3] = 0x00;
+            for (size_t i = 0; i < CDC_AUDIO_BLOCK_SAMPLES; ++i)
+            {
+                hdmiCdcOutputPacket[4 + i] = hdmiCdcAudioBuffer[hdmiCdcAudioRead];
+                hdmiCdcAudioRead = (hdmiCdcAudioRead + 1) & (CDC_AUDIO_BUFFER_SIZE - 1);
+            }
+            hdmiCdcAudioCount -= CDC_AUDIO_BLOCK_SAMPLES;
+            hdmiCdc.write(hdmiCdcOutputPacket, CDC_PACKET_SIZE);
+            return;
+        }
         size_t outputSize = 0;
         while ((outputSize + 4) <= CDC_PACKET_SIZE)
         {
-            audioCycle = ARM_DWT_CYCCNT;
-            bool audioDue = hdmiCdcAudioDue(audioCycle);
             bool hasCommand = (remainingBytes >= 3);
-            if (audioDue || hasCommand)
+            if (hasCommand)
             {
-                uint8_t levels = 0;
-                bool audioChanged = false;
-                if (audioDue)
-                {
-                    levels = hdmiCdcUlaBeeper;
-                    hdmiCdcAudioCycleCount = audioCycle;
-                    hdmiCdcAudioRemainder += CDC_AUDIO_SAMPLE_REMAINDER;
-                    if (hdmiCdcAudioRemainder >= CDC_AUDIO_SAMPLE_RATE)
-                    {
-                        hdmiCdcAudioRemainder -= CDC_AUDIO_SAMPLE_RATE;
-                        ++hdmiCdcAudioCycleCount;
-                    }
-                    audioChanged = !hdmiCdcBeeperSentValid ||
-                        (levels != hdmiCdcBeeperSentLevels);
-                }
-                if (!audioChanged && !hasCommand)
-                {
-                    break;
-                }
-
                 uint16_t address = 0xFFFF;
                 uint8_t data = 0x00;
                 if (hasCommand)
@@ -1322,12 +1426,6 @@ FASTRUN void hdmiCdcOnTick()
                 }
 
                 uint8_t extension = 0x00;
-                if (audioChanged)
-                {
-                    extension = CDC_EXTENSION_AUDIO_VALID | levels;
-                    hdmiCdcBeeperSentLevels = levels;
-                    hdmiCdcBeeperSentValid = true;
-                }
 
                 bool isRun = false;
                 uint8_t nextCommand[3];
@@ -2790,6 +2888,9 @@ void handleStateReset()
     {
         hdmiCdc.writeTimeOut(100);
         hdmiCdcUlaBeeper = 0;
+        hdmiCdcBeeperEarHighCycles = 0;
+        hdmiCdcBeeperMicHighCycles = 0;
+        hdmiCdcBeeperLastCycle = ARM_DWT_CYCCNT;
         hdmiCdcUlaBorder = 0;
         if (hdmiCdcConnected && hdmiCdc)
         {
@@ -2818,6 +2919,10 @@ FASTRUN void loop()
     {
         handleStateReset();
     }
+
+#ifdef HDMI_CDC_OUTPUT
+    hdmiCdcSampleAudio();
+#endif
 
     // Run actions (eg. SD SPI) on regular ticks
     uint32_t cycle_ = ARM_DWT_CYCCNT;
@@ -4651,14 +4756,33 @@ FASTRUN void isrWrEvent(uint32_t gpioSix)
                     }
                     break;
                 case 0xfe :
+                {
                     if (!IS_ROM_PAGED(ROM_MENU))
                     {
                         // Capture last border colour
                         spectrumBorder = data & 0x07;
                     }
 #ifdef HDMI_CDC_OUTPUT
-                    // Capture beeper levels for HDMI CDC
-                    hdmiCdcUlaBeeper = data & 0x18;
+                    // Accumulate time at the previous levels only on an audio
+                    // edge. Keep division, weighting and sample boundaries out
+                    // of this time-critical GPIO ISR.
+                    const uint8_t previous = hdmiCdcUlaBeeper;
+                    const uint8_t levels = data & 0x18;
+                    if (levels != previous)
+                    {
+                        const uint32_t now = ARM_DWT_CYCCNT;
+                        const uint32_t elapsed = now - hdmiCdcBeeperLastCycle;
+                        if (previous & 0x10)
+                        {
+                            hdmiCdcBeeperEarHighCycles += elapsed;
+                        }
+                        if (previous & 0x08)
+                        {
+                            hdmiCdcBeeperMicHighCycles += elapsed;
+                        }
+                        hdmiCdcUlaBeeper = levels;
+                        hdmiCdcBeeperLastCycle = now;
+                    }
 
                     // Capture border colour for HDMI CDC
                     data = data & 0x07;
@@ -4670,6 +4794,7 @@ FASTRUN void isrWrEvent(uint32_t gpioSix)
                     }
 #endif
                     break;
+                }
                 case 0xff :
                     if (modemEnabled)
                     {

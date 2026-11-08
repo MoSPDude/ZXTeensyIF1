@@ -1,5 +1,6 @@
 #include "EmulationState.h"
 
+#include <pico.h>
 #include <string.h>
 
 namespace zx {
@@ -36,12 +37,12 @@ static_assert(kScreen0SecondLast - kScreen0SecondFirst + 1 ==
 static_assert(kScreen1SecondLast - kScreen1SecondFirst + 1 ==
               kDisplayFileSize);
 
-constexpr uint8_t expandBlue(uint8_t blue) {
+constexpr __attribute__((always_inline)) uint8_t expandBlue(uint8_t blue) {
   return static_cast<uint8_t>((blue << 1) |
                               (((blue >> 1) | blue) & 0x01));
 }
 
-constexpr uint16_t expandUlaPlusColour(uint8_t colour) {
+constexpr __attribute__((always_inline)) uint16_t expandUlaPlusColour(uint8_t colour) {
   const uint8_t green = colour >> 5;
   const uint8_t red = (colour >> 2) & 0x07;
   const uint8_t blue = expandBlue(colour & 0x03);
@@ -114,12 +115,13 @@ void resetMachineState() {
   machineState.ula.borderColour = 0;
   machineState.ula.micHigh = false;
   machineState.ula.earHigh = false;
-  machineState.ula.audioMicHigh = false;
-  machineState.ula.audioEarHigh = false;
+  machineState.ula.beeperSample = 0;
+  machineState.ula.beeperSampleReady = false;
   machineState.ula.beeperSampleRead = 0;
   machineState.ula.beeperSampleWrite = 0;
   machineState.ula.beeperSampleCount = 0;
   machineState.ula.beeperSampleOverflows = 0;
+  machineState.ula.beeperSampleUnderflows = 0;
   machineState.ula.beeperPreviousInput = 0;
   machineState.ula.beeperHighPass = 0;
   machineState.ula.beeperLowPass = 0;
@@ -150,7 +152,7 @@ void resetMachineState() {
   machineState.ay.envelopeHolding = false;
 }
 
-void queueBeeperSample(uint8_t levels) {
+void queueBeeperSample(uint8_t sample) {
   UlaState &ula = machineState.ula;
   if (ula.beeperSampleCount == kBeeperSampleQueueSize) {
     ula.beeperSampleRead =
@@ -159,7 +161,7 @@ void queueBeeperSample(uint8_t levels) {
     ++ula.beeperSampleOverflows;
   }
 
-  ula.beeperSamples[ula.beeperSampleWrite] = levels;
+  ula.beeperSamples[ula.beeperSampleWrite] = sample;
   ula.beeperSampleWrite =
       (ula.beeperSampleWrite + 1) & (kBeeperSampleQueueSize - 1);
   ++ula.beeperSampleCount;
@@ -223,19 +225,24 @@ bool applyCommand(uint16_t address, uint8_t data) {
   }
 }
 
-void applyBorderColour(uint8_t data) {
+void __not_in_flash_func(applyBorderColour)(uint8_t data) {
   machineState.ula.borderColour = data & 0x07;
 }
 
-void applyMemoryControl(uint8_t data) {
+void __not_in_flash_func(applyMemoryControl)(uint8_t data) {
   machineState.memoryControl = data;
 }
 
-void applyUlaPlusRegister(uint8_t selectedRegister, uint8_t data) {
+uint16_t __not_in_flash_func(ulaPlusColourRgb565)(uint8_t colour) {
+  return expandUlaPlusColour(colour);
+}
+
+void __not_in_flash_func(applyUlaPlusRegister)(uint8_t selectedRegister,
+                                             uint8_t data) {
   if (selectedRegister < kUlaPlusPaletteSize) {
     machineState.ulaPlus.palette[selectedRegister] = data;
     machineState.ulaPlus.paletteRgb565[selectedRegister] =
-        expandUlaPlusColour(data);
+        ulaPlusColourRgb565(data);
   } else if ((selectedRegister & kUlaPlusGroupMask) == kUlaPlusModeGroup) {
     machineState.ulaPlus.modeRegister = selectedRegister;
     machineState.ulaPlus.mode = data;
@@ -243,7 +250,8 @@ void applyUlaPlusRegister(uint8_t selectedRegister, uint8_t data) {
   }
 }
 
-TimexState decodeTimexControl(uint8_t control, bool ulaPlusModeRegister) {
+TimexState __not_in_flash_func(decodeTimexControl)(uint8_t control,
+                                                 bool ulaPlusModeRegister) {
   TimexState state = {};
   state.active = true;
   state.colour = (control >> 3) & 0x07;
@@ -289,7 +297,7 @@ TimexState decodeTimexControl(uint8_t control, bool ulaPlusModeRegister) {
   return state;
 }
 
-void applyTimexControl(uint8_t control) {
+void __not_in_flash_func(applyTimexControl)(uint8_t control) {
   machineState.timex = decodeTimexControl(control, false);
 }
 

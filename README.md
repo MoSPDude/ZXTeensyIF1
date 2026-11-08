@@ -398,10 +398,8 @@ timeout). One `FF FF 00 00` header terminates the useful packet contents, and
 the Pico discards every remaining filler byte.
 
 The RP2350 emulates the ULA, ULAplus, Timex hi-colour/hi-res modes, and AY, generating
-video and sound over HDMI. The Z80 video refresh interrupt-acknowledge cycles provide
-software-only source-frame markers. EAR and MIC are sampled on the Teensy at 44.1 kHz.
-A level is carried in command extension bits only when it differs from the last
-transmitted level.
+video and sound over HDMI. Beeper sound is averaged into packets of 44.1 kHz unsigned
+8-bit beeper PCM, and sent to the Pico.
 
 It does require a small fix to the USBHost_t36 library in
 %LOCALAPPDATA%\Arduino15\packages\teensy\hardware\avr\1.60.0\libraries\USBHost_t36\serial.cpp -

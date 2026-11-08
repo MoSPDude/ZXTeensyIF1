@@ -15,6 +15,7 @@ constexpr size_t kScreenCount = 2;
 constexpr size_t kUlaPlusPaletteSize = 64;
 constexpr size_t kAyRegisterCount = 16;
 constexpr size_t kBeeperSampleQueueSize = 2048;
+constexpr size_t kBeeperSamplePrefill = 120;  // Two USB blocks, about 2.7 ms.
 static_assert((kBeeperSampleQueueSize & (kBeeperSampleQueueSize - 1)) == 0,
               "Beeper sample queue size must be a power of two");
 
@@ -23,16 +24,16 @@ struct UlaState {
   uint8_t borderColour;
   bool micHigh;
   bool earHigh;
-  // USB is delivered in bursts. Queue changed EAR/MIC levels to preserve their
-  // order. The HDMI producer applies at most one per PCM frame and otherwise
-  // holds the existing level.
-  bool audioMicHigh;
-  bool audioEarHigh;
+  // Each unsigned PCM value is one source sample, including held levels.
+  // Prefill absorbs USB bursts before consuming one value per HDMI frame.
+  uint8_t beeperSample;
+  bool beeperSampleReady;
   uint8_t beeperSamples[kBeeperSampleQueueSize];
   uint16_t beeperSampleRead;
   uint16_t beeperSampleWrite;
   uint16_t beeperSampleCount;
   uint32_t beeperSampleOverflows;
+  uint32_t beeperSampleUnderflows;
   int32_t beeperPreviousInput;
   int32_t beeperHighPass;
   int32_t beeperLowPass;
@@ -90,8 +91,8 @@ bool resolveDisplayFileAddress(uint16_t address, size_t &screen,
 // not part of the emulated machine, so they survive a reset command.
 void resetMachineState();
 
-// Queue one 44.1 kHz EAR/MIC sample decoded from a command extension byte.
-void queueBeeperSample(uint8_t levels);
+// Queue one 44.1 kHz unsigned PCM sample: 0 is both low, 255 is both high.
+void queueBeeperSample(uint8_t sample);
 
 // Apply one decoded write. Returns false only for an address (or reset value)
 // that is not part of the documented protocol.
@@ -100,6 +101,7 @@ bool applyCommand(uint16_t address, uint8_t data);
 // Apply a resolved ULAplus data-port write. Raster scheduling resolves the
 // selected register while parsing, then calls this on the video core at the
 // requested source scanline.
+uint16_t ulaPlusColourRgb565(uint8_t colour);
 void applyUlaPlusRegister(uint8_t selectedRegister, uint8_t data);
 
 // Apply video state resolved by the raster scheduler. Only the low three ULA

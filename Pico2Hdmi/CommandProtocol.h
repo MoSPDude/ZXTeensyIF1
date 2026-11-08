@@ -31,6 +31,7 @@ class CommandParser {
     kMessage,
     kIncrementalData,
     kIncrementalEscape,
+    kBeeperPcmData,
   };
 
   static constexpr uint8_t kMessageSize = 4;
@@ -38,6 +39,7 @@ class CommandParser {
   uint8_t pendingByteCount_ = 0;
   uint16_t incrementalAddress_ = 0;
   uint8_t ulaPlusSelectedRegister_ = 0;
+  uint8_t beeperPcmRemaining_ = 0;
   State state_ = State::kMessage;
 };
 

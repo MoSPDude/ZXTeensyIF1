@@ -38,8 +38,6 @@ constexpr int32_t kBeeperLowPassCoefficient = 24885;
 // Retain approximately the previous EAR/MIC peak relationship and level.
 constexpr int32_t kEarLevel = 112 * 55;
 constexpr int32_t kMicLevel = 112 * 14;
-constexpr uint8_t kMicMask = 0x08;
-constexpr uint8_t kEarMask = 0x10;
 
 uint16_t tonePeriod(const uint8_t *registers, size_t channel) {
   uint16_t period =
@@ -192,17 +190,21 @@ inline int32_t filterBeeper(UlaState &ula, int32_t input) {
 }
 
 int32_t __not_in_flash_func(renderBeeper)(UlaState &ula) {
-  if (ula.beeperSampleCount != 0) {
-    const uint8_t levels = ula.beeperSamples[ula.beeperSampleRead];
+  if (!ula.beeperSampleReady && ula.beeperSampleCount >= kBeeperSamplePrefill) {
+    ula.beeperSampleReady = true;
+  }
+  if (ula.beeperSampleReady && ula.beeperSampleCount == 0) {
+    ula.beeperSampleReady = false;
+    ++ula.beeperSampleUnderflows;
+  }
+  if (ula.beeperSampleReady) {
+    ula.beeperSample = ula.beeperSamples[ula.beeperSampleRead];
     ula.beeperSampleRead =
         (ula.beeperSampleRead + 1) & (kBeeperSampleQueueSize - 1);
     --ula.beeperSampleCount;
-    ula.audioMicHigh = (levels & kMicMask) != 0;
-    ula.audioEarHigh = (levels & kEarMask) != 0;
   }
 
-  const int32_t input = (ula.audioEarHigh ? kEarLevel : 0) +
-                        (ula.audioMicHigh ? kMicLevel : 0);
+  const int32_t input = ula.beeperSample * (kEarLevel + kMicLevel) / 255;
   return filterBeeper(ula, input);
 }
 
