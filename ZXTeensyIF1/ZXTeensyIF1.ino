@@ -207,6 +207,132 @@ typedef enum {
     MENU_ROM_CMD_BROWSER_EXPAND = 9
 } menu_rom_action_t;
 
+typedef struct {
+    char cfgName[MAX_PATH];
+    char romName[MAX_PATH];
+    char divMmcSdaPath[MAX_PATH];
+    char divMmcSdbPath[MAX_PATH];
+    char dskFdaPath[MAX_PATH];
+    char dskFdbPath[MAX_PATH];
+    char modemUrl[MAX_PATH];
+    char tapeFileName[MAX_PATH];
+} cfg_data_t;
+
+typedef struct __attribute__((packed)) {
+    // Saved-record metadata.
+    char magic[4];
+    uint16_t version;
+    uint16_t size;
+
+    // Configuration normally loaded from ZXTEENSY.cfg.
+    uint8_t divMmcPresent;
+    uint8_t divMmcExtRamPresent;
+    uint8_t divMmcRomPresent;
+    uint8_t divMmcSdReadOnly;
+    uint8_t interface1Present;
+    uint8_t mf128Present;
+    uint8_t uartPresent;
+    uint8_t elementRegistersPresent;
+    uint8_t usbPresent;
+    uint8_t gamepadButtons;
+    uint8_t wifiNtpPresent;
+    uint8_t wifiNtpTz;
+    uint8_t dskPresent;
+    uint8_t dskEnableDriveB;
+    uint8_t modemPresent;
+    uint8_t printerPresent;
+    uint8_t lprintPresent;
+    uint8_t bootIntoMenu;
+    uint8_t menuEnableInGame;
+    cfg_data_t cfgData;
+
+    // Runtime device state.
+    uint32_t romPaged;
+    uint16_t romArrayPresent;
+    uint8_t spectrumBankM;
+    uint8_t spectrumBank678;
+    uint8_t spectrumBorder;
+    uint8_t rom1Paged;
+    uint8_t rom23Paged;
+    uint8_t interface1Enabled;
+    uint8_t divMmcEnabled;
+    uint8_t divMmcRomEnabled;
+    uint8_t divMmcToggle;
+    uint8_t divMmcAutoMap;
+    uint8_t divMmcConMem;
+    uint8_t divMmcMapRam;
+    uint8_t divMmcRamBank;
+    uint8_t divMmcExtRamEnabled;
+    uint8_t divMmcAllRamPresent;
+    uint8_t divMmcAllRam;
+    uint8_t divMmcWriteLock;
+    uint8_t divMmcMapDisable;
+    uint8_t divMmcMapRamPage;
+    uint8_t divMmcAllRamBankRom23;
+    uint8_t divMmcAllRamBankRom01;
+    uint8_t divMmcAllRamBankRom01Locked;
+    uint8_t mf128Enabled;
+    uint8_t mf128ActiveNMI;
+    uint8_t mf128LoadGenie;
+    uint8_t zxC2Present;
+    uint8_t zxC3Present;
+    uint8_t zxC2Lock;
+    uint8_t zxC2ShadowRom;
+    uint8_t zxC2RomBank;
+    uint8_t zxC3Write;
+    uint8_t zxC3FlashState;
+    uint8_t zxC3FlashSetup;
+    uint8_t mdrPresent;
+    uint8_t mdrEnabled;
+    uint8_t mdrMaxSector;
+    char menuBrowserPath[MAX_PATH];
+    uint8_t tzxPresent;
+    uint8_t tzxEnabled;
+    uint8_t dskEnabled;
+    uint8_t printerEnabled;
+    uint8_t lprintEnabled;
+    uint8_t uartEnabled;
+    uint8_t elementRegistersEnabled;
+    uint8_t modemEnabled;
+    uint8_t modemOnReset;
+    uint8_t usbEnabled;
+    uint8_t mousePresent;
+    uint8_t joystickPresent;
+    uint8_t printerStrobe;
+    uint8_t printerByte;
+    uint8_t divMmcSpiSdIdle;
+    uint8_t divMmcHdfSdIdle;
+    uint8_t divMmcSecondHdfSdIdle;
+    uint32_t mouseX;
+    uint32_t mouseY;
+    uint32_t tapePosition;
+    uint32_t tapeBufferPosition;
+    uint32_t tapeFillPosition;
+    uint32_t tapeBufferFillPosition;
+    uint32_t tapeLength;
+    uint8_t mldPresent;
+    uint8_t mldSlotCount;
+    uint8_t mldCmdLocked;
+    uint8_t mldCmdDisabled;
+    uint8_t mldCurrentSlot;
+    uint8_t mldPreviousSlot;
+} state_device_data_t;
+
+// Menu dynamic lists are not accessed while state data is being saved or
+// restored, so share their RAM2 allocation.
+typedef union {
+    char dynamicList[255][MENU_STR_LEN];
+    state_device_data_t restoreDevice;
+} menu_state_storage_t;
+
+DMAMEM menu_state_storage_t menuStateStorage;
+
+#define menuDynamicList menuStateStorage.dynamicList
+#define stateRestoreDevice menuStateStorage.restoreDevice
+
+static_assert(sizeof(stateRestoreDevice) <= sizeof(menuDynamicList),
+    "Saved state data exceeds menu dynamic list storage");
+
 // I/O pin assignments
 static const uint8_t LED_PIN = 13;
 static const uint8_t DATA_DIS_PIN = 29;
@@ -578,7 +704,7 @@ static const uint32_t CDC_FRAME_APPROX_LONG_ACK_CYCLES = CDC_FRAME_APPROX_PERIOD
 static const uint32_t CDC_FRAME_APPROX_GRACE_CYCLES = 2 * (CDC_FRAME_APPROX_PERIOD_CYCLES / CDC_RASTER_SOURCE_LINES);
 static const uint32_t CDC_FRAME_APPROX_MISSED_ACK_CYCLES = CDC_FRAME_APPROX_PERIOD_CYCLES + CDC_FRAME_APPROX_GRACE_CYCLES;
 
-USBSerial_BigBuffer hdmiCdc(usbHost, 1);
+USBSerial hdmiCdc(usbHost);
 DMAMEM RingBuffer<CDC_BUFFER_SIZE> hdmiCdcBuffer;
 uint8_t hdmiCdcOutputPacket[CDC_PACKET_SIZE] = {};
 volatile uint8_t hdmiCdcUlaBeeper = 0;
@@ -2971,7 +3097,8 @@ FASTRUN void loop()
         }
 
         // Trigger NMI to enter the menu, when requested
-        if (menuTriggerNMI && (divMmcDrive == DIVMMC_NONE))
+        if (!isStateOperationActive() && menuTriggerNMI &&
+            (divMmcDrive == DIVMMC_NONE))
         {
             // Prepare the in-game menu
             menuBeginInGame();
@@ -3136,7 +3263,7 @@ FASTRUN void loop()
         }
 
         // Re-generate and re-draw the menu, when requested
-        if (menuRedraw)
+        if (!isStateOperationActive() && menuRedraw)
         {
             menuRedraw = false;
             if (IS_ROM_PAGED(ROM_MENU) && !nmiPending)

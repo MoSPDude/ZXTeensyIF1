@@ -80,17 +80,6 @@ typedef struct {
     uint32_t index;
 } menu_entry_t;
 
-typedef struct {
-    char cfgName[MAX_PATH];
-    char romName[MAX_PATH];
-    char divMmcSdaPath[MAX_PATH];
-    char divMmcSdbPath[MAX_PATH];
-    char dskFdaPath[MAX_PATH];
-    char dskFdbPath[MAX_PATH];
-    char modemUrl[MAX_PATH];
-    char tapeFileName[MAX_PATH];
-} cfg_data_t;
-
 typedef enum {
     SETTING_ACTION_RESTART,
     SETTING_ACTION_DISABLE,
@@ -168,9 +157,6 @@ menu_action_t menuBrowserExpandedAction = MENU_ACTION_TOP_MENU;
 uint8_t menuBrowserExpandedMenuIndex = 0;
 uint8_t menuBrowserExpandedLineCount = 1;
 uint8_t menuBrowserExpandedMenuLine = 0;
-
-// Menu TZX and POK listings
-DMAMEM char menuDynamicList[255][MENU_STR_LEN];
 
 // Menu saved state preview
 uint8_t menuPreviewSlot = 0;

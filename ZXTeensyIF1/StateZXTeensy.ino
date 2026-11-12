@@ -25,106 +25,6 @@ static const char* const PROGMEM STATE_FILE_NAMES[] = {
     "DEVICE.BIN"
 };
 
-typedef struct __attribute__((packed)) {
-    // Saved-record metadata.
-    char magic[4];
-    uint16_t version;
-    uint16_t size;
-
-    // Configuration normally loaded from ZXTEENSY.cfg.
-    uint8_t divMmcPresent;
-    uint8_t divMmcExtRamPresent;
-    uint8_t divMmcRomPresent;
-    uint8_t divMmcSdReadOnly;
-    uint8_t interface1Present;
-    uint8_t mf128Present;
-    uint8_t uartPresent;
-    uint8_t elementRegistersPresent;
-    uint8_t usbPresent;
-    uint8_t gamepadButtons;
-    uint8_t wifiNtpPresent;
-    uint8_t wifiNtpTz;
-    uint8_t dskPresent;
-    uint8_t dskEnableDriveB;
-    uint8_t modemPresent;
-    uint8_t printerPresent;
-    uint8_t lprintPresent;
-    uint8_t bootIntoMenu;
-    uint8_t menuEnableInGame;
-    cfg_data_t cfgData;
-
-    // Runtime device state.
-    uint32_t romPaged;
-    uint16_t romArrayPresent;
-    uint8_t spectrumBankM;
-    uint8_t spectrumBank678;
-    uint8_t spectrumBorder;
-    uint8_t rom1Paged;
-    uint8_t rom23Paged;
-    uint8_t interface1Enabled;
-    uint8_t divMmcEnabled;
-    uint8_t divMmcRomEnabled;
-    uint8_t divMmcToggle;
-    uint8_t divMmcAutoMap;
-    uint8_t divMmcConMem;
-    uint8_t divMmcMapRam;
-    uint8_t divMmcRamBank;
-    uint8_t divMmcExtRamEnabled;
-    uint8_t divMmcAllRamPresent;
-    uint8_t divMmcAllRam;
-    uint8_t divMmcWriteLock;
-    uint8_t divMmcMapDisable;
-    uint8_t divMmcMapRamPage;
-    uint8_t divMmcAllRamBankRom23;
-    uint8_t divMmcAllRamBankRom01;
-    uint8_t divMmcAllRamBankRom01Locked;
-    uint8_t mf128Enabled;
-    uint8_t mf128ActiveNMI;
-    uint8_t mf128LoadGenie;
-    uint8_t zxC2Present;
-    uint8_t zxC3Present;
-    uint8_t zxC2Lock;
-    uint8_t zxC2ShadowRom;
-    uint8_t zxC2RomBank;
-    uint8_t zxC3Write;
-    uint8_t zxC3FlashState;
-    uint8_t zxC3FlashSetup;
-    uint8_t mdrPresent;
-    uint8_t mdrEnabled;
-    uint8_t mdrMaxSector;
-    char menuBrowserPath[MAX_PATH];
-    uint8_t tzxPresent;
-    uint8_t tzxEnabled;
-    uint8_t dskEnabled;
-    uint8_t printerEnabled;
-    uint8_t lprintEnabled;
-    uint8_t uartEnabled;
-    uint8_t elementRegistersEnabled;
-    uint8_t modemEnabled;
-    uint8_t modemOnReset;
-    uint8_t usbEnabled;
-    uint8_t mousePresent;
-    uint8_t joystickPresent;
-    uint8_t printerStrobe;
-    uint8_t printerByte;
-    uint8_t divMmcSpiSdIdle;
-    uint8_t divMmcHdfSdIdle;
-    uint8_t divMmcSecondHdfSdIdle;
-    uint32_t mouseX;
-    uint32_t mouseY;
-    uint32_t tapePosition;
-    uint32_t tapeBufferPosition;
-    uint32_t tapeFillPosition;
-    uint32_t tapeBufferFillPosition;
-    uint32_t tapeLength;
-    uint8_t mldPresent;
-    uint8_t mldSlotCount;
-    uint8_t mldCmdLocked;
-    uint8_t mldCmdDisabled;
-    uint8_t mldCurrentSlot;
-    uint8_t mldPreviousSlot;
-} state_device_data_t;
-
 File stateSaveFile;
 volatile bool stateSaveActive = false;
 volatile bool stateSaveActiveBlockPending = false;
@@ -132,7 +32,6 @@ volatile uint8_t stateSaveActiveBlock = 0;
 bool stateSave128 = false;
 uint8_t stateSaveExpectedBlock = 0;
 uint8_t stateSaveActiveSlot = 0;
-DMAMEM state_device_data_t stateRestoreDevice;
 volatile bool stateLoadActive = false;
 volatile bool stateLoadFinalStage = false;
 
@@ -549,6 +448,11 @@ bool stateBeginSave(uint8_t slot)
 bool isStateSaveActive()
 {
     return stateSaveActive;
+}
+
+bool isStateOperationActive()
+{
+    return stateSaveActive || stateLoadActive || stateLoadFinalStage;
 }
 
 void stateSaveBlock(uint8_t block)
