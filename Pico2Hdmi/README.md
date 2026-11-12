@@ -97,8 +97,10 @@ diagnostics or discarding bytes after that message.
 
 The 16-bit raster timestamp uses bits 15-7 for a source scanline and bits 6-0
 for a reserved position within that line. A timestamp is stateful and applies
-to following ULAplus data, Timex control, ULA border, or 128K memory-control
-writes until another timestamp arrives. For example, a timestamp value of
+to following screen-memory, ULAplus data, Timex control, ULA border, or 128K
+memory-control writes until another timestamp or frame marker arrives. All
+writes in one source scanline share a timestamp. A new timestamp ends any
+incremental screen-write run. For example, a timestamp value of
 `0x3200` means source line 100, phase zero, and is encoded as the message
 `00 FC 32 00`.
 
@@ -149,23 +151,28 @@ pixels per word for a native 512-pixel active area. Each logical line is
 rendered once into a small cache and copied to the two physical lines requested
 by HSTX.
 
-The scanline path has no RGB framebuffer. Screen-memory writes are collected
-in an immutable source-frame snapshot, selected together with that frame's
-raster events at an HDMI frame boundary. This keeps screen contents aligned
-with border, palette, mode, and screen-selection changes without copying a
-whole display file in the HSTX DMA interrupt.
+The scanline path has no RGB framebuffer. Core 0 reconstructs each source
+scanline from timestamped screen-memory writes and saves its bitmap and
+attribute bytes. Completed lines are immutable: restoring a sprite's background
+after its line has been fetched cannot erase it from that frame. The collected
+lines are selected together with that frame's raster events at an HDMI frame
+boundary, without copying a whole display file in the HSTX DMA interrupt.
 
-ULAplus palette/mode, Timex control, ULA border, and 128K memory-control writes
-use source-frame raster timestamps. The Teensy detects the Z80 maskable-
+Screen-memory, ULAplus palette/mode, Timex control, ULA border, and 128K
+memory-control writes use source-frame raster timestamps. The Teensy records
+timing when capturing each bus write, detects the Z80 maskable-
 interrupt acknowledge cycle (`M1` and `IORQ` active), divides the measured
-frame into 312 source lines, and sends a frame marker plus a timestamp before
-each timed video-control write.
+frame into 312 source lines, and sends a frame marker plus a timestamp whenever
+the source scanline changes. Consecutive screen addresses still form incremental
+runs within each timestamp bucket.
 
-The Pico buffers up to 4096 video events plus a complete screen-memory snapshot
-in each of three source-frame buffers and replays a completed frame one HDMI
-frame later. Screen writes have frame-level timing in this version: their final
-values for the source frame are visible from the start of its replayed HDMI
-frame.
+The Pico buffers up to 4096 video-control events plus 192 reconstructed display
+lines in each of three source-frame buffers and replays a completed frame one
+HDMI frame later. Each display line holds both Timex files' bitmap and attribute
+bytes from the screen selected at that source line. Screen writes update the
+source RAM image directly and consume no event slots, so full-screen redraws
+cannot exhaust the control-event buffer. The source RAM image persists between
+frames, including while a frame is dropped.
 Repeated writes to the same video-state target at one timestamp are coalesced
 to their final value. State changes in the cropped lines before and after the
 visible area are captured as bounded state snapshots instead of being replayed
@@ -173,7 +180,10 @@ as an unbounded event burst inside the HSTX DMA interrupt.
 
 Source lines 16-303 map to the 288 logical HDMI lines; writes in the cropped lines
 are applied before or after the visible area. The seven low timestamp bits reserve
-sub-line precision, but this version deliberately rounds events to scanline boundaries.
+sub-line precision, but this version deliberately rounds events to scanline
+boundaries. All writes in a line are applied before capturing that line when
+the next timestamp arrives; the next frame marker completes any remaining
+lines. Writes racing the ULA within one scanline are therefore approximate.
 Each buffered frame also carries its starting palette, Timex mode, border
 colour, and 128K memory-control value. If a marker or whole frame is lost, the
 Pico discards ambiguous raster timing and restores persistent video state from
@@ -196,6 +206,11 @@ RAM reads and HALT fetch cycles, without adding another producer to the CDC
 ring buffer. A sequence jump represents multiple elapsed frames. When real
 acknowledgements resume, their sequence is reconciled with the predicted
 markers so an already represented frame is not marked twice.
+
+After a frame containing timed video writes is closed, the Teensy also closes
+one following quiet frame. This settling frame republishes the persistent final
+screen RAM after a display line was captured partway through an update, while
+still preserving the preceding frame's raster-timed sprite contents.
 
 Adafruit DVI HSTX inserts HDMI data islands and accepts interleaved signed
 16-bit stereo frames through `audioWrite()`. The foreground loop keeps a

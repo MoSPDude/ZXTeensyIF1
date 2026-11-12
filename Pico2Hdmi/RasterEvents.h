@@ -3,6 +3,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "UlaVideo.h"
+
 namespace zx {
 
 constexpr uint8_t kRasterPhaseBits = 7;
@@ -22,6 +24,13 @@ struct RasterEventCounters {
 
 extern volatile RasterEventCounters rasterEventCounters;
 
+// Bytes fetched for one source scanline, from the screen selected at that
+// time. Keep both Timex files so the renderer can decode every video mode.
+struct RasterDisplayLine {
+  uint8_t bitmap[2][kSpectrumWidth / 8];
+  uint8_t attributes[2][kSpectrumWidth / 8];
+};
+
 // Set up the cross-core frame buffers before USB or HSTX begins using them.
 void initializeRasterEvents();
 
@@ -30,7 +39,7 @@ void initializeRasterEvents();
 void resetRasterEvents();
 
 // Core-0 protocol input. A marker closes the preceding source frame and starts
-// a new one. Timestamp metadata applies to following video-control writes.
+// a new one. Timestamp metadata applies to following screen and control writes.
 void beginRasterSourceFrame(uint8_t sequence);
 void setRasterTimestamp(uint16_t timestamp);
 
@@ -49,8 +58,8 @@ void beginRasterOutputFrame();
 void applyRasterEventsForOutputLine(size_t outputLine);
 void finishRasterOutputLine(size_t outputLine);
 
-// Return the immutable display-file snapshot selected for the current HDMI
-// frame. Before source timing is established, this is the live source state.
-const uint8_t *rasterDisplayFile(size_t screen);
+// Return the immutable source scanline selected for the current HDMI frame.
+// A null pointer asks the renderer to use live RAM before a frame is ready.
+const RasterDisplayLine *rasterDisplayLine(size_t y);
 
 }  // namespace zx

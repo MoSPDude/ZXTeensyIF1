@@ -126,7 +126,8 @@ void __not_in_flash_func(renderUlaScanline)(uint32_t *pixels, size_t y,
                                   : ((machineState.memoryControl & 0x08) != 0
                                          ? 1
                                          : 0);
-  const uint8_t *display = rasterDisplayFile(screenNumber);
+  const uint8_t *display = machineState.displayFile[screenNumber];
+  const RasterDisplayLine *line = rasterDisplayLine(screenY);
   uint32_t *output = pixels + kBorderLeft;
 
   if (timexMode == 0x06) {
@@ -136,8 +137,9 @@ void __not_in_flash_func(renderUlaScanline)(uint32_t *pixels, size_t y,
     for (size_t column = 0; column < 32; ++column) {
       const size_t offset = bitmapOffset(screenY, column);
       const uint8_t bitmaps[2] = {
-          display[offset],
-          display[kTimexSecondDisplayOffset + offset],
+          line ? line->bitmap[0][column] : display[offset],
+          line ? line->bitmap[1][column]
+               : display[kTimexSecondDisplayOffset + offset],
       };
       for (uint8_t bitmap : bitmaps) {
         for (uint8_t mask = 0x80; mask != 0; mask >>= 2) {
@@ -156,16 +158,20 @@ void __not_in_flash_func(renderUlaScanline)(uint32_t *pixels, size_t y,
 
   const size_t displayBase =
       timexMode == 0x01 ? kTimexSecondDisplayOffset : 0;
+  const size_t displayFile = timexMode == 0x01 ? 1 : 0;
   const size_t attributeRow =
       displayBase + kBitmapSize + (screenY >> 3) * 32;
 
   for (size_t column = 0; column < 32; ++column) {
     const size_t pixelOffset = bitmapOffset(screenY, column);
-    uint8_t bitmap = display[displayBase + pixelOffset];
+    uint8_t bitmap = line ? line->bitmap[displayFile][column]
+                          : display[displayBase + pixelOffset];
     const uint8_t attribute =
         timexMode == 0x02
-            ? display[kTimexSecondDisplayOffset + pixelOffset]
-            : display[attributeRow + column];
+            ? (line ? line->bitmap[1][column]
+                    : display[kTimexSecondDisplayOffset + pixelOffset])
+            : (line ? line->attributes[displayFile][column]
+                    : display[attributeRow + column]);
     uint16_t ink;
     uint16_t paper;
     attributeColours(attribute, ulaPlusEnabled, frameNumber, ink, paper);

@@ -48,7 +48,7 @@ struct RasterVideoState {
 
 struct RasterFrameBuffer {
   RasterEvent events[kRasterEventsPerFrame];
-  uint8_t displayFile[kScreenCount][kDisplayMemorySize];
+  RasterDisplayLine displayLines[kSpectrumHeight];
   RasterVideoState visibleStartState;
   RasterVideoState endState;
   size_t count;
@@ -64,6 +64,7 @@ int8_t collectingBuffer = 0;
 int8_t playingBuffer = kNoBuffer;
 size_t playingEvent = 0;
 uint16_t currentTimestamp = 0;
+size_t nextDisplayLine = 0;
 uint32_t nextFrameOrdinal = 0;
 volatile bool sourceTimingActive = false;
 volatile uint32_t resetGeneration = 0;
@@ -110,14 +111,18 @@ int8_t __not_in_flash_func(findOldestReadyBuffer)() {
   return oldest;
 }
 
-size_t __not_in_flash_func(eventSourceLine)(const RasterEvent &event) {
-  size_t line = event.timestamp >> kRasterPhaseBits;
+size_t __not_in_flash_func(timestampSourceLine)(uint16_t timestamp) {
+  size_t line = timestamp >> kRasterPhaseBits;
   // The first implementation schedules at line boundaries. Preserve the
   // sub-line field on the wire and round a future non-zero phase forward.
-  if ((event.timestamp & kRasterPhaseMask) != 0) {
+  if ((timestamp & kRasterPhaseMask) != 0) {
     ++line;
   }
   return line;
+}
+
+size_t __not_in_flash_func(eventSourceLine)(const RasterEvent &event) {
+  return timestampSourceLine(event.timestamp);
 }
 
 void __not_in_flash_func(applyEvent)(const RasterEvent &event) {
@@ -153,9 +158,31 @@ void captureSourceState(RasterVideoState &state) {
   state.memoryControl = sourceMemoryControl;
 }
 
-void captureSourceDisplay(RasterFrameBuffer &frame) {
-  memcpy(frame.displayFile, machineState.displayFile,
-         sizeof(frame.displayFile));
+void captureSourceDisplayBefore(size_t sourceLine) {
+  if (collectingBuffer == kNoBuffer) {
+    return;
+  }
+
+  constexpr size_t kFirstDisplayLine = kRasterFirstRenderedLine + kBorderTop;
+  const size_t screen = sourceTimex.active
+                            ? sourceTimex.screen
+                            : ((sourceMemoryControl & 0x08) != 0 ? 1 : 0);
+  const uint8_t *display = machineState.displayFile[screen];
+  while (nextDisplayLine < kSpectrumHeight &&
+         kFirstDisplayLine + nextDisplayLine < sourceLine) {
+    const size_t y = nextDisplayLine++;
+    const size_t bitmap = ((y & 0xc0) << 5) | ((y & 0x07) << 8) |
+                          ((y & 0x38) << 2);
+    const size_t attributes = kBitmapSize + (y >> 3) * (kSpectrumWidth / 8);
+    RasterDisplayLine &line = frameBuffers[collectingBuffer].displayLines[y];
+    for (size_t file = 0; file < 2; ++file) {
+      const size_t base = file * kTimexSecondDisplayOffset;
+      memcpy(line.bitmap[file], display + base + bitmap,
+             sizeof(line.bitmap[file]));
+      memcpy(line.attributes[file], display + base + attributes,
+             sizeof(line.attributes[file]));
+    }
+  }
 }
 
 void __not_in_flash_func(applySourceState)(const RasterVideoState &state) {
@@ -295,6 +322,15 @@ void __not_in_flash_func(stopPlayingAfterReset)() {
   }
 }
 
+void __not_in_flash_func(restartPlayingFrame)() {
+  if (playingBuffer != kNoBuffer &&
+      playingResetGeneration == resetGeneration) {
+    const RasterFrameBuffer &playing = frameBuffers[playingBuffer];
+    playingEvent = playing.firstVisibleEvent;
+    applySourceState(playing.visibleStartState);
+  }
+}
+
 }  // namespace
 
 volatile RasterEventCounters rasterEventCounters = {};
@@ -309,10 +345,10 @@ void initializeRasterEvents() {
   }
   collectingBuffer = 0;
   frameBuffers[collectingBuffer].state = BufferState::kCollecting;
-  captureSourceDisplay(frameBuffers[collectingBuffer]);
   playingBuffer = kNoBuffer;
   playingEvent = 0;
   currentTimestamp = 0;
+  nextDisplayLine = 0;
   nextFrameOrdinal = 0;
   sourceTimingActive = false;
   resetGeneration = 0;
@@ -328,11 +364,11 @@ void initializeRasterEvents() {
 }
 
 void resetRasterEvents() {
-  int8_t displayCaptureBuffer = kNoBuffer;
   critical_section_enter_blocking(&frameBufferLock);
   ++resetGeneration;
   sourceTimingActive = false;
   currentTimestamp = 0;
+  nextDisplayLine = 0;
   for (size_t i = 0; i < kUlaPlusPaletteSize; ++i) {
     sourcePalette[i] = 0;
   }
@@ -354,16 +390,17 @@ void resetRasterEvents() {
     frameBuffers[collectingBuffer].count = 0;
     frameBuffers[collectingBuffer].firstVisibleEvent = 0;
     frameBuffers[collectingBuffer].state = BufferState::kCollecting;
-    displayCaptureBuffer = collectingBuffer;
   }
   critical_section_exit(&frameBufferLock);
-  if (displayCaptureBuffer != kNoBuffer) {
-    captureSourceDisplay(frameBuffers[displayCaptureBuffer]);
-  }
 }
 
 void beginRasterSourceFrame(uint8_t sequence) {
-  int8_t displayCaptureBuffer = kNoBuffer;
+  // Complete the remaining source lines before publishing the frame. This
+  // work stays on core 0, outside the video interrupt and cross-core lock.
+  if (sourceTimingActive) {
+    captureSourceDisplayBefore(kRasterSourceLineCount);
+  }
+  nextDisplayLine = 0;
   critical_section_enter_blocking(&frameBufferLock);
   rasterEventCounters.frameMarkers = rasterEventCounters.frameMarkers + 1;
   currentTimestamp = 0;
@@ -380,12 +417,8 @@ void beginRasterSourceFrame(uint8_t sequence) {
       collecting.sequence = sequence;
       captureSourceState(collecting.visibleStartState);
       collecting.state = BufferState::kCollecting;
-      displayCaptureBuffer = collectingBuffer;
     }
     critical_section_exit(&frameBufferLock);
-    if (displayCaptureBuffer != kNoBuffer) {
-      captureSourceDisplay(frameBuffers[displayCaptureBuffer]);
-    }
     return;
   }
 
@@ -419,15 +452,16 @@ void beginRasterSourceFrame(uint8_t sequence) {
     collecting.sequence = sequence;
     captureSourceState(collecting.visibleStartState);
     collecting.state = BufferState::kCollecting;
-    displayCaptureBuffer = collectingBuffer;
   }
   critical_section_exit(&frameBufferLock);
-  if (displayCaptureBuffer != kNoBuffer) {
-    captureSourceDisplay(frameBuffers[displayCaptureBuffer]);
-  }
 }
 
 void setRasterTimestamp(uint16_t timestamp) {
+  if (sourceTimingActive) {
+    // All writes in the preceding timestamp bucket have now arrived. Fetch
+    // its scanline before applying writes belonging to the new bucket.
+    captureSourceDisplayBefore(timestampSourceLine(timestamp));
+  }
   currentTimestamp = timestamp;
 }
 
@@ -443,16 +477,12 @@ bool queueRasterDisplayWrite(uint16_t address, uint8_t data) {
   // marker gap or temporary lack of a free frame buffer.
   machineState.displayFile[screen][offset] = data;
 
-  critical_section_enter_blocking(&frameBufferLock);
   if (collectingBuffer == kNoBuffer) {
     rasterEventCounters.eventOverflows =
         rasterEventCounters.eventOverflows + 1;
-    critical_section_exit(&frameBufferLock);
-    return true;
   }
-
-  frameBuffers[collectingBuffer].displayFile[screen][offset] = data;
-  critical_section_exit(&frameBufferLock);
+  // setRasterTimestamp() captures each completed line from this source RAM.
+  // Later erases cannot alter that line, and memory writes need no event slots.
   return true;
 }
 
@@ -482,6 +512,7 @@ void __not_in_flash_func(beginRasterOutputFrame)() {
   if (!tryEnterFrameBufferLock()) {
     rasterEventCounters.outputLockMisses =
         rasterEventCounters.outputLockMisses + 1;
+    restartPlayingFrame();
     return;
   }
   if (playingResetGeneration != resetGeneration &&
@@ -500,12 +531,12 @@ void __not_in_flash_func(beginRasterOutputFrame)() {
     }
     playingBuffer = ready;
     frameBuffers[playingBuffer].state = BufferState::kPlaying;
-    playingEvent = frameBuffers[playingBuffer].firstVisibleEvent;
     playingResetGeneration = resetGeneration;
-    applySourceState(frameBuffers[playingBuffer].visibleStartState);
     rasterEventCounters.playedFrames = rasterEventCounters.playedFrames + 1;
   }
   critical_section_exit(&frameBufferLock);
+  // A held frame must replay its controls from the beginning too.
+  restartPlayingFrame();
 }
 
 void __not_in_flash_func(applyRasterEventsForOutputLine)(size_t outputLine) {
@@ -538,11 +569,11 @@ void __not_in_flash_func(finishRasterOutputLine)(size_t outputLine) {
   }
 }
 
-const uint8_t *__not_in_flash_func(rasterDisplayFile)(size_t screen) {
+const RasterDisplayLine *__not_in_flash_func(rasterDisplayLine)(size_t y) {
   if (playingBuffer != kNoBuffer) {
-    return frameBuffers[playingBuffer].displayFile[screen];
+    return &frameBuffers[playingBuffer].displayLines[y];
   }
-  return machineState.displayFile[screen];
+  return nullptr;
 }
 
 }  // namespace zx
