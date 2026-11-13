@@ -160,14 +160,18 @@ class Dsk765ZXTeensy
                 // Fetch data from the FDC into the read buffer
                 if (!rdStatusBuffer.canRead())
                 {
-                    statusRegister = fdc_read_ctrl(fdc);
-                    if ((statusRegister & 0xC0) == 0xC0)
+                    uint8_t status = fdc_read_ctrl(fdc);
+                    if ((status & 0xC0) == 0xC0)
                     {
                         readBuffer.write(fdc_read_data(fdc));
                         rdStatusBuffer.write(fdc_read_ctrl(fdc));
                     } else {
-                        readDataStatus = statusRegister;
+                        readDataStatus = status;
                     }
+
+                    // NOTE: Update RQM only after the byte and following status
+                    // are both available to the bus ISR
+                    statusRegister = status;
                 }
             }
         }
@@ -204,7 +208,10 @@ class Dsk765ZXTeensy
             if (rdStatusBuffer.canRead())
             {
                 data = readBuffer.readRaw();
-                statusRegister = rdStatusBuffer.readRaw();
+
+                // NOTE: Hold RQM low until onTick has queued the next byte,
+                // otherwise can expose stale data
+                statusRegister = rdStatusBuffer.readRaw() & 0x7F;
             } else {
                 // Unexpected read of FDC
                 data = readDataStatus;
