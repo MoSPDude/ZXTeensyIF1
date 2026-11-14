@@ -147,9 +147,11 @@ arrangement before attaching a separate development USB supply.
 DMA interrupt requests complete 720-pixel RGB565 lines from `drawVideoScanline`.
 The ULA renderer works at 360x288. Its 256-pixel modes write each logical pixel
 twice into one packed 32-bit word; Timex hi-res instead packs two distinct
-pixels per word for a native 512-pixel active area. Each logical line is
-rendered once into a small cache and copied to the two physical lines requested
-by HSTX.
+pixels per word for a native 512-pixel active area. Consecutive Spectrum frames
+are woven into alternate physical HDMI lines: the first completed source frame
+occupies lines 0, 2, 4 and so on, and the next occupies lines 1, 3, 5 and so on.
+The HDMI timing remains progressive, but two 50 Hz source frames form one
+complete interlaced image.
 
 The scanline path has no RGB framebuffer. Core 0 reconstructs each source
 scanline from timestamped screen-memory writes and saves its bitmap and
@@ -167,12 +169,13 @@ the source scanline changes. Consecutive screen addresses still form incremental
 runs within each timestamp bucket.
 
 The Pico buffers up to 4096 video-control events plus 192 reconstructed display
-lines in each of three source-frame buffers and replays a completed frame one
-HDMI frame later. Each display line holds both Timex files' bitmap and attribute
-bytes from the screen selected at that source line. Screen writes update the
-source RAM image directly and consume no event slots, so full-screen redraws
-cannot exhaust the control-event buffer. The source RAM image persists between
-frames, including while a frame is dropped.
+lines in each of four source-frame buffers. Two buffers retain the even and odd
+output fields while the remaining buffers collect and hand off incoming source
+frames. Each display line holds both Timex files' bitmap and attribute bytes
+from the screen selected at that source line. Screen writes update the source
+RAM image directly and consume no event slots, so full-screen redraws cannot
+exhaust the control-event buffer. The source RAM image persists between frames,
+including while a frame is dropped.
 Repeated writes to the same video-state target at one timestamp are coalesced
 to their final value. State changes in the cropped lines before and after the
 visible area are captured as bounded state snapshots instead of being replayed
@@ -208,9 +211,10 @@ acknowledgements resume, their sequence is reconciled with the predicted
 markers so an already represented frame is not marked twice.
 
 After a frame containing timed video writes is closed, the Teensy also closes
-one following quiet frame. This settling frame republishes the persistent final
-screen RAM after a display line was captured partway through an update, while
-still preserving the preceding frame's raster-timed sprite contents.
+two following quiet frames. These settling frames republish the persistent
+final screen RAM into both output fields after a display line was captured
+partway through an update, while still preserving the preceding frame's
+raster-timed sprite contents.
 
 Adafruit DVI HSTX inserts HDMI data islands and accepts interleaved signed
 16-bit stereo frames through `audioWrite()`. The foreground loop keeps a
@@ -221,12 +225,13 @@ on core 0 with USB command application, while HSTX consumes the encoded audio
 queue from its core-1 interrupt.
 
 At each HDMI frame boundary, the core-1 scanline interrupt uses a short, fixed
-retry window to select the next completed raster buffer. This permits the
-50 Hz source-frame and output-frame handoffs to coincide normally. If core 0
-is still updating the buffer state when that window expires, core 1 keeps the
-current immutable frame and retries at the next boundary. It never waits
-without a deadline, because delaying the scanline DMA callback can force the
-HSTX driver to restart the HDMI stream.
+retry window to assign completed raster buffers to alternating output fields.
+This permits the 50 Hz source-frame and output-frame handoffs to coincide
+normally. Each field independently replays its palette, mode, border and screen
+selection events. If core 0 is still updating the buffer state when that window
+expires, core 1 keeps both current immutable fields and retries at the next
+boundary. It never waits without a deadline, because delaying the scanline DMA
+callback can force the HSTX driver to restart the HDMI stream.
 
 The entire sketch scanline callback path, including raster playback, state
 application, Timex decoding, and normal/BRIGHT colour tables, resides in SRAM.

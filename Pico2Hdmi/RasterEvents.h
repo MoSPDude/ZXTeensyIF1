@@ -11,6 +11,7 @@ constexpr uint8_t kRasterPhaseBits = 7;
 constexpr uint16_t kRasterPhaseMask = (1u << kRasterPhaseBits) - 1;
 constexpr size_t kRasterSourceLineCount = 312;
 constexpr size_t kRasterFirstRenderedLine = 16;
+constexpr size_t kRasterOutputFieldCount = 2;
 
 struct RasterEventCounters {
   uint32_t frameMarkers;
@@ -52,14 +53,14 @@ bool queueRasterTimexWrite(uint8_t data);
 bool queueRasterBorderWrite(uint8_t data);
 bool queueRasterMemoryControlWrite(uint8_t data);
 
-// Core-1 HSTX input. Select one completed source frame at HDMI frame start,
-// then apply its events before each logical output line is rendered.
+// Core-1 HSTX input. Retain one completed source frame for each output field,
+// then apply that field's events before its physical output line is rendered.
 void beginRasterOutputFrame();
-void applyRasterEventsForOutputLine(size_t outputLine);
-void finishRasterOutputLine(size_t outputLine);
+bool applyRasterEventsForOutputLine(size_t outputLine, size_t field = 0);
+void finishRasterOutputLine(size_t outputLine, size_t field = 0);
 
-// Return the immutable source scanline selected for the current HDMI frame.
+// Return the immutable source scanline selected for one HDMI output field.
 // A null pointer asks the renderer to use live RAM before a frame is ready.
-const RasterDisplayLine *rasterDisplayLine(size_t y);
+const RasterDisplayLine *rasterDisplayLine(size_t y, size_t field = 0);
 
 }  // namespace zx

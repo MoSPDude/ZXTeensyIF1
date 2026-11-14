@@ -41,7 +41,6 @@ DVHSTXScanline display(pinConfig, DVHSTX_RESOLUTION_360x288);
 
 int16_t audioBuffer[kAudioServiceBatch * 2];
 size_t audioQueueCapacityFrames = 0;
-uint32_t scanlineCache[zx::kVideoWidth];
 uint32_t displayedCommandCount = 0;
 uint32_t commandLedOffAt = 0;
 bool commandLedOn = false;
@@ -61,26 +60,28 @@ struct HdmiTimingCounters {
 volatile HdmiTimingCounters hdmiTimingCounters = {};
 
 // The HSTX scanline callback supplies a complete 720-pixel RGB565 line. The
-// The ULA renderer writes two packed 16-bit output pixels in each 32-bit word;
-// they are duplicates in 256-pixel modes and distinct in Timex hi-res. Render
-// each logical row once, then copy it into both physical output lines.
+// ULA renderer writes two packed 16-bit output pixels in each 32-bit word;
+// they are duplicates in 256-pixel modes and distinct in Timex hi-res. Weave
+// consecutive Spectrum frames into the even and odd physical output lines.
 static void __not_in_flash_func(drawVideoScanline)(uint32_t vScanline,
                                                     uint32_t activeLine,
                                                     uint32_t *destination) {
   const uint32_t started = time_us_32();
   (void)vScanline;
-  if ((activeLine & 1) == 0) {
-    const size_t logicalLine = activeLine >> 1;
-    if (logicalLine == 0) {
-      zx::beginRasterOutputFrame();
-    }
-    zx::applyRasterEventsForOutputLine(logicalLine);
-    zx::renderUlaScanline(scanlineCache, logicalLine,
-                          display.getFrameCount());
-    zx::finishRasterOutputLine(logicalLine);
+  const size_t field = activeLine & 1;
+  const size_t logicalLine = activeLine >> 1;
+  if (activeLine == 0) {
+    zx::beginRasterOutputFrame();
   }
-  for (size_t x = 0; x < zx::kVideoWidth; ++x) {
-    destination[x] = scanlineCache[x];
+  if (zx::applyRasterEventsForOutputLine(logicalLine, field)) {
+    zx::renderUlaScanline(destination, logicalLine, display.getFrameCount(),
+                          field);
+    zx::finishRasterOutputLine(logicalLine, field);
+  } else {
+    volatile uint32_t *output = destination;
+    for (size_t x = 0; x < zx::kVideoWidth; ++x) {
+      output[x] = 0;
+    }
   }
   const uint32_t elapsed = time_us_32() - started;
   if (elapsed > hdmiTimingCounters.longestScanlineUs) {

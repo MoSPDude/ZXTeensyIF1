@@ -93,7 +93,8 @@ inline __attribute__((always_inline)) void highResolutionColours(
 }  // namespace
 
 void __not_in_flash_func(renderUlaScanline)(uint32_t *pixels, size_t y,
-                                            uint32_t frameNumber) {
+                                            uint32_t frameNumber,
+                                            size_t field) {
   const bool ulaPlusEnabled = (machineState.ulaPlus.mode & 0x01) != 0;
   const uint8_t timexMode = machineState.timex.active
                                 ? machineState.timex.mode
@@ -127,7 +128,7 @@ void __not_in_flash_func(renderUlaScanline)(uint32_t *pixels, size_t y,
                                          ? 1
                                          : 0);
   const uint8_t *display = machineState.displayFile[screenNumber];
-  const RasterDisplayLine *line = rasterDisplayLine(screenY);
+  const RasterDisplayLine *line = rasterDisplayLine(screenY, field);
   uint32_t *output = pixels + kBorderLeft;
 
   if (timexMode == 0x06) {
