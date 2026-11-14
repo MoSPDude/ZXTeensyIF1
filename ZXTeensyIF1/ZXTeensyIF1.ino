@@ -396,6 +396,7 @@ volatile bool sdCardPresent = false;
 volatile bool sdioEnabled = false;
 volatile run_state_t globalState = STATE_RESET;
 volatile bool busRdActive = false;
+volatile bool busWrActive = false;
 volatile bool nmiPending = false;
 volatile rom_select_t nmiRomTarget = ROM_ROM0;
 
@@ -881,6 +882,7 @@ inline __attribute__((always_inline, optimize("O3"))) void disableData()
     CORE_PIN10_DDRREG &= ~GPIO7_DATA_MASK;
     CORE_PIN34_PORTCLEAR = DATA_OUT_PIN_BITMASK;
     busRdActive = false;
+    busWrActive = false;
 }
 
 inline __attribute__((always_inline, optimize("O3"))) uint16_t decodeAddress(uint32_t gpioSix)
@@ -1757,9 +1759,9 @@ void setup()
 
     // Setup RD, WR, ROMCS, reset and button ISRs
     // NOTE: Set GPIO interrupt as high priority, to avoid misses
-    // Interrupts on GPIO6 - assumes only RD_PIN and WR_PIN
+    // Bus strobes on GPIO6
     attachInterrupt(digitalPinToInterrupt(RD_PIN), isrFastGpios, CHANGE);
-    attachInterrupt(digitalPinToInterrupt(WR_PIN), isrFastGpios, FALLING);
+    attachInterrupt(digitalPinToInterrupt(WR_PIN), isrFastGpios, CHANGE);
 #ifdef HDMI_CDC_OUTPUT
     attachInterrupt(digitalPinToInterrupt(IOREQ_PIN), isrFastGpios, FALLING);
 #endif
@@ -4105,27 +4107,34 @@ FASTRUN void isrFastGpios()
 
         if ((gpioSix & WR_PIN_BITMASK) == 0)
         {
-            isrWrEvent(gpioSix);
-        }
-#ifdef HDMI_CDC_OUTPUT
-        else if ((gpioSix & IOREQ_PIN_BITMASK) == 0)
-        {
-            // On IORQ falling interrupt for detection of a maskable IRQ ACK.
-            // M1 and IORQ low, whilst MREQ, RD and WR remain high.
-            if (((gpioSix & MREQ_PIN_BITMASK) != 0) && hdmiCdcConnected)
+            if (!busWrActive)
             {
-                uint32_t gpioNine = (*(volatile uint32_t *)IMXRT_GPIO9_ADDRESS);
-                if ((gpioNine & M1_PIN_BITMASK) == 0)
-                {
-                    hdmiCdcOnInterruptAcknowledge(true, ARM_DWT_CYCCNT);
-                }
+                busWrActive = true;
+                isrWrEvent(gpioSix);
             }
+        } else {
+            busWrActive = false;
+#ifdef HDMI_CDC_OUTPUT
+            if ((gpioSix & IOREQ_PIN_BITMASK) == 0)
+            {
+                // On IORQ falling interrupt for detection of a maskable IRQ ACK.
+                // M1 and IORQ low, whilst MREQ, RD and WR remain high.
+                if (((gpioSix & MREQ_PIN_BITMASK) != 0) && hdmiCdcConnected)
+                {
+                    uint32_t gpioNine = (*(volatile uint32_t *)IMXRT_GPIO9_ADDRESS);
+                    if ((gpioNine & M1_PIN_BITMASK) == 0)
+                    {
+                        hdmiCdcOnInterruptAcknowledge(true, ARM_DWT_CYCCNT);
+                    }
+                }
 
-            asm volatile ("dsb":::"memory");
-            return;
-        }
+                asm volatile ("dsb":::"memory");
+                return;
+            }
 #endif
+        }
     } else {
+        busWrActive = false;
         isrRdEvent(gpioSix);
 
 #ifdef HDMI_CDC_OUTPUT

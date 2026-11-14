@@ -401,25 +401,38 @@ The RP2350 emulates the ULA, ULAplus, Timex hi-colour/hi-res modes, and AY, gene
 video and sound over HDMI. Beeper sound is averaged into packets of 44.1 kHz unsigned
 8-bit beeper PCM, and sent to the Pico.
 
-It does require a small fix to the USBHost_t36 library in
-%LOCALAPPDATA%\Arduino15\packages\teensy\hardware\avr\1.60.0\libraries\USBHost_t36\serial.cpp -
-as was getting data corruption when the ZX Spectrum was doing low bandwidth writes.
-It appears that in the USB Serial driver, a subsequent write may reuse and overwrite
-a partial buffer while the USB transfer is still active - causing transmitted data
-corruption.
+HDMI requires two fixes to the USBHost_t36 library bundled with Teensy core
+1.60.0. Preview and apply them from the repository root:
 
+```powershell
+python tools/patch_usbhost_t36.py
+python tools/patch_usbhost_t36.py --apply
+python tools/patch_usbhost_t36.py --check
 ```
-diff --git a/serial.cpp b/serial.cpp
---- a/serial.cpp
-+++ b/serial.cpp
-@@ -1098,7 +1098,7 @@ void USBSerialBase::tx_data(const Transfer_t *transfer)
-        // immediately transmit another full packet, if we have enough data
-        if (count >= packetsize) count = packetsize;
--       else txstate &= ~(mask | 4); // This packet will complete any outstanding flush
-+       else txstate &= ~4;          // This packet will complete the outstanding flush
 
-        println("TX:moar data!!!!");
-```
+The script saves original files beside them with a `.zxteensy-hdmi.bak` suffix
+and preserves fixes that are already applied. Use `--library PATH` for a different
+Arduino installation. Reapply after reinstalling the core, then compile cleanly.
+
+* In `serial.cpp`, retain the busy flag when queuing a partial packet. Otherwise
+  a subsequent write can overwrite a buffer while its USB transfer is active.
+* In `ehci.cpp`, make `USBDriverTimer::start()` and `stop()` mask only `IRQ_USBHS`,
+  preserving its previous enable state. The standard routines disable all interrupts.
+  A 64-byte serial write uses single-byte writes internally, repeatedly stopping
+  and restarting the timer even when complete packets are sent. Global masking
+  blocks the Spectrum GPIO interrupt regardless of its priority and can delay ROM
+  reads or DivMMC accesses during ESXDOS startup. This fix keeps GPIO interrupts
+  enabled while protecting the USB timer list.
+
+The GPIO handler uses `busWrActive` to process each write cycle once, independently
+of the pending `/WR` interrupt flag. `/WR` interrupts on both edges: the first low
+sample latches the write, and a high sample releases it. Reset also clears the
+latch. This prevents HDMI `/IORQ` interrupts or external ROMCS changes from
+replaying a write while `/WR` remains low. After a clean Teensy build,
+`python tools/test_hdmi_bus.py` checks the compiled handler for overlapping
+interrupts, write-cycle release and reset, SPI reads and writes, RAM writes, and
+HDMI interrupt acknowledgements (requires the Unicorn dependency used by the
+other HDMI tests).
 
 ## ROM paging and banking
 
