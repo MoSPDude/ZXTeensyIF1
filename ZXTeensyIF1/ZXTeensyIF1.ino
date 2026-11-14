@@ -760,6 +760,7 @@ inline void sdSpiOnTick() __attribute__((always_inline, hot, optimize("O3")));
 inline void zxC3OnTick() __attribute__((always_inline, hot, optimize("O3")));
 inline void stateOnTick() __attribute__((always_inline, optimize("O3")));
 #ifdef HDMI_CDC_OUTPUT
+FASTRUN void subLoop() __attribute__((noinline, hot, optimize("O3")));
 FASTRUN void hdmiCdcOnTick() __attribute__((hot, optimize("O3")));
 #endif
 
@@ -1235,8 +1236,21 @@ inline __attribute__((always_inline, optimize("O3"))) HdmiCdcBeeperSnapshot hdmi
     return snapshot;
 }
 
+inline __attribute__((optimize("O3"))) void hdmiCdcWritePacket()
+{
+    for (size_t i = 0; i < CDC_PACKET_SIZE; ++i)
+    {
+        hdmiCdc.write(hdmiCdcOutputPacket[i]);
+
+        // Perform regular work
+        // NOTE: Keep foreground services running between USB bytes
+        subLoop();
+    }
+}
+
 inline __attribute__((optimize("O3"))) void hdmiCdcBegin()
 {
+    hdmiCdc.writeTimeOut(0);
     hdmiCdc.begin(115200);
     hdmiCdcBuffer.clear();
     hdmiCdcOutputPacket[0] = 0xFF;
@@ -1247,7 +1261,7 @@ inline __attribute__((optimize("O3"))) void hdmiCdcBegin()
     hdmiCdcOutputPacket[5] = 0xFF;
     hdmiCdcOutputPacket[6] = 0x00;
     hdmiCdcOutputPacket[7] = 0x00;
-    hdmiCdc.write(hdmiCdcOutputPacket, CDC_PACKET_SIZE);
+    hdmiCdcWritePacket();
     const HdmiCdcBeeperSnapshot snapshot = hdmiCdcReadBeeperSnapshot();
     hdmiCdcAudioCycleCount = snapshot.cycle;
     hdmiCdcAudioEarHighCycles = snapshot.earHighCycles;
@@ -1539,7 +1553,7 @@ FASTRUN void hdmiCdcOnTick()
                 hdmiCdcAudioRead = (hdmiCdcAudioRead + 1) & (CDC_AUDIO_BUFFER_SIZE - 1);
             }
             hdmiCdcAudioCount -= CDC_AUDIO_BLOCK_SAMPLES;
-            hdmiCdc.write(hdmiCdcOutputPacket, CDC_PACKET_SIZE);
+            hdmiCdcWritePacket();
             return;
         }
         size_t outputSize = 0;
@@ -1634,7 +1648,7 @@ FASTRUN void hdmiCdcOnTick()
                 hdmiCdcOutputPacket[outputSize++] = 0x00;
                 hdmiCdcOutputPacket[outputSize++] = 0x00;
             }
-            hdmiCdc.write(hdmiCdcOutputPacket, CDC_PACKET_SIZE);
+            hdmiCdcWritePacket();
         }
     }
 }
@@ -3028,7 +3042,6 @@ void handleStateReset()
 #ifdef HDMI_CDC_OUTPUT
     if (usbEnabled)
     {
-        hdmiCdc.writeTimeOut(100);
         hdmiCdcUlaBeeper = 0;
         hdmiCdcBeeperEarHighCycles = 0;
         hdmiCdcBeeperMicHighCycles = 0;
@@ -3054,6 +3067,7 @@ void handleStateReset()
     }
 }
 
+#ifdef HDMI_CDC_OUTPUT
 FASTRUN void loop()
 {
     // Detect reset entry, and perform actions in reset
@@ -3062,8 +3076,46 @@ FASTRUN void loop()
         handleStateReset();
     }
 
-#ifdef HDMI_CDC_OUTPUT
-    hdmiCdcSampleAudio();
+    // Perform regular work
+    subLoop();
+
+    // NOTE: Reset handling and HDMI sends stay outside subLoop so a packet
+    // cannot be restarted while it is yielding to foreground services
+    if (usbEnabled && !isGlobalStateReset())
+    {
+        if (hdmiCdc)
+        {
+            if (hdmiCdcConnected)
+            {
+                hdmiCdcOnTick();
+            } else {
+                hdmiCdcBegin();
+            }
+        } else if (hdmiCdcConnected)
+        {
+            hdmiCdcConnected = false;
+            hdmiCdcBuffer.clear();
+        }
+    }
+}
+
+FASTRUN void subLoop()
+{
+    // The outer loop owns reset handling, which can initialise HDMI output
+    if (isGlobalStateReset())
+    {
+        return;
+    } else {
+        hdmiCdcSampleAudio();
+    }
+#else
+FASTRUN void loop()
+{
+    // Detect reset entry, and perform actions in reset
+    if (isGlobalStateReset())
+    {
+        handleStateReset();
+    }
 #endif
 
     // Run actions (eg. SD SPI) on regular ticks
@@ -3347,26 +3399,6 @@ FASTRUN void loop()
             default :
                 break;
         }
-
-#ifdef HDMI_CDC_OUTPUT
-        if (usbEnabled)
-        {
-            usbHost.Task();
-            if (hdmiCdc)
-            {
-                if (hdmiCdcConnected)
-                {
-                    hdmiCdcOnTick();
-                } else {
-                    hdmiCdcBegin();
-                }
-            } else if (hdmiCdcConnected)
-            {
-                hdmiCdcConnected = false;
-                hdmiCdcBuffer.clear();
-            }
-        }
-#endif
     }
 
     // Run HTTP server actions

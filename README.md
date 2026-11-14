@@ -392,10 +392,15 @@ Raspberry Pi Pico 2 as an Adafruit TinyUSB CDC Serial device. The Pico firmware
 and its build instructions are in [`Pico2Hdmi`](Pico2Hdmi/README.md).
 
 ULA, ULAplus, Timex-video, and AY bus writes are sent as address/data messages, with
-consecutive addresses coalesced into escaped data runs. The Teensy currently
-sends complete 64-byte packets to encourage it to send immediately (without the write
-timeout). One `FF FF 00 00` header terminates the useful packet contents, and
-the Pico discards every remaining filler byte.
+consecutive addresses coalesced into escaped data runs. The Teensy sends complete
+64-byte packets with partial-packet timeout flushing disabled. With HDMI enabled,
+the outer `loop()` handles reset and HDMI transmission, while `subLoop()` runs
+the remaining foreground services between each USB byte. This keeps DivMMC SPI,
+UART, tape, printer, FDC, HTTP, state handling, audio sampling, and USB inputs
+serviced during a packet send. Reset handling stays in the outer loop to avoid
+restarting a packet partway through. An HDF/SD sector access can pause transmission
+without sending a partial USB packet. One `FF FF 00 00` header terminates the useful
+packet contents, and the Pico discards every remaining filler byte.
 
 The RP2350 emulates the ULA, ULAplus, Timex hi-colour/hi-res modes, and AY, generating
 video and sound over HDMI. Beeper sound is averaged into packets of 44.1 kHz unsigned
