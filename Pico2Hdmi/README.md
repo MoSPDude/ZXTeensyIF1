@@ -153,6 +153,11 @@ occupies lines 0, 2, 4 and so on, and the next occupies lines 1, 3, 5 and so on.
 The HDMI timing remains progressive, but two 50 Hz source frames form one
 complete interlaced image.
 
+The Timex hi-res renderer expands each bitmap byte with four packed RGB565
+pixel-pair lookups and fills only the side borders on active lines. This keeps
+the per-line work down when weaving requires a new 512-pixel render on every
+physical HDMI line. The output timing remains 720x576p50 in all video modes.
+
 The scanline path has no RGB framebuffer. Core 0 reconstructs each source
 scanline from timestamped screen-memory writes and saves its bitmap and
 attribute bytes. Completed lines are immutable: restoring a sprite's background
@@ -192,6 +197,12 @@ colour, and 128K memory-control value. If a marker or whole frame is lost, the
 Pico discards ambiguous raster timing and restores persistent video state from
 the next complete frame instead of replaying a multi-frame event list as one
 frame.
+
+Before the first source-frame marker, both HDMI fields render the live mirrored
+screen RAM. This displays Spectrum RAM testing and ESXDOS initialisation while
+the Spectrum has interrupts disabled. A reset returns to this untimed display
+without waiting for a new interrupt acknowledge. Once source timing starts,
+completed frames are woven into their normal even/odd fields.
 
 The acknowledge cycle is a software-only frame reference rather than the
 ULA's physical vertical-sync edge. It is absent while the Spectrum has

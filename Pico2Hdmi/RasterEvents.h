@@ -55,12 +55,15 @@ bool queueRasterMemoryControlWrite(uint8_t data);
 
 // Core-1 HSTX input. Retain one completed source frame for each output field,
 // then apply that field's events before its physical output line is rendered.
+// Untimed startup renders live RAM; once source timing starts, an unavailable
+// field returns false so the callback can blank only that field.
 void beginRasterOutputFrame();
 bool applyRasterEventsForOutputLine(size_t outputLine, size_t field = 0);
 void finishRasterOutputLine(size_t outputLine, size_t field = 0);
 
 // Return the immutable source scanline selected for one HDMI output field.
-// A null pointer asks the renderer to use live RAM before a frame is ready.
+// Untimed startup/reset returns null to select live RAM, even while an older
+// playing buffer is waiting to be released at the next output-frame boundary.
 const RasterDisplayLine *rasterDisplayLine(size_t y, size_t field = 0);
 
 }  // namespace zx

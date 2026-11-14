@@ -725,6 +725,7 @@ uint32_t hdmiCdcAudioRemainder = 0;
 uint32_t hdmiCdcAudioWaitCycles = 0;
 volatile uint32_t hdmiCdcAudioOverflows = 0;
 volatile uint32_t hdmiCdcAudioLateSamples = 0;
+bool hdmiCdcLastPacketWasAudio = false;
 volatile bool hdmiCdcConnected = false;
 volatile uint8_t hdmiCdcUlaPlusRegister = 0;
 volatile uint8_t hdmiCdcUlaPlusMode = 0;
@@ -1250,18 +1251,10 @@ inline __attribute__((optimize("O3"))) void hdmiCdcWritePacket()
 
 inline __attribute__((optimize("O3"))) void hdmiCdcBegin()
 {
+    hdmiCdcConnected = false;
     hdmiCdc.writeTimeOut(0);
     hdmiCdc.begin(115200);
     hdmiCdcBuffer.clear();
-    hdmiCdcOutputPacket[0] = 0xFF;
-    hdmiCdcOutputPacket[1] = 0xFF;
-    hdmiCdcOutputPacket[2] = 0xFF;
-    hdmiCdcOutputPacket[3] = 0x00;
-    hdmiCdcOutputPacket[4] = 0xFF;
-    hdmiCdcOutputPacket[5] = 0xFF;
-    hdmiCdcOutputPacket[6] = 0x00;
-    hdmiCdcOutputPacket[7] = 0x00;
-    hdmiCdcWritePacket();
     const HdmiCdcBeeperSnapshot snapshot = hdmiCdcReadBeeperSnapshot();
     hdmiCdcAudioCycleCount = snapshot.cycle;
     hdmiCdcAudioEarHighCycles = snapshot.earHighCycles;
@@ -1272,13 +1265,27 @@ inline __attribute__((optimize("O3"))) void hdmiCdcBegin()
     hdmiCdcAudioRead = 0;
     hdmiCdcAudioWrite = 0;
     hdmiCdcAudioCount = 0;
+    hdmiCdcLastPacketWasAudio = false;
     hdmiCdcFrameSyncValid = false;
     hdmiCdcLastTimestamp = CDC_RASTER_TIMESTAMP_INVALID;
     hdmiCdcFrameHasDisplayWrites = false;
     hdmiCdcSettlingFrameCount = 0;
     hdmiCdcFrameAckCycleValid = false;
     hdmiCdcAppliedPeriodGeneration = hdmiCdcPeriodGeneration;
+
+    hdmiCdcOutputPacket[0] = 0xFF;
+    hdmiCdcOutputPacket[1] = 0xFF;
+    hdmiCdcOutputPacket[2] = 0xFF;
+    hdmiCdcOutputPacket[3] = 0x00;
+    hdmiCdcOutputPacket[4] = 0xFF;
+    hdmiCdcOutputPacket[5] = 0xFF;
+    hdmiCdcOutputPacket[6] = 0x00;
+    hdmiCdcOutputPacket[7] = 0x00;
+
+    // Capture may start now: writes queue behind this reset packet. Keep
+    // session setup out of subLoop, and do not clear captured state afterward.
     hdmiCdcConnected = true;
+    hdmiCdc.write(hdmiCdcOutputPacket, CDC_PACKET_SIZE);
 }
 
 inline __attribute__((optimize("O3"))) void hdmiCdcSampleAudio()
@@ -1535,11 +1542,14 @@ FASTRUN void hdmiCdcOnTick()
     // encoding commands and incremental runs, append one packet terminator.
     // The Pico ignores that header and every remaining filler byte.
     size_t remainingBytes = hdmiCdcBuffer.getSize();
+    const bool videoReady = (remainingBytes >= 3);
     const bool audioReady = (hdmiCdcAudioCount >= CDC_AUDIO_BLOCK_SAMPLES);
-    if (((remainingBytes >= 3) || audioReady) &&
+    if ((videoReady || audioReady) &&
         (hdmiCdc.availableForWrite() >= CDC_PACKET_SIZE))
     {
-        if (audioReady)
+        // subLoop can replenish audio during a send. Give queued video the
+        // next turn after audio so a continuous PCM backlog cannot starve it.
+        if (audioReady && (!videoReady || !hdmiCdcLastPacketWasAudio))
         {
             // One header plus 60 PCM bytes, rather than one padded packet per
             // changed level. Sampling continues even while CDC is backpressured.
@@ -1553,6 +1563,7 @@ FASTRUN void hdmiCdcOnTick()
                 hdmiCdcAudioRead = (hdmiCdcAudioRead + 1) & (CDC_AUDIO_BUFFER_SIZE - 1);
             }
             hdmiCdcAudioCount -= CDC_AUDIO_BLOCK_SAMPLES;
+            hdmiCdcLastPacketWasAudio = true;
             hdmiCdcWritePacket();
             return;
         }
@@ -1648,6 +1659,7 @@ FASTRUN void hdmiCdcOnTick()
                 hdmiCdcOutputPacket[outputSize++] = 0x00;
                 hdmiCdcOutputPacket[outputSize++] = 0x00;
             }
+            hdmiCdcLastPacketWasAudio = false;
             hdmiCdcWritePacket();
         }
     }

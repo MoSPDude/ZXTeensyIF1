@@ -113,12 +113,18 @@ void __not_in_flash_func(renderUlaScanline)(uint32_t *pixels, size_t y,
                     : kNormalColours[borderColour];
   }
   const uint32_t border = duplicatePixel(borderRgb);
-  for (size_t x = 0; x < kVideoWidth; ++x) {
-    pixels[x] = border;
+  if (y < kBorderTop || y >= kBorderTop + kSpectrumHeight) {
+    for (size_t x = 0; x < kVideoWidth; ++x) {
+      pixels[x] = border;
+    }
+    return;
   }
 
-  if (y < kBorderTop || y >= kBorderTop + kSpectrumHeight) {
-    return;
+  // The active renderer fills the middle 256 words in every video mode.
+  // Avoid painting that area twice on every physical HDMI scanline.
+  for (size_t x = 0; x < kBorderLeft; ++x) {
+    pixels[x] = border;
+    pixels[kBorderLeft + kSpectrumWidth + x] = border;
   }
 
   const size_t screenY = y - kBorderTop;
@@ -135,24 +141,30 @@ void __not_in_flash_func(renderUlaScanline)(uint32_t *pixels, size_t y,
     // The SCLD alternates an eight-pixel column from the primary file with
     // one from the second file, producing 512 physical pixels in the same
     // active width used by doubled 256-pixel modes.
+    const uint32_t pairs[4] = {
+        packPixels(highResolutionPaper, highResolutionPaper),
+        packPixels(highResolutionPaper, highResolutionInk),
+        packPixels(highResolutionInk, highResolutionPaper),
+        packPixels(highResolutionInk, highResolutionInk),
+    };
+    const size_t offset = bitmapOffset(screenY, 0);
+    const uint8_t *primary = line ? line->bitmap[0] : display + offset;
+    const uint8_t *secondary = line ? line->bitmap[1]
+                                    : display + kTimexSecondDisplayOffset + offset;
+    // Decode four packed pixel pairs per byte without per-pixel branches.
+    // Weaving needs a fresh 512-pixel render on every physical HDMI line.
     for (size_t column = 0; column < 32; ++column) {
-      const size_t offset = bitmapOffset(screenY, column);
-      const uint8_t bitmaps[2] = {
-          line ? line->bitmap[0][column] : display[offset],
-          line ? line->bitmap[1][column]
-               : display[kTimexSecondDisplayOffset + offset],
-      };
-      for (uint8_t bitmap : bitmaps) {
-        for (uint8_t mask = 0x80; mask != 0; mask >>= 2) {
-          const uint16_t left = (bitmap & mask) != 0
-                                    ? highResolutionInk
-                                    : highResolutionPaper;
-          const uint16_t right = (bitmap & (mask >> 1)) != 0
-                                     ? highResolutionInk
-                                     : highResolutionPaper;
-          *output++ = packPixels(left, right);
-        }
-      }
+      const uint8_t first = primary[column];
+      const uint8_t second = secondary[column];
+      output[0] = pairs[first >> 6];
+      output[1] = pairs[(first >> 4) & 3];
+      output[2] = pairs[(first >> 2) & 3];
+      output[3] = pairs[first & 3];
+      output[4] = pairs[second >> 6];
+      output[5] = pairs[(second >> 4) & 3];
+      output[6] = pairs[(second >> 2) & 3];
+      output[7] = pairs[second & 3];
+      output += 8;
     }
     return;
   }

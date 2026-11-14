@@ -624,6 +624,11 @@ bool __not_in_flash_func(applyRasterEventsForOutputLine)(size_t outputLine,
     return false;
   }
   stopPlayingAfterReset(field);
+  // RAM testing and ESXDOS startup can run before the first IRQ/frame marker.
+  // The callback must still render their untimed writes from live screen RAM.
+  if (!sourceTimingActive) {
+    return true;
+  }
   RasterPlayback &playing = playingFields[field];
   if (playing.buffer == kNoBuffer ||
       playingResetGeneration != resetGeneration) {
@@ -672,6 +677,9 @@ void __not_in_flash_func(finishRasterOutputLine)(size_t outputLine,
 
 const RasterDisplayLine *__not_in_flash_func(rasterDisplayLine)(size_t y,
                                                                 size_t field) {
+  if (!sourceTimingActive || playingResetGeneration != resetGeneration) {
+    return nullptr;
+  }
   if (field < kRasterOutputFieldCount &&
       playingFields[field].buffer != kNoBuffer) {
     return &frameBuffers[playingFields[field].buffer].displayLines[y];
