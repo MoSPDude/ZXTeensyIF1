@@ -486,6 +486,7 @@ The following ports are decoded by the Teensy,
 | 0x3FFD (0b0011XXXX_XXXXXX0X) | W | +3 FDC data | |
 | 0x7FFD (0b01XXXXXX_XXXXXX0X) | W | 128K Memory Control | Current Screen, and ROM paging |
 | 0xXXFE | R | Spectrum ULA | Drives EAR input for tape |
+| 0xXXFE (0bXXXXXXXX_XXXXXXX0) | W | Spectrum ULA | Border colour state, and EAR/MIC output for HDMI over USB Serial |
 | 0xXXFF | R/W | VTX5000 register | Ignore first write access, controls ROM paging |
 
 The following ports are decoded by the Interface 1 ULA when not inhibited by the Teensy,

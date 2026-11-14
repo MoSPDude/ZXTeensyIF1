@@ -4544,9 +4544,45 @@ FASTRUN void isrWrEvent(uint32_t gpioSix)
     {
         // Perform I/O write access
         uint8_t port_ = decodeLowAddress(gpioSix);
+        if ((port_ & 0x01) == 0)
+        {
+            // Perform I/O 0bXXXXXXX0 (0xfffe) write access
+            const uint8_t border = data & 0x07;
+#ifdef HDMI_CDC_OUTPUT
+            const uint8_t previous = hdmiCdcUlaBeeper;
+            const uint8_t levels = data & 0x18;
+            if (levels != previous)
+            {
+                // Accumulate H:L cycle time at the previous levels only on audio
+                // edge - keep heavy code out of the time-critical GPIO ISR
+                const uint32_t now = ARM_DWT_CYCCNT;
+                const uint32_t elapsed = now - hdmiCdcBeeperLastCycle;
+                if (previous & 0x10)
+                {
+                    hdmiCdcBeeperEarHighCycles += elapsed;
+                }
+                if (previous & 0x08)
+                {
+                    hdmiCdcBeeperMicHighCycles += elapsed;
+                }
+                hdmiCdcUlaBeeper = levels;
+                hdmiCdcBeeperLastCycle = now;
+            }
+            if (border != hdmiCdcUlaBorder)
+            {
+                hdmiCdcSendTimedData(0xFFFE, border, ARM_DWT_CYCCNT);
+                hdmiCdcUlaBorder = border;
+            }
+#endif
+            if (!IS_ROM_PAGED(ROM_MENU))
+            {
+                // Capture last border colour
+                spectrumBorder = border;
+            }
+        }
         if ((port_ & 0x02) == 0)
         {
-            // Perform I/O 0x1ffd, 0x3ffd or 0x7ffd write access
+            // Perform I/O 0bXXXXXX0X (0x1ffd, 0x3ffd or 0x7ffd) write access
             if ((gpioSix & A15_PIN_BITMASK) == 0x00000000)
             {
                 bool isPort7F = ((gpioSix & A14_PIN_BITMASK) != 0x0);
@@ -4890,46 +4926,6 @@ FASTRUN void isrWrEvent(uint32_t gpioSix)
                         printerByte = data;
                     }
                     break;
-                case 0xfe :
-                {
-                    if (!IS_ROM_PAGED(ROM_MENU))
-                    {
-                        // Capture last border colour
-                        spectrumBorder = data & 0x07;
-                    }
-#ifdef HDMI_CDC_OUTPUT
-                    // Accumulate time at the previous levels only on an audio
-                    // edge. Keep division, weighting and sample boundaries out
-                    // of this time-critical GPIO ISR.
-                    const uint8_t previous = hdmiCdcUlaBeeper;
-                    const uint8_t levels = data & 0x18;
-                    if (levels != previous)
-                    {
-                        const uint32_t now = ARM_DWT_CYCCNT;
-                        const uint32_t elapsed = now - hdmiCdcBeeperLastCycle;
-                        if (previous & 0x10)
-                        {
-                            hdmiCdcBeeperEarHighCycles += elapsed;
-                        }
-                        if (previous & 0x08)
-                        {
-                            hdmiCdcBeeperMicHighCycles += elapsed;
-                        }
-                        hdmiCdcUlaBeeper = levels;
-                        hdmiCdcBeeperLastCycle = now;
-                    }
-
-                    // Capture border colour for HDMI CDC
-                    data = data & 0x07;
-                    if (data != hdmiCdcUlaBorder)
-                    {
-                        hdmiCdcSendTimedData(0xFFFE, data,
-                            ARM_DWT_CYCCNT);
-                        hdmiCdcUlaBorder = data;
-                    }
-#endif
-                    break;
-                }
                 case 0xff :
                     if (modemEnabled)
                     {
