@@ -1274,14 +1274,23 @@ inline __attribute__((optimize("O3"))) void hdmiCdcBegin()
     hdmiCdcFrameAckCycleValid = false;
     hdmiCdcAppliedPeriodGeneration = hdmiCdcPeriodGeneration;
 
+    // Reset the Pico HDMI over USB Serial
     hdmiCdcOutputPacket[0] = 0xFF;
     hdmiCdcOutputPacket[1] = 0xFF;
     hdmiCdcOutputPacket[2] = 0xFF;
     hdmiCdcOutputPacket[3] = 0x00;
-    hdmiCdcOutputPacket[4] = 0xFF;
+
+    // Restore the current border after reset, before any queued writes
+    hdmiCdcOutputPacket[4] = 0xFE;
     hdmiCdcOutputPacket[5] = 0xFF;
-    hdmiCdcOutputPacket[6] = 0x00;
+    hdmiCdcOutputPacket[6] = hdmiCdcUlaBorder;
     hdmiCdcOutputPacket[7] = 0x00;
+
+    // Terminate packet
+    hdmiCdcOutputPacket[8] = 0xFF;
+    hdmiCdcOutputPacket[9] = 0xFF;
+    hdmiCdcOutputPacket[10] = 0x00;
+    hdmiCdcOutputPacket[11] = 0x00;
 
     // Capture may start now: writes queue behind this reset packet. Keep
     // session setup out of subLoop, and do not clear captured state afterward.
@@ -3062,7 +3071,17 @@ void handleStateReset()
         hdmiCdcBeeperMicHighCycles = 0;
         hdmiCdcBeeperLastCycle = ARM_DWT_CYCCNT;
         hdmiCdcUlaBorder = 0;
-        if (hdmiCdcConnected && hdmiCdc)
+        if (!hdmiCdcConnected)
+        {
+            // Allow time for HDMI CDC enumeration when not already present
+            elapsedMillis usbWait;
+            while (!hdmiCdc && (usbWait < 200))
+            {
+                usbHost.Task();
+                delay(1);
+            }
+        }
+        if (hdmiCdc)
         {
             hdmiCdcBegin();
         } else {

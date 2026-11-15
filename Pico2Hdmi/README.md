@@ -94,6 +94,8 @@ New PCM-block senders require the updated Pico firmware.
 The reset message is `FF FF FF 00`. It clears all display files and restores
 the ULA, ULAplus, Timex, AY, and beeper state without resetting protocol
 diagnostics or discarding bytes after that message.
+The Teensy follows it with `FE FF <border> 00` in the same packet to restore
+the current border colour, then the `FF FF 00 00` packet terminator.
 
 The 16-bit raster timestamp uses bits 15-7 for a source scanline and bits 6-0
 for a reserved position within that line. A timestamp is stateful and applies
