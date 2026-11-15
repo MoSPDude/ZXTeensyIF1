@@ -936,7 +936,8 @@ inline __attribute__((always_inline, optimize("O3"))) void resetSdSpi()
 
 inline bool isTzxRamAvailable()
 {
-    return !divMmcState.extRamEnabled && ((romArrayPresent & BANK_RAM) == 0);
+    return ((!divMmcState.present || !divMmcState.extRamEnabled) &&
+        ((romArrayPresent & BANK_RAM) == 0));
 }
 
 // NOTE: sdSpiOnTick is main loop, so optimize
@@ -2765,6 +2766,8 @@ void handleStateReset()
 
     // Reset the banking state
     romPaged = 0x01;
+    rom1Paged = false;
+    rom23Paged = false;
     interface1Enabled = false;
     divMmcState.enabled = false;
     divMmcState.allRamActive = false;
