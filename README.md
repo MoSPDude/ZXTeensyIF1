@@ -398,6 +398,8 @@ The RP2350 emulates the ULA, ULAplus, Timex hi-colour/hi-res modes, and AY, gene
 video and sound over HDMI. Beeper sound is averaged into packets of 44.1 kHz unsigned
 8-bit beeper PCM, and sent to the Pico.
 
+### USBHost_t36 library patches
+
 HDMI requires two fixes to the USBHost_t36 library bundled with Teensy core
 1.60.0. Preview and apply them from the repository root:
 
@@ -420,16 +422,6 @@ Arduino installation. Reapply after reinstalling the core, then compile cleanly.
   blocks the Spectrum GPIO interrupt regardless of its priority and can delay ROM
   reads or DivMMC accesses during ESXDOS startup. This fix keeps GPIO interrupts
   enabled while protecting the USB timer list.
-
-The GPIO handler uses `busWrActive` to process each write cycle once, independently
-of the pending `/WR` interrupt flag. `/WR` interrupts on both edges: the first low
-sample latches the write, and a high sample releases it. Reset also clears the
-latch. This prevents HDMI `/IORQ` interrupts or external ROMCS changes from
-replaying a write while `/WR` remains low. After a clean Teensy build,
-`python tools/test_hdmi_bus.py` checks the compiled handler for overlapping
-interrupts, write-cycle release and reset, SPI reads and writes, RAM writes, and
-HDMI interrupt acknowledgements (requires the Unicorn dependency used by the
-other HDMI tests).
 
 ## ROM paging and banking
 

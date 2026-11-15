@@ -704,7 +704,6 @@ static const uint32_t CDC_FRAME_APPROX_PHASE_TOLERANCE_CYCLES = (CDC_FRAME_APPRO
 static const uint32_t CDC_FRAME_APPROX_LONG_ACK_CYCLES = CDC_FRAME_APPROX_PERIOD_CYCLES * 4;
 static const uint32_t CDC_FRAME_APPROX_GRACE_CYCLES = 2 * (CDC_FRAME_APPROX_PERIOD_CYCLES / CDC_RASTER_SOURCE_LINES);
 static const uint32_t CDC_FRAME_APPROX_MISSED_ACK_CYCLES = CDC_FRAME_APPROX_PERIOD_CYCLES + CDC_FRAME_APPROX_GRACE_CYCLES;
-static const uint8_t CDC_FRAME_SETTLING_COUNT = 2;
 
 USBSerial hdmiCdc(usbHost);
 DMAMEM RingBuffer<CDC_BUFFER_SIZE> hdmiCdcBuffer;
@@ -741,8 +740,6 @@ volatile uint32_t hdmiCdcFramePeriodCycles = CDC_FRAME_DEFAULT_CYCLES;
 volatile uint32_t hdmiCdcFrameLineCycles = (CDC_FRAME_DEFAULT_CYCLES / CDC_RASTER_SOURCE_LINES);
 volatile uint16_t hdmiCdcLastTimestamp = CDC_RASTER_TIMESTAMP_INVALID;
 volatile uint8_t hdmiCdcFrameSequence = 0;
-volatile bool hdmiCdcFrameHasDisplayWrites = false;
-volatile uint8_t hdmiCdcSettlingFrameCount = 0;
 volatile uint32_t hdmiCdcPeriodGeneration = 0;
 uint32_t hdmiCdcAppliedPeriodGeneration = 0;
 #endif
@@ -1269,8 +1266,6 @@ inline __attribute__((optimize("O3"))) void hdmiCdcBegin()
     hdmiCdcLastPacketWasAudio = false;
     hdmiCdcFrameSyncValid = false;
     hdmiCdcLastTimestamp = CDC_RASTER_TIMESTAMP_INVALID;
-    hdmiCdcFrameHasDisplayWrites = false;
-    hdmiCdcSettlingFrameCount = 0;
     hdmiCdcFrameAckCycleValid = false;
     hdmiCdcAppliedPeriodGeneration = hdmiCdcPeriodGeneration;
 
@@ -1388,35 +1383,21 @@ inline void hdmiCdcOnInterruptAcknowledge(const bool isAck, uint32_t cycle)
         }
     }
 
-    const bool frameChanged =
-        (hdmiCdcLastTimestamp != CDC_RASTER_TIMESTAMP_INVALID) ||
-        hdmiCdcFrameHasDisplayWrites;
-    const bool markerNeeded = !hdmiCdcFrameSyncValid || frameChanged ||
-        (hdmiCdcSettlingFrameCount != 0);
-    if (markerNeeded)
+    // Keep closing quiet frames so the Pico can recover both output fields
+    // after a USB backlog exhausts its available raster frame buffers.
+    if (hdmiCdcBuffer.getFree() < 3)
     {
-        if (hdmiCdcBuffer.getFree() < 3)
-        {
-            return;
-        }
-
-        const uint8_t sequence = hdmiCdcFrameSequence + 1;
-        uint8_t marker[3];
-        marker[0] = CDC_FRAME_MARKER_ADDRESS & 0xFF;
-        marker[1] = CDC_FRAME_MARKER_ADDRESS >> 8;
-        marker[2] = sequence;
-        hdmiCdcBuffer.writeFixedBlock(marker);
-        hdmiCdcFrameSequence = sequence;
-        hdmiCdcLastTimestamp = CDC_RASTER_TIMESTAMP_INVALID;
-        hdmiCdcFrameHasDisplayWrites = false;
-        if (frameChanged)
-        {
-            hdmiCdcSettlingFrameCount = CDC_FRAME_SETTLING_COUNT;
-        } else if (hdmiCdcSettlingFrameCount != 0)
-        {
-            --hdmiCdcSettlingFrameCount;
-        }
+        return;
     }
+
+    const uint8_t sequence = hdmiCdcFrameSequence + 1;
+    uint8_t marker[3];
+    marker[0] = CDC_FRAME_MARKER_ADDRESS & 0xFF;
+    marker[1] = CDC_FRAME_MARKER_ADDRESS >> 8;
+    marker[2] = sequence;
+    hdmiCdcBuffer.writeFixedBlock(marker);
+    hdmiCdcFrameSequence = sequence;
+    hdmiCdcLastTimestamp = CDC_RASTER_TIMESTAMP_INVALID;
 
     if (isAck)
     {
@@ -2839,8 +2820,6 @@ void handleStateReset()
     hdmiCdcTimexControlValid = false;
     hdmiCdcFrameSyncValid = false;
     hdmiCdcLastTimestamp = CDC_RASTER_TIMESTAMP_INVALID;
-    hdmiCdcFrameHasDisplayWrites = false;
-    hdmiCdcSettlingFrameCount = 0;
     hdmiCdcFramePeriodCycles = CDC_FRAME_DEFAULT_CYCLES;
     hdmiCdcFrameLineCycles =
         CDC_FRAME_DEFAULT_CYCLES / CDC_RASTER_SOURCE_LINES;
@@ -3075,7 +3054,7 @@ void handleStateReset()
         {
             // Allow time for HDMI CDC enumeration when not already present
             elapsedMillis usbWait;
-            while (!hdmiCdc && (usbWait < 200))
+            while (!hdmiCdc && (usbWait < 400))
             {
                 usbHost.Task();
                 delay(1);
@@ -4593,26 +4572,17 @@ FASTRUN void isrWrEvent(uint32_t gpioSix)
         if (((address >= 0x4000) && (address < 0x5B00)) ||
             ((address >= 0x6000) && (address < 0x7B00)))
         {
-            if (hdmiCdcSendTimedData((address - 0x4000), data, ARM_DWT_CYCCNT))
-            {
-                hdmiCdcFrameHasDisplayWrites = true;
-            }
+            hdmiCdcSendTimedData((address - 0x4000), data, ARM_DWT_CYCCNT);
         } else if (((address >= 0xC000) && (address < 0xDB00)) ||
             ((address >= 0xE000) && (address < 0xFB00)))
         {
             uint8_t bank = spectrumBankM & 0x07;
             if (bank == 0x05)
             {
-                if (hdmiCdcSendTimedData((address - 0xC000), data, ARM_DWT_CYCCNT))
-                {
-                    hdmiCdcFrameHasDisplayWrites = true;
-                }
+                hdmiCdcSendTimedData((address - 0xC000), data, ARM_DWT_CYCCNT);
             } else if (bank == 0x07)
             {
-                if (hdmiCdcSendTimedData((address - 0x4000), data, ARM_DWT_CYCCNT))
-                {
-                    hdmiCdcFrameHasDisplayWrites = true;
-                }
+                hdmiCdcSendTimedData((address - 0x4000), data, ARM_DWT_CYCCNT);
             }
         }
 #endif
