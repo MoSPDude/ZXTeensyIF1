@@ -1796,6 +1796,18 @@ void setup()
     usbKeyboard.attachRelease(usbKeyboardReleased);
     usbEnabled = true;
 
+    // Refill the USB driver's two transmit buffers as soon as they complete.
+    // Coalescing completion interrupts can leave a direct full-speed link idle
+    // while captured video fills the ring. Protect only the USB register update;
+    // the higher-priority Spectrum GPIO interrupt must remain enabled.
+    const bool usbIrqWasEnabled = NVIC_IS_ENABLED(IRQ_USBHS);
+    NVIC_DISABLE_IRQ(IRQ_USBHS);
+    USBHS_USBCMD &= ~USBHS_USBCMD_ITC(0xFF);
+    if (usbIrqWasEnabled)
+    {
+        NVIC_ENABLE_IRQ(IRQ_USBHS);
+    }
+
     // Delay to allow USB devices to initialise
     delay(100);
 #endif
