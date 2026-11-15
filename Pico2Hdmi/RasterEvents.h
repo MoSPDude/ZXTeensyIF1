@@ -57,7 +57,9 @@ bool queueRasterMemoryControlWrite(uint8_t data);
 // then apply that field's events before its physical output line is rendered.
 // Untimed startup renders live RAM; once source timing starts, an unavailable
 // field returns false so the callback can blank only that field.
-void beginRasterOutputFrame();
+// Returns false if core 0 holds the buffer lock. The caller may retry within
+// the top border, before any Spectrum display lines have been rendered.
+bool beginRasterOutputFrame();
 bool applyRasterEventsForOutputLine(size_t outputLine, size_t field = 0);
 void finishRasterOutputLine(size_t outputLine, size_t field = 0);
 

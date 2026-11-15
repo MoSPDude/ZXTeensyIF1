@@ -563,7 +563,7 @@ bool queueRasterMemoryControlWrite(uint8_t data) {
   return queueRasterEvent(EventType::kMemoryControl, 0, data);
 }
 
-void __not_in_flash_func(beginRasterOutputFrame)() {
+bool __not_in_flash_func(beginRasterOutputFrame)() {
   // This runs in the core-1 HSTX scanline interrupt. Waiting for core 0 here
   // can miss a DMA deadline and make the HSTX driver restart the HDMI stream.
   // The source and output frame boundaries are both 50 Hz and can repeatedly
@@ -574,7 +574,7 @@ void __not_in_flash_func(beginRasterOutputFrame)() {
     rasterEventCounters.outputLockMisses =
         rasterEventCounters.outputLockMisses + 1;
     restartPlayingFields();
-    return;
+    return false;
   }
   if (playingResetGeneration != resetGeneration) {
     for (size_t field = 0; field < kRasterOutputFieldCount; ++field) {
@@ -616,6 +616,7 @@ void __not_in_flash_func(beginRasterOutputFrame)() {
   critical_section_exit(&frameBufferLock);
   // Held fields must replay their controls from the beginning too.
   restartPlayingFields();
+  return true;
 }
 
 bool __not_in_flash_func(applyRasterEventsForOutputLine)(size_t outputLine,

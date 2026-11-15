@@ -70,8 +70,15 @@ static void __not_in_flash_func(drawVideoScanline)(uint32_t vScanline,
   (void)vScanline;
   const size_t field = activeLine & 1;
   const size_t logicalLine = activeLine >> 1;
+  static bool frameHandoffPending = false;
   if (activeLine == 0) {
-    zx::beginRasterOutputFrame();
+    frameHandoffPending = true;
+  }
+  // Source and HDMI boundaries can repeatedly coincide. If core 0 holds the
+  // buffer lock at line zero, retry on later line pairs in the top border.
+  // Never wait in the DMA interrupt or change fields within the pixel area.
+  if (frameHandoffPending && field == 0 && logicalLine < zx::kBorderTop) {
+    frameHandoffPending = !zx::beginRasterOutputFrame();
   }
   if (zx::applyRasterEventsForOutputLine(logicalLine, field)) {
     zx::renderUlaScanline(destination, logicalLine, display.getFrameCount(),

@@ -241,10 +241,13 @@ At each HDMI frame boundary, the core-1 scanline interrupt uses a short, fixed
 retry window to assign completed raster buffers to alternating output fields.
 This permits the 50 Hz source-frame and output-frame handoffs to coincide
 normally. Each field independently replays its palette, mode, border and screen
-selection events. If core 0 is still updating the buffer state when that window
-expires, core 1 keeps both current immutable fields and retries at the next
-boundary. It never waits without a deadline, because delaying the scanline DMA
-callback can force the HSTX driver to restart the HDMI stream.
+selection events. If core 0 still holds the buffer lock, core 1 keeps the old
+fields and retries on subsequent even physical lines in the top border. This
+avoids repeatedly missing the same phase on every output frame. A delayed
+handoff can leave a prefix of that frame's top border from the held fields;
+once the Spectrum pixel area begins, field selection stays fixed until the
+next output frame. Each attempt remains bounded, so the DMA interrupt never
+waits indefinitely for USB processing on core 0.
 
 The entire sketch scanline callback path, including raster playback, state
 application, Timex decoding, and normal/BRIGHT colour tables, resides in SRAM.
@@ -252,7 +255,7 @@ This prevents USB/audio processing on core 0 from evicting code or lookup data
 needed by the core-1 video interrupt from the shared flash cache. Core 0 also
 prepares RGB565 palette snapshots: the video interrupt copies prepared colours
 at frame boundaries instead of making 64 palette-conversion calls. These
-snapshots add 768 bytes across the three raster buffers.
+snapshots add 1,024 bytes across the four raster buffers.
 
 Debugger-visible `hdmiTimingCounters` records the longest scanline callback in
 microseconds, callbacks lasting at least the 32 us physical line period, and
@@ -282,6 +285,51 @@ individual missed boundaries cannot be recovered without edge history.
 fills. Oldest samples are discarded to bound latency after a long USB stall.
 
 ## Building
+
+### Transport backlog investigation
+
+An experimental Teensy diagnostic build exposed the following HDMI readings in
+**Open Debug**, viewed using the Spectrum's normal video output. These counters
+are not included in the currently committed Teensy firmware:
+
+- **HDMI lost** counts commands rejected because the Teensy capture ring lacked
+  space. It excludes writes made while the Pico was disconnected.
+- **HDMI queue peak** is the highest ring occupancy sampled by the foreground
+  sender, in bytes. The ring's usable capacity is 27,647 bytes. Interrupt-time
+  peaks can be higher than this sampled value; `HDMI lost` records actual loss.
+- **HDMI queued** is bytes accepted by the USB serial driver per second, including
+  beeper audio and packet padding. It is not a USB completion counter.
+- **HDMI send avg/max** are the average and longest 64-byte packet submission
+  times, including foreground services between bytes. The average covers the
+  last sampling interval, approximately one second.
+- **HDMI short writes** counts bytes the USB serial driver did not accept.
+
+Loss, peak and maximum counters persist until the Teensy restarts. The page is
+sampled when opened rather than continuously redrawn. Re-enter it to refresh;
+rates may fall after opening the menu because Spectrum program execution pauses.
+Compare direct USB and hub runs from separate cold starts with the same workload.
+
+The HDMI sender selects immediate USB host completion interrupts (`USBCMD.ITC=0`)
+after starting the USB host in `setup()`. USBHost_t36 otherwise coalesces
+completions before refilling its two transmit buffers. The register update masks
+only the USB host interrupt, preserving its enable state and allowing Spectrum
+GPIO bus interrupts throughout. The capture-ring size and 64-byte protocol are
+unchanged.
+
+Hardware retesting of the reported partial-update corruption gave these results:
+
+| Connection | Lost commands | Queue peak (bytes) | Longest send (us) |
+| --- | ---: | ---: | ---: |
+| Direct USB, before immediate completions | 74,187 | 27,645 | 2,700 |
+| USB hub, before immediate completions | 0 | 3,105 | 2,699 |
+| Direct USB, immediate completions | 0 | 2,820 | 963 |
+
+The direct-USB retest also confirmed that the partial-update corruption had gone.
+The EARSHAVE demo subsequently still lost the display on a direct connection;
+that workload and repeated cold-start reliability remain hardware regression
+cases.
+
+### Firmware build
 
 Prerequisites:
 
