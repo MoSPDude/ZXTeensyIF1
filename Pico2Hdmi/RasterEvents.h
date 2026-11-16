@@ -60,8 +60,8 @@ bool queueRasterMemoryControlWrite(uint8_t data);
 
 // Core-1 HSTX input. Retain one completed source frame for each output field,
 // then apply that field's events before its physical output line is rendered.
-// Untimed startup renders live RAM; once source timing starts, an unavailable
-// field returns false so the callback can blank only that field.
+// Startup renders live RAM until the first completed source frame is handed
+// off. That frame fills both fields until each has its own source frame.
 // Returns false if core 0 holds the buffer lock. The caller may retry within
 // the top border, before any Spectrum display lines have been rendered.
 bool beginRasterOutputFrame();

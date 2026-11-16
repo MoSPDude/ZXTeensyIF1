@@ -132,7 +132,7 @@ int8_t __not_in_flash_func(findOldestReadyBuffer)() {
   return oldest;
 }
 
-bool isPlayingBuffer(size_t buffer) {
+bool __not_in_flash_func(isPlayingBuffer)(size_t buffer) {
   for (size_t field = 0; field < kRasterOutputFieldCount; ++field) {
     if (playingFields[field].buffer == static_cast<int8_t>(buffer)) {
       return true;
@@ -693,15 +693,25 @@ bool __not_in_flash_func(beginRasterOutputFrame)() {
     const size_t field =
         static_cast<uint8_t>(frame.sequence - fieldSequenceOrigin) & 1;
     RasterPlayback &playing = playingFields[field];
-    if (playing.buffer != kNoBuffer) {
-      frameBuffers[playing.buffer].count = 0;
-      frameBuffers[playing.buffer].state = BufferState::kFree;
-    }
+    const int8_t previous = playing.buffer;
     playing.buffer = ready;
+    // Startup shares the first complete frame between both output fields.
+    // Release it only after neither field uses it anymore.
+    if (previous != kNoBuffer && !isPlayingBuffer(previous)) {
+      frameBuffers[previous].count = 0;
+      frameBuffers[previous].state = BufferState::kFree;
+    }
     playing.event = frame.firstVisibleEvent;
     copyRasterVideoState(playing.videoState, frame.visibleStartState);
     frame.state = BufferState::kPlaying;
     rasterEventCounters.playedFrames = rasterEventCounters.playedFrames + 1;
+  }
+  // A single complete source frame can already fill the entire HDMI output.
+  // Each field still has its own playback cursor and video-control state.
+  for (size_t field = 0; field < kRasterOutputFieldCount; ++field) {
+    if (playingFields[field].buffer == kNoBuffer) {
+      playingFields[field].buffer = playingFields[field ^ 1].buffer;
+    }
   }
   critical_section_exit(&frameBufferLock);
   // Held fields must replay their controls from the beginning too.
@@ -716,14 +726,15 @@ bool __not_in_flash_func(applyRasterEventsForOutputLine)(size_t outputLine,
   }
   stopPlayingAfterReset(field);
   // RAM testing and ESXDOS startup can run before the first IRQ/frame marker.
-  // The callback must still render their untimed writes from live screen RAM.
+  // Keep rendering live RAM until a completed frame is handed off at an HDMI
+  // boundary; the first marker only starts collection and has nothing to play.
   if (!sourceTimingActive) {
     return true;
   }
   RasterPlayback &playing = playingFields[field];
   if (playing.buffer == kNoBuffer ||
       playingResetGeneration != resetGeneration) {
-    return false;
+    return true;
   }
 
   RasterFrameBuffer &frame = frameBuffers[playing.buffer];

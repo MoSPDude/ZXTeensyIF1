@@ -204,7 +204,9 @@ Before the first source-frame marker, both HDMI fields render the live mirrored
 screen RAM. This displays Spectrum RAM testing and ESXDOS initialisation while
 the Spectrum has interrupts disabled. A reset returns to this untimed display
 without waiting for a new interrupt acknowledge. Once source timing starts,
-completed frames are woven into their normal even/odd fields.
+live RAM remains visible until the first completed frame reaches an HDMI frame
+boundary. That frame fills both output fields until the next completed frame
+arrives, then consecutive frames are woven into their normal even/odd fields.
 
 The acknowledge cycle is a software-only frame reference rather than the
 ULA's physical vertical-sync edge. It is absent while the Spectrum has
