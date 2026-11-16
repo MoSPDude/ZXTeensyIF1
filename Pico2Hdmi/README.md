@@ -223,11 +223,18 @@ ring buffer. A sequence jump represents multiple elapsed frames. When real
 acknowledgements resume, their sequence is reconciled with the predicted
 markers so an already represented frame is not marked twice.
 
-Frame markers continue at every real or predicted source-frame boundary,
-including while the display is idle. This lets both output fields recover
-the final screen contents after a USB backlog exhausts the Pico's available
-frame buffers. Quiet frames use the Pico's existing screen RAM and require
-no retransmission of screen-memory writes.
+After initial synchronization or a frame containing video writes, the Teensy
+closes two following quiet frames to settle both output fields, then stops
+sending markers until another display change.
+
+If a backlog exhausts the Pico's frame buffers or a frame sequence is lost,
+core 0 requests local recovery. After USB input has drained and no video
+commands have arrived for 100 ms, it rebuilds two frames from its existing
+screen RAM and source palette, mode, border and paging state. Each frame is
+copied outside the shared lock and published through the normal HDMI-boundary
+handoff. New video activity postpones recovery; reset cancels it. No screen
+copy is requested from the Teensy. `recoveredFrames` counts recovery frames
+published by the Pico.
 
 Adafruit DVI HSTX inserts HDMI data islands and accepts interleaved signed
 16-bit stereo frames through `audioWrite()`. The foreground loop keeps a

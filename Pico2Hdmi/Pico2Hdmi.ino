@@ -275,5 +275,8 @@ void loop() {
   serviceAudio();
   serviceUsbCommands();
   serviceAudio();
+  if (usbStagingCount == 0 && Serial.available() == 0) {
+    zx::serviceRasterRecovery(time_us_32());
+  }
   updateCommandLed();
 }

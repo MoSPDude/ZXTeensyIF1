@@ -21,6 +21,7 @@ struct RasterEventCounters {
   uint32_t eventOverflows;
   uint32_t droppedFrames;
   uint32_t outputLockMisses;
+  uint32_t recoveredFrames;
 };
 
 extern volatile RasterEventCounters rasterEventCounters;
@@ -43,6 +44,10 @@ void resetRasterEvents();
 // a new one. Timestamp metadata applies to following screen and control writes.
 void beginRasterSourceFrame(uint8_t sequence);
 void setRasterTimestamp(uint16_t timestamp);
+
+// Core-0 foreground recovery after dropped frames and 100 ms without video
+// commands. Call only after all staged USB input has been processed.
+void serviceRasterRecovery(uint32_t nowUs);
 
 // Resolve and queue screen-memory or video-control writes. Returns true once
 // source-frame timing is active, including when a write had to be dropped, so
