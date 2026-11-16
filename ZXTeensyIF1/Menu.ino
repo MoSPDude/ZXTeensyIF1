@@ -114,6 +114,7 @@ typedef enum {
     SETTING_ACTION_IN_GAME_TOGGLE_IF1,
     SETTING_ACTION_IN_GAME_TOGGLE_PRINTER,
     SETTING_ACTION_IN_GAME_TOGGLE_USB,
+    SETTING_ACTION_TOGGLE_HDMI_TIMEX,
     SETTING_ACTION_OPEN_DEBUG = 0xF4,
     SETTING_ACTION_OPEN_IN_GAME_SETTINGS = 0xF5,
     SETTING_ACTION_OPEN_SAVE_STATE_SLOT = 0xF6,
@@ -826,6 +827,13 @@ char* menuGeneratePokBrowser(char* ptr)
 char* menuGenerateInGameSettings(char* ptr)
 {
     ptr = menuInsertSetting(MENU_ACTION_TOP_MENU, 0, ptr, MENU_STRINGS[STRING_CANCEL], 0);
+#ifdef HDMI_CDC_OUTPUT
+    if (hdmiCdcConnected)
+    {
+        ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_HDMI_TIMEX,
+            ptr, MENU_STRINGS[STRING_ENABLE_HDMI_TIMEX], hdmiCdcTimexEnabled);
+    }
+#endif
     if (!menuMachineIs48k() && ((spectrumBankM & 0x20) == 0x00) &&
         ((romArrayPresent & (BANK_ROM0 | BANK_ROM1)) == BANK_ROM0))
     {
@@ -1921,6 +1929,13 @@ char* menuGenerateSettings(char* ptr)
         ptr, MENU_STRINGS[STRING_BOOT_MENU], bootIntoMenu);
     ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_MENU_IN_GAME,
         ptr, MENU_STRINGS[STRING_ENABLE_MENU_IN_GAME], menuEnableInGame);
+#ifdef HDMI_CDC_OUTPUT
+    if (hdmiCdcConnected)
+    {
+        ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_HDMI_TIMEX,
+            ptr, MENU_STRINGS[STRING_ENABLE_HDMI_TIMEX], hdmiCdcTimexEnabled);
+    }
+#endif
     ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_DIVMMC,
         ptr, MENU_STRINGS[STRING_ENABLE_DIVMMC], divMmcState.present);
     if (divMmcState.present)
@@ -2484,6 +2499,16 @@ bool menuPerformSelection(uint8_t index)
                     modemPresent = !modemPresent;
                     menuConfigChanged = true;
                     break;
+#ifdef HDMI_CDC_OUTPUT
+                case SETTING_ACTION_TOGGLE_HDMI_TIMEX :
+                    if (hdmiCdcConnected)
+                    {
+                        hdmiCdcTimexEnabled = !hdmiCdcTimexEnabled;
+                        hdmiCdcTimexControlValid &= hdmiCdcTimexEnabled;
+                        menuConfigChanged = true;
+                    }
+                    break;
+#endif
                 case SETTING_ACTION_TOGGLE_NTP :
                     wifiNtpPresent = !wifiNtpPresent;
                     menuConfigChanged = true;
@@ -2968,6 +2993,10 @@ void menuPerformAction()
         case MENU_ACTION_BROWSER_LOAD_CART :
         case MENU_ACTION_BROWSER_LOAD_ZXC2 :
         case MENU_ACTION_BROWSER_LOAD_ZXC3 :
+#ifdef HDMI_CDC_OUTPUT
+            // Disable Timex support on Interface 2 cartridge
+            hdmiCdcTimexEnabled = false;
+#endif
         case MENU_ACTION_BROWSER_LOAD_MLD :
         case MENU_ACTION_BROWSER_LOAD_Z80 :
             // Load new cartridge - with DivMMC, modem and LPRINT III disabled
@@ -3337,6 +3366,9 @@ void menuClearConfiguration()
     lprintPresent = false;
     bootIntoMenu = true;
     menuEnableInGame = true;
+#ifdef HDMI_CDC_OUTPUT
+    hdmiCdcTimexEnabled = true;
+#endif
     memset(&cfgData, 0, sizeof(cfgData));
     strcpy(cfgData.divMmcSdaPath, "/");
     strcpy(cfgData.modemUrl, MODEM_URL_PATH);
@@ -3471,6 +3503,15 @@ void menuLoadConfiguration(const char* cfgCfgName)
                         ++count;
                     }
                     break;
+#ifdef HDMI_CDC_OUTPUT
+                case 'h' :
+                    if (strncmp("hdmiCdcTimexEnabled = ", cfgPtr, 22) == 0)
+                    {
+                        hdmiCdcTimexEnabled = ((cfgPtr[22] == '1') ? true : false);
+                        ++count;
+                    }
+                    break;
+#endif
                 case 's' :
                     if ((cfgCfgName == 0) &&
                         (strncmp("stateActiveSlot = ", cfgPtr, 18) == 0))
@@ -3600,6 +3641,9 @@ void menuSaveConfiguration()
             cfgFile.printf("lprintPresent = %0d\n", lprintPresent);
             cfgFile.printf("bootIntoMenu = %0d\n", bootIntoMenu);
             cfgFile.printf("menuEnableInGame = %0d\n", menuEnableInGame);
+#ifdef HDMI_CDC_OUTPUT
+            cfgFile.printf("hdmiCdcTimexEnabled = %0d\n", hdmiCdcTimexEnabled);
+#endif
             cfgFile.printf("cfgName = %s\n", cfgData.cfgName);
             cfgFile.printf("romName = %s\n", cfgData.romName);
             cfgFile.printf("divMmcSdaPath = %s\n", cfgData.divMmcSdaPath);

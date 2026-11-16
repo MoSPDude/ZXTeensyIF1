@@ -114,6 +114,24 @@ the register port `BF3B` remains write-only. The selected ULAplus mode-group
 sub-register mirrors Timex mode and colour selection, including the bank-7
 extensions from the version 1.1 specification.
 
+Timex port `FF` reads and writes are enabled by default. The **Enable HDMI
+Timex port FF** option appears in **Edit Configuration** and the in-game
+settings only while HDMI CDC is connected. It is saved as
+`hdmiCdcTimexEnabled = 0` or `1`; startup configurations without this key use
+the enabled default. Apply main-menu changes with **Save and Reset**. The
+in-game toggle changes subsequent port accesses immediately; reset clears any
+Timex video mode already selected on the Pico.
+
+Loading an Interface 2, ZXC2, or ZXC3 ROM cartridge temporarily disables port
+`FF` emulation, leaving the saved preference unchanged. Selecting a system
+ROM, loading a Dandanator image, or loading a snapshot retains the current
+setting. Standard Spectrum software can write this otherwise unused port;
+ZX Diagnostics' ULA port-addressing test writes `2` and `7` to it, which switch
+video modes and flash the active screen if Timex port handling is enabled.
+Load the diagnostic ROM as an Interface 2/ZXC2/ZXC3 cartridge, or disable the
+option, for the expected border-only flash. Timex modes through the ULAplus
+mode-group register remain available with the option disabled.
+
 Timex port `FF` modes `0`, `1`, `2`, and `6` select the primary display file,
 second display file, 256x192 hi-colour, and 512x192 hi-res respectively.
 Hi-colour takes each 8x1 attribute byte from the corresponding offset in the

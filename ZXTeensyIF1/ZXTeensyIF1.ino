@@ -732,6 +732,7 @@ volatile uint8_t hdmiCdcUlaPlusMode = 0;
 volatile uint8_t hdmiCdcUlaPlusPalette[64] = {};
 volatile uint8_t hdmiCdcTimexControl = 0;
 volatile bool hdmiCdcTimexControlValid = false;
+volatile bool hdmiCdcTimexEnabled = false;
 volatile bool hdmiCdcFrameSyncValid = false;
 volatile uint32_t hdmiCdcFrameStartCycle = 0;
 volatile uint32_t hdmiCdcPreviousFrameAckCycle = 0;
@@ -1295,6 +1296,7 @@ inline __attribute__((optimize("O3"))) void hdmiCdcBegin()
     // Capture may start now: writes queue behind this reset packet. Keep
     // session setup out of subLoop, and do not clear captured state afterward.
     hdmiCdcConnected = true;
+    menuRedraw = true;
     hdmiCdc.write(hdmiCdcOutputPacket, CDC_PACKET_SIZE);
 }
 
@@ -3142,6 +3144,7 @@ FASTRUN void loop()
         {
             hdmiCdcConnected = false;
             hdmiCdcBuffer.clear();
+            menuRedraw = true;
         }
     }
 }
@@ -5033,7 +5036,8 @@ FASTRUN void isrWrEvent(uint32_t gpioSix)
                         }
                     }
 #ifdef HDMI_CDC_OUTPUT
-                    else {
+                    else if (hdmiCdcTimexEnabled)
+                    {
                         // Capture Timex ULA port for HDMI CDC
                         hdmiCdcTimexControl = data;
                         hdmiCdcTimexControlValid = true;
@@ -5570,7 +5574,8 @@ FASTRUN void isrRdEvent(uint32_t gpioSix)
                     writeData(modemOnReset ? 0x00 : espUart.getModemStatusByte());
                 }
 #ifdef HDMI_CDC_OUTPUT
-                else if (hdmiCdcConnected && hdmiCdcTimexControlValid)
+                else if (hdmiCdcConnected && hdmiCdcTimexEnabled &&
+                    hdmiCdcTimexControlValid)
                 {
                     // Timex ULA port
                     writeData(hdmiCdcTimexControl);
