@@ -113,7 +113,6 @@ typedef enum {
     SETTING_ACTION_UNMOUNT_FDB,
     SETTING_ACTION_IN_GAME_TOGGLE_IF1,
     SETTING_ACTION_IN_GAME_TOGGLE_PRINTER,
-    SETTING_ACTION_IN_GAME_TOGGLE_USB,
     SETTING_ACTION_TOGGLE_HDMI_TIMEX,
     SETTING_ACTION_OPEN_DEBUG = 0xF4,
     SETTING_ACTION_OPEN_IN_GAME_SETTINGS = 0xF5,
@@ -827,6 +826,12 @@ char* menuGeneratePokBrowser(char* ptr)
 char* menuGenerateInGameSettings(char* ptr)
 {
     ptr = menuInsertSetting(MENU_ACTION_TOP_MENU, 0, ptr, MENU_STRINGS[STRING_CANCEL], 0);
+    if (!menuMachineIs48k() && ((spectrumBankM & 0x20) == 0x00) &&
+        ((romArrayPresent & (BANK_ROM0 | BANK_ROM1)) == BANK_ROM0))
+    {
+        ptr = menuInsertSetting(MENU_ACTION_IN_GAME_EXIT_48K, 0, ptr,
+            MENU_STRINGS[STRING_IN_GAME_EXIT_48K], 0);
+    }
 #ifdef HDMI_CDC_OUTPUT
     if (hdmiCdcConnected)
     {
@@ -834,12 +839,6 @@ char* menuGenerateInGameSettings(char* ptr)
             ptr, MENU_STRINGS[STRING_ENABLE_HDMI_TIMEX], hdmiCdcTimexEnabled);
     }
 #endif
-    if (!menuMachineIs48k() && ((spectrumBankM & 0x20) == 0x00) &&
-        ((romArrayPresent & (BANK_ROM0 | BANK_ROM1)) == BANK_ROM0))
-    {
-        ptr = menuInsertSetting(MENU_ACTION_IN_GAME_EXIT_48K, 0, ptr,
-            MENU_STRINGS[STRING_IN_GAME_EXIT_48K], 0);
-    }
     if (interface1Present && divMmcState.present)
     {
         ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_IN_GAME_TOGGLE_IF1,
@@ -855,11 +854,11 @@ char* menuGenerateInGameSettings(char* ptr)
                 ptr, MENU_STRINGS[STRING_CLEAR_PRINTER], 0);
         }
     }
-    if (usbPresent)
+    if (usbEnabled)
     {
-        ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_IN_GAME_TOGGLE_USB, ptr,
-            MENU_STRINGS[STRING_ENABLE_USB], usbEnabled);
-        if (usbEnabled)
+        ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_USB, ptr,
+            MENU_STRINGS[STRING_ENABLE_USB], usbPresent);
+        if (usbPresent)
         {
             ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_FIRE_BUTTONS,
                 ptr, MENU_STRINGS[STRING_ENABLE_FIRE_BUTTONS], gamepadButtons);
@@ -2481,6 +2480,8 @@ bool menuPerformSelection(uint8_t index)
                     break;
                 case SETTING_ACTION_TOGGLE_USB :
                     usbPresent = !usbPresent;
+                    mousePresent &= usbPresent;
+                    joystickPresent &= usbPresent;
                     menuConfigChanged = true;
                     break;
                 case SETTING_ACTION_TOGGLE_FIRE_BUTTONS :
@@ -2583,10 +2584,6 @@ bool menuPerformSelection(uint8_t index)
                     } else {
                         printerEnabled = true;
                     }
-                    break;
-                case SETTING_ACTION_IN_GAME_TOGGLE_USB :
-                    // Toggle active USB
-                    usbEnabled = !usbEnabled;
                     break;
                 case SETTING_ACTION_OPEN_DEBUG :
                     // Open debug menu

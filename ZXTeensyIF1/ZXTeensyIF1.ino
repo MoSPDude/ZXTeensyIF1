@@ -3050,20 +3050,16 @@ void handleStateReset()
             }
         }
 
-        // If USB mouse/gamepad is present, then enable
-        if (usbPresent)
+        // If USB mouse/gamepad is present, then enable the USB host
+        if (usbPresent && !usbEnabled)
         {
-            // Enable the USB host
-            if (!usbEnabled)
-            {
-                usbHost.begin();
-                usbKeyboard.attachPress(usbKeyboardPressed);
-                usbKeyboard.attachRelease(usbKeyboardReleased);
-                usbEnabled = true;
+            usbHost.begin();
+            usbKeyboard.attachPress(usbKeyboardPressed);
+            usbKeyboard.attachRelease(usbKeyboardReleased);
+            usbEnabled = true;
 
-                // Delay to allow USB devices to initialise
-                delay(100);
-            }
+            // Delay to allow USB devices to initialise
+            delay(100);
         }
     }
 
@@ -3464,172 +3460,183 @@ FASTRUN void loop()
     if (usbEnabled)
     {
         usbHost.Task();
-        if (usbMouse.available())
+
+        // Process USB mouse/gamepad updates
+        if (usbPresent)
         {
-            mouseX += (uint32_t)usbMouse.getMouseX();
-            mouseY -= (uint32_t)usbMouse.getMouseY();
-            mouseBtn = ~(usbMouse.getButtons());
-            mousePresent = true;
-            usbMouse.mouseDataClear();
-        }
-        if (usbJoystick.available())
-        {
-            uint8_t data = 0;
-            uint32_t dpadButtons;
-            uint32_t buttons = usbJoystick.getButtons();
-            switch (usbJoystick.joystickType())
+            if (usbMouse.available())
             {
-                case JoystickController::PS3 :
-                    // D-Pad
-                    dpadButtons = (buttons & 0x00F0) >> 4;
-                    if (dpadButtons != 0)
-                    {
-                        const static uint8_t dpadMap[16] = { 0x00,
-                            0x08, 0x01, 0x09, 0x04, 0x0C, 0x05, 0x0D,
-                            0x02, 0x0A, 0x03, 0x0B, 0x06, 0x0E, 0x07, 0x0F };
-                        data |= dpadMap[dpadButtons];
-                    }
-                    if (gamepadButtons)
-                    {
-                        // NOTE: Button mapping is reversed
-                        if (buttons & 0x8000)
+                mouseX += (uint32_t)usbMouse.getMouseX();
+                mouseY -= (uint32_t)usbMouse.getMouseY();
+                mouseBtn = ~(usbMouse.getButtons());
+                mousePresent = true;
+                usbMouse.mouseDataClear();
+            }
+            if (usbJoystick.available())
+            {
+                uint8_t data = 0;
+                uint32_t dpadButtons;
+                uint32_t buttons = usbJoystick.getButtons();
+                switch (usbJoystick.joystickType())
+                {
+                    case JoystickController::PS3 :
+                        // D-Pad
+                        dpadButtons = (buttons & 0x00F0) >> 4;
+                        if (dpadButtons != 0)
+                        {
+                            const static uint8_t dpadMap[16] = { 0x00,
+                                0x08, 0x01, 0x09, 0x04, 0x0C, 0x05, 0x0D,
+                                0x02, 0x0A, 0x03, 0x0B, 0x06, 0x0E, 0x07, 0x0F };
+                            data |= dpadMap[dpadButtons];
+                        }
+                        if (gamepadButtons)
+                        {
+                            // NOTE: Button mapping is reversed
+                            if (buttons & 0x8000)
+                            {
+                                data |= 0x10;
+                            }
+                            if (buttons & 0x4000)
+                            {
+                                data |= 0x20;
+                            }
+                            if (buttons & 0x2000)
+                            {
+                                data |= 0x40;
+                            }
+                            if (buttons & 0x1000)
+                            {
+                                data |= 0x80;
+                            }
+                        } else if (buttons & 0xF000)
                         {
                             data |= 0x10;
                         }
-                        if (buttons & 0x4000)
+                        break;
+                    case JoystickController::PS4 :
+                        // D-Pad
+                        dpadButtons = (uint8_t)usbJoystick.getAxis(9);
+                        if (dpadButtons < 0x08)
                         {
-                            data |= 0x20;
+                            // PS4 D-Pad returns as compass points on Axis 9 eg.
+                            // North, NE, East etc.
+                            const static uint8_t dpadMap[8] = { 0x08, 0x09, 0x01,
+                                0x05, 0x04, 0x06, 0x02, 0x0A };
+                            data |= dpadMap[dpadButtons];
                         }
-                        if (buttons & 0x2000)
+                        if (gamepadButtons)
                         {
-                            data |= 0x40;
-                        }
-                        if (buttons & 0x1000)
+                            data |= (buttons & 0x0F) << 4;
+                        } else if (buttons & 0x0F)
                         {
-                            data |= 0x80;
+                            data |= 0x10;
                         }
-                    } else if (buttons & 0xF000)
-                    {
-                        data |= 0x10;
-                    }
-                    break;
-                case JoystickController::PS4 :
-                    // D-Pad
-                    dpadButtons = (uint8_t)usbJoystick.getAxis(9);
-                    if (dpadButtons < 0x08)
-                    {
-                        // PS4 D-Pad returns as compass points on Axis 9 eg.
-                        // North, NE, East etc.
-                        const static uint8_t dpadMap[8] = { 0x08, 0x09, 0x01,
-                            0x05, 0x04, 0x06, 0x02, 0x0A };
-                        data |= dpadMap[dpadButtons];
-                    }
-                    if (gamepadButtons)
-                    {
-                        data |= (buttons & 0x0F) << 4;
-                    } else if (buttons & 0x0F)
-                    {
-                        data |= 0x10;
-                    }
-                    break;
-                default :
-                    // D-Pad
-                    dpadButtons = (buttons & 0xF00) >> 8;
-                    if (dpadButtons != 0)
-                    {
-                        const static uint8_t dpadMap[16] = { 0x00,
-                            0x08, 0x04, 0x0C, 0x02, 0x0A, 0x06, 0x0E,
-                            0x01, 0x09, 0x05, 0x0D, 0x03, 0x0B, 0x07, 0x0F };
-                        data |= dpadMap[dpadButtons];
-                    }
-                    if (gamepadButtons)
-                    {
-                        data |= (buttons & 0xF0);
-                    } else if (buttons & 0xF0)
-                    {
-                        data |= 0x10;
-                    }
-                    break;
-            }
+                        break;
+                    default :
+                        // D-Pad
+                        dpadButtons = (buttons & 0xF00) >> 8;
+                        if (dpadButtons != 0)
+                        {
+                            const static uint8_t dpadMap[16] = { 0x00,
+                                0x08, 0x04, 0x0C, 0x02, 0x0A, 0x06, 0x0E,
+                                0x01, 0x09, 0x05, 0x0D, 0x03, 0x0B, 0x07, 0x0F };
+                            data |= dpadMap[dpadButtons];
+                        }
+                        if (gamepadButtons)
+                        {
+                            data |= (buttons & 0xF0);
+                        } else if (buttons & 0xF0)
+                        {
+                            data |= 0x10;
+                        }
+                        break;
+                }
 #ifdef ENABLE_JOYSTICK_DEBUG
-            if (menuIsDebugging() && (joystickData != data))
-            {
-                menuRedraw = menuPrintDebug(true, F_CSTR("joystickData %0d"), data);
-            }
+                if (menuIsDebugging() && (joystickData != data))
+                {
+                    menuRedraw = menuPrintDebug(true, F_CSTR("joystickData %0d"), data);
+                }
 #endif
-            joystickData = data;
-            joystickPresent = true;
-            usbJoystick.joystickDataClear();
+                joystickData = data;
+                joystickPresent = true;
+                usbJoystick.joystickDataClear();
+            }
         }
     }
 }
 
 void usbKeyboardPressed(int key)
 {
-    uint8_t data = joystickData;
-    switch (key)
+    if (usbPresent)
     {
-        case 'q' :
-        case KEYD_UP :
-            data |= 0x08;
-            break;
-        case 'a' :
-        case KEYD_DOWN :
-            data |= 0x04;
-            break;
-        case 'o' :
-        case KEYD_LEFT :
-            data |= 0x02;
-            break;
-        case 'p' :
-        case KEYD_RIGHT :
-            data |= 0x01;
-            break;
-        case ' ' :
-        case 'm' :
-        case '\n' :
-            data |= 0x10;
-            break;
-        case 'n' :
-            data |= 0x20;
-            break;
+        uint8_t data = joystickData;
+        switch (key)
+        {
+            case 'q' :
+            case KEYD_UP :
+                data |= 0x08;
+                break;
+            case 'a' :
+            case KEYD_DOWN :
+                data |= 0x04;
+                break;
+            case 'o' :
+            case KEYD_LEFT :
+                data |= 0x02;
+                break;
+            case 'p' :
+            case KEYD_RIGHT :
+                data |= 0x01;
+                break;
+            case ' ' :
+            case 'm' :
+            case '\n' :
+                data |= 0x10;
+                break;
+            case 'n' :
+                data |= 0x20;
+                break;
+        }
+        joystickData = data;
+        joystickPresent = true;
     }
-    joystickData = data;
-    joystickPresent = true;
 }
 
 void usbKeyboardReleased(int key)
 {
-    uint8_t data = joystickData;
-    switch (key)
+    if (usbPresent)
     {
-        case 'q' :
-        case KEYD_UP :
-            data &= ~(0x08);
-            break;
-        case 'a' :
-        case KEYD_DOWN :
-            data &= ~(0x04);
-            break;
-        case 'o' :
-        case KEYD_LEFT :
-            data &= ~(0x02);
-            break;
-        case 'p' :
-        case KEYD_RIGHT :
-            data &= ~(0x01);
-            break;
-        case ' ' :
-        case 'm' :
-        case '\n' :
-            data &= ~(0x10);
-            break;
-        case 'n' :
-            data &= ~(0x20);
-            break;
+        uint8_t data = joystickData;
+        switch (key)
+        {
+            case 'q' :
+            case KEYD_UP :
+                data &= ~(0x08);
+                break;
+            case 'a' :
+            case KEYD_DOWN :
+                data &= ~(0x04);
+                break;
+            case 'o' :
+            case KEYD_LEFT :
+                data &= ~(0x02);
+                break;
+            case 'p' :
+            case KEYD_RIGHT :
+                data &= ~(0x01);
+                break;
+            case ' ' :
+            case 'm' :
+            case '\n' :
+                data &= ~(0x10);
+                break;
+            case 'n' :
+                data &= ~(0x20);
+                break;
+        }
+        joystickData = data;
+        joystickPresent = true;
     }
-    joystickData = data;
-    joystickPresent = true;
 }
 
 inline void mldClearCommand()
