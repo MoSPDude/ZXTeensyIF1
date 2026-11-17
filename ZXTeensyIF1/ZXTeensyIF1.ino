@@ -2529,6 +2529,14 @@ void handleStateResetEntry()
         tzxPresent = false;
         menuClearConfiguration();
 
+        // Reset the DivMMC AllRAM control register
+        // NOTE: The DivMMC AllRAM control register survives ordinary Spectrum resets
+        divMmcState.allRam = false;
+        divMmcState.writeLock = false;
+        divMmcState.mapDisable = false;
+        divMmcState.mapRamPage = false;
+
+
         // Load the ROMs
         loadRomSets = true;
 
@@ -3063,8 +3071,8 @@ void handleStateReset()
         }
     }
 
-    // The AllRAM control register survives reset, but the Spectrum paging
-    // registers do not, so refresh its selected page after reset handling.
+    // Page in the DivMMC AllRam as required
+    // NOTE: The DivMMC AllRAM control register survives ordinary Spectrum resets
     divMmcState.allRamEnabled = divMmcState.present && divMmcState.allRamPresent;
     divMmcState.allRamActive = divMmcState.enabled &&
         divMmcState.allRamEnabled && divMmcState.allRam;
