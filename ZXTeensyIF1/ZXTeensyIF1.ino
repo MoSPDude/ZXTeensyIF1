@@ -4300,7 +4300,11 @@ FASTRUN void isrPinButton()
         if (!isGlobalStateReset() && !nmiPending &&
             !menuTriggerNMI && !menuTriggerExitNMI)
         {
-            if (IS_ROM_PAGED(ROM_MENU))
+            if (globalState != STATE_ROM_ENABLE)
+            {
+                nmiPending = true;
+                digitalWriteFast(NMI_PIN, 1);
+            } else if (IS_ROM_PAGED(ROM_MENU))
             {
                 if (menuIsInGameMenu() && !mf128ActiveNMI &&
                     (!divMmcState.conMem || !divMmcState.allRamEnabled))
