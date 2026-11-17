@@ -4731,6 +4731,7 @@ FASTRUN void isrWrEvent(uint32_t gpioSix)
                         divMmcState.bankRom01 = ((data & 0x10) != 0);
                         divMmcState.bankRom01Locked = ((data & 0x20) != 0);
                         updateDivMmcRamPtrs();
+                        updateRomIndex(true);
                     }
                     if (divMmcState.enabled && IS_ROM_PAGED(ROM_DIVMMC) &&
                         !divMmcState.allRamActive &&
