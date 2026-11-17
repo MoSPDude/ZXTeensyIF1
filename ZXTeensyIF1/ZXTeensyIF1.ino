@@ -1154,10 +1154,10 @@ void updateDivMmcRamPtrs()
         uint8_t page;
         if (!divMmcState.mapDisable)
         {
-            // Automapping restricts AllRAM to the top two 16KB pages.
+            // Automapping restricts AllRAM to the top two 16KB pages
             page = divMmcState.extRamEnabled ? 0x1E : 0x06;
         } else {
-            // E3 bits 5-3, 1FFD bit 2 and 7FFD bit 4 select the 16KB page.
+            // I/O 0xE3 bits 5-3, 0x1FFD bit 2 and 0x7FFD bit 4 select the 16KB page
             page = ((divMmcState.ramBank >> 1) & 0x1C) |
                 (divMmcState.bankRom23 ? 0x02 : 0x00);
         }
@@ -4789,6 +4789,9 @@ FASTRUN void isrWrEvent(uint32_t gpioSix)
                         } else {
                             romPaged |= (rom1Paged ? 0x02 : 0x01);
                         }
+                        updateRomIndex(true);
+                    } else if (divMmcState.allRamEnabled)
+                    {
                         updateRomIndex(true);
                     }
                     if (dskEnabled)
