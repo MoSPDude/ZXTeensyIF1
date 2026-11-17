@@ -89,6 +89,7 @@ typedef enum {
     SETTING_ACTION_TOGGLE_DIVMMC,
     SETTING_ACTION_TOGGLE_DIVMMC_RAM,
     SETTING_ACTION_TOGGLE_DIVMMC_ALLRAM,
+    SETTING_ACTION_TOGGLE_DIVMMC_ALLRAM_CLEAR_RESET,
     SETTING_ACTION_TOGGLE_DIVMMC_ROM,
     SETTING_ACTION_TOGGLE_DIVMMC_LOCK_SD,
     SETTING_ACTION_TOGGLE_IF1,
@@ -1943,6 +1944,11 @@ char* menuGenerateSettings(char* ptr)
             ptr, MENU_STRINGS[STRING_ENABLE_DIVMMC_RAM], divMmcState.extRamPresent);
         ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_DIVMMC_ALLRAM,
             ptr, MENU_STRINGS[STRING_ENABLE_DIVMMC_ALLRAM], divMmcState.allRamPresent);
+        if (divMmcState.allRamPresent)
+        {
+            ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_DIVMMC_ALLRAM_CLEAR_RESET,
+                ptr, MENU_STRINGS[STRING_DIVMMC_ALLRAM_CLEAR_RESET], divMmcState.allRamClearOnReset);
+        }
         if ((romArrayPresent & BANK_DIVMMC) != 0)
         {
             ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_DIVMMC_ROM,
@@ -2447,6 +2453,10 @@ bool menuPerformSelection(uint8_t index)
                     break;
                 case SETTING_ACTION_TOGGLE_DIVMMC_ALLRAM :
                     divMmcState.allRamPresent = !divMmcState.allRamPresent;
+                    menuConfigChanged = true;
+                    break;
+                case SETTING_ACTION_TOGGLE_DIVMMC_ALLRAM_CLEAR_RESET :
+                    divMmcState.allRamClearOnReset = !divMmcState.allRamClearOnReset;
                     menuConfigChanged = true;
                     break;
                 case SETTING_ACTION_TOGGLE_DIVMMC_ROM :
@@ -3345,6 +3355,7 @@ void menuClearConfiguration()
     divMmcState.present = false;
     divMmcState.extRamPresent = true;
     divMmcState.allRamPresent = false;
+    divMmcState.allRamClearOnReset = false;
     divMmcState.sdReadOnly = true;
     divMmcState.romPresent = false;
     interface1Present = false;
@@ -3391,6 +3402,9 @@ void menuLoadBuiltinConfiguration()
 
 void menuLoadConfiguration(const char* cfgCfgName)
 {
+    // Older configurations preserve AllRAM across ordinary resets.
+    divMmcState.allRamClearOnReset = false;
+
     // Load the configuration from the SD card
     size_t count = 0;
     char cfgPath[MAX_PATH];
@@ -3430,6 +3444,10 @@ void menuLoadConfiguration(const char* cfgCfgName)
                     } else if (strncmp("divMmcAllRamPresent = ", cfgPtr, 22) == 0)
                     {
                         divMmcState.allRamPresent = ((cfgPtr[22] == '1') ? true : false);
+                        ++count;
+                    } else if (strncmp("divMmcAllRamClearOnReset = ", cfgPtr, 27) == 0)
+                    {
+                        divMmcState.allRamClearOnReset = ((cfgPtr[27] == '1') ? true : false);
                         ++count;
                     } else if (strncmp("divMmcRomPresent = ", cfgPtr, 19) == 0)
                     {
@@ -3620,6 +3638,7 @@ void menuSaveConfiguration()
             cfgFile.printf("divMmcPresent = %0d\n", divMmcState.present);
             cfgFile.printf("divMmcExtRamPresent = %0d\n", divMmcState.extRamPresent);
             cfgFile.printf("divMmcAllRamPresent = %0d\n", divMmcState.allRamPresent);
+            cfgFile.printf("divMmcAllRamClearOnReset = %0d\n", divMmcState.allRamClearOnReset);
             cfgFile.printf("divMmcSdReadOnly = %0d\n", divMmcState.sdReadOnly);
             cfgFile.printf("divMmcRomPresent = %0d\n", divMmcState.romPresent);
             cfgFile.printf("interface1Present = %0d\n", interface1Present);

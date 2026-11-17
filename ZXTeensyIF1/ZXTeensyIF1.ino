@@ -495,6 +495,7 @@ typedef struct {
     bool ramBankMapRam;
     bool preserveRam;
     bool extRamEnabled;
+    bool allRamClearOnReset;
 } div_mmc_state_t;
 volatile div_mmc_state_t divMmcState = {};
 volatile uint8_t* divMmcRomPtr = romArray[ROM_PAGE_DIVMMC];
@@ -2519,6 +2520,16 @@ void handleStateResetEntry()
         afterFirstReset = false;
         isDeviceDisabled = false;
     }
+    if (!afterFirstReset || divMmcState.allRamClearOnReset)
+    {
+        // Reset the DivMMC AllRAM control register
+        // NOTE: The DivMMC AllRAM control register (optionally) survives
+        // ordinary Spectrum resets
+        divMmcState.allRam = false;
+        divMmcState.writeLock = false;
+        divMmcState.mapDisable = false;
+        divMmcState.mapRamPage = false;
+    }
     if (!afterFirstReset)
     {
         zxC2Present = false;
@@ -2528,14 +2539,6 @@ void handleStateResetEntry()
         snaLoaderPresent = false;
         tzxPresent = false;
         menuClearConfiguration();
-
-        // Reset the DivMMC AllRAM control register
-        // NOTE: The DivMMC AllRAM control register survives ordinary Spectrum resets
-        divMmcState.allRam = false;
-        divMmcState.writeLock = false;
-        divMmcState.mapDisable = false;
-        divMmcState.mapRamPage = false;
-
 
         // Load the ROMs
         loadRomSets = true;
@@ -3072,7 +3075,8 @@ void handleStateReset()
     }
 
     // Page in the DivMMC AllRam as required
-    // NOTE: The DivMMC AllRAM control register survives ordinary Spectrum resets
+    // NOTE: The DivMMC AllRAM control register (optionally) survives ordinary
+    // Spectrum resets
     divMmcState.allRamEnabled = divMmcState.present && divMmcState.allRamPresent;
     divMmcState.allRamActive = divMmcState.enabled &&
         divMmcState.allRamEnabled && divMmcState.allRam;

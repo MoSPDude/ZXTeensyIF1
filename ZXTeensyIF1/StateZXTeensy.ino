@@ -594,7 +594,7 @@ inline void stateApplyConfiguration()
     modemPresent = stateRestoreDevice.modemPresent;
     printerPresent = stateRestoreDevice.printerPresent;
     lprintPresent = stateRestoreDevice.lprintPresent;
-    // NOTE: Preserve existing bootIntoMenu and menuEnableInGame
+    // NOTE: Preserve existing bootIntoMenu, menuEnableInGame and AllRAM reset policy
     memcpy(&cfgData, &stateRestoreDevice.cfgData, sizeof(cfgData));
     cfgData.romName[MAX_PATH - 1] = 0;
     cfgData.divMmcSdaPath[MAX_PATH - 1] = 0;
