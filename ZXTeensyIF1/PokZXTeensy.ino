@@ -1,20 +1,9 @@
 
 #include <SD.h>
 
-static const uint8_t POKE_MAX_TRAINERS = 253;
-static const uint16_t POKE_MAX_RECORDS = 256;
+static const uint8_t POKE_MAX_TRAINERS = (POKE_MAX_RECORDS - 3);
 static const size_t POKE_SELECTION_SIZE = ((POKE_MAX_TRAINERS + 7) / 8);
 
-typedef struct {
-    uint16_t address;
-    uint8_t value;
-    uint8_t trainer;
-    uint8_t bank;
-    uint8_t sourceBank;
-    uint8_t selected;
-} poke_record_t;
-
-DMAMEM poke_record_t pokeRecords[POKE_MAX_RECORDS];
 uint8_t pokeTrainerSelected[POKE_SELECTION_SIZE];
 uint8_t pokeTrainerUnsupported[POKE_SELECTION_SIZE];
 uint8_t pokeTrainerCount = 0;
@@ -113,7 +102,7 @@ bool pokeParseRecord(char* line, uint8_t* bank, uint16_t* address,
     return true;
 }
 
-bool pokeParseFile(const char* pokeFilePath, char pokeTrainerNames[][MENU_STR_LEN])
+bool pokeParseFile(const char* pokeFilePath, const bool onRequestApply)
 {
     File file = SD.open(pokeFilePath, FILE_READ);
     if (!file)
@@ -169,11 +158,13 @@ bool pokeParseFile(const char* pokeFilePath, char pokeTrainerNames[][MENU_STR_LE
                 break;
             }
             ++trainer;
-            if (snprintf(pokeTrainerNames[trainer], MENU_STR_LEN, "%s", name) >=
-                MENU_STR_LEN)
+
+            // Generate the trainer POKE names for the menu
+            if (!onRequestApply && (snprintf(menuDynamicList[trainer],
+                MENU_STR_LEN, "%s", name) >= MENU_STR_LEN))
             {
-                pokeTrainerNames[trainer][(MENU_STR_LEN - 2)] = '>';
-                pokeTrainerNames[trainer][(MENU_STR_LEN - 1)] = 0;
+                menuDynamicList[trainer][(MENU_STR_LEN - 2)] = '>';
+                menuDynamicList[trainer][(MENU_STR_LEN - 1)] = 0;
             }
             trainerOpen = true;
         } else if ((line[0] == 'M') || (line[0] == 'Z'))
@@ -197,19 +188,22 @@ bool pokeParseFile(const char* pokeFilePath, char pokeTrainerNames[][MENU_STR_LE
                 errorReported = true;
                 break;
             }
-
-            poke_record_t* record = &(pokeRecords[recordCount++]);
-            record->selected = 0x00;
-            record->trainer = trainer;
-            record->bank = bank;
-            record->sourceBank = bank;
-            record->address = address;
-            if (value > 0xFF)
+            if (onRequestApply)
             {
-                pokeSetBit(pokeTrainerUnsupported, trainer);
-                record->value = 0xFF;
-            } else {
-                record->value = value;
+                // Create the records to apply the POKEs
+                poke_record_t* record = &(pokeTrainerRecords[recordCount++]);
+                record->selected = 0x00;
+                record->trainer = trainer;
+                record->bank = bank;
+                record->sourceBank = bank;
+                record->address = address;
+                if (value > 0xFF)
+                {
+                    pokeSetBit(pokeTrainerUnsupported, trainer);
+                    record->value = 0xFF;
+                } else {
+                    record->value = value;
+                }
             }
             if (line[0] == 'Z')
             {
@@ -256,7 +250,7 @@ bool pokeParseFile(const char* pokeFilePath, char pokeTrainerNames[][MENU_STR_LE
     return success;
 }
 
-bool pokeOpenFile(const char* path, char pokeTrainerNames[][MENU_STR_LEN])
+bool pokeOpenFile(const char* path)
 {
     pokeTrainerCount = 0;
     pokeRecordCount = 0;
@@ -264,7 +258,7 @@ bool pokeOpenFile(const char* path, char pokeTrainerNames[][MENU_STR_LEN])
     pokeApplyRequested = false;
     memset(pokeTrainerSelected, 0, sizeof(pokeTrainerSelected));
     memset(pokeTrainerUnsupported, 0, sizeof(pokeTrainerUnsupported));
-    return pokeParseFile(path, pokeTrainerNames);
+    return pokeParseFile(path, false);
 }
 
 uint8_t pokeGetTrainerCount()
@@ -301,9 +295,9 @@ bool pokeToggleTrainer(uint8_t trainer)
     return false;
 }
 
-bool pokeRequestApply()
+bool pokeRequestApply(const char* path)
 {
-    if (pokeHasSelectedTrainers())
+    if (pokeHasSelectedTrainers() && pokeParseFile(path, true))
     {
         pokeApplyRequested = true;
         return true;
@@ -339,7 +333,7 @@ bool pokePrepareApply(bool state128, uint8_t currentBank)
     uint8_t bankMask = 0;
     for (uint16_t index = 0; index < pokeRecordCount; ++index)
     {
-        poke_record_t* record = &(pokeRecords[index]);
+        poke_record_t* record = &(pokeTrainerRecords[index]);
         if (pokeIsTrainerSelected(record->trainer))
         {
             int8_t bank = pokeGetTargetBank(record->sourceBank, record->address,
@@ -366,7 +360,7 @@ void pokeApplyBank(uint8_t bank, volatile uint8_t* data)
     {
         for (uint16_t index = 0; index < pokeRecordCount; ++index)
         {
-            poke_record_t* record = &(pokeRecords[index]);
+            poke_record_t* record = &(pokeTrainerRecords[index]);
             if ((record->selected != 0x00) && (record->bank == bank))
             {
                 data[record->address & (ROM_PAGE_SIZE - 1)] = record->value;

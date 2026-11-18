@@ -79,6 +79,9 @@
 // NOTE: Allow for left icon, ROM_NAME_LEN, tab, 2 x right icons, and new-line
 #define MENU_STR_LEN (ROM_NAME_LEN + 5)
 
+// Maximum number of trainer records
+#define POKE_MAX_RECORDS 256
+
 #define PAGE_IN_ROM(bit) (romPaged |= (1UL << (bit)))
 #define PAGE_OUT_ROM(bit) (romPaged &= ~(1UL << (bit)))
 #define IS_ROM_PAGED(bit) ((romPaged >> (bit)) & 0x01)

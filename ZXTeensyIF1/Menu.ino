@@ -2838,7 +2838,7 @@ bool menuPerformSelection(uint8_t index)
         case MENU_ACTION_BROWSER_OPEN_POK :
             if (updateBrowserPath(entryIndex))
             {
-                if (pokeOpenFile(menuBrowserPath, menuDynamicList))
+                if (pokeOpenFile(menuBrowserPath))
                 {
                     menuCurrent = MENU_TYPE_POK_BROWSER;
                 } else {
@@ -3025,7 +3025,7 @@ bool menuPerformSelection(uint8_t index)
             stateSaveSlot = entryIndex;
             return true;
         case MENU_ACTION_IN_GAME_APPLY_POK :
-            if (pokeRequestApply())
+            if (pokeRequestApply(menuBrowserPath))
             {
                 menuCurrent = menuTopMenu;
                 return true;

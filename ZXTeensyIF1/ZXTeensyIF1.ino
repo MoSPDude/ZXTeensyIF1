@@ -322,17 +322,28 @@ typedef struct __attribute__((packed)) {
     uint8_t mldPreviousSlot;
 } state_device_data_t;
 
+typedef struct {
+    uint16_t address;
+    uint8_t value;
+    uint8_t trainer;
+    uint8_t bank;
+    uint8_t sourceBank;
+    uint8_t selected;
+} poke_record_t;
+
 // Menu dynamic lists are not accessed while state data is being saved or
 // restored, so share their RAM2 allocation.
 typedef union {
     char dynamicList[255][MENU_STR_LEN];
     state_device_data_t restoreDevice;
+    poke_record_t trainerRecords[POKE_MAX_RECORDS];
 } menu_state_storage_t;
 
 DMAMEM menu_state_storage_t menuStateStorage;
 
 #define menuDynamicList menuStateStorage.dynamicList
 #define stateRestoreDevice menuStateStorage.restoreDevice
+#define pokeTrainerRecords menuStateStorage.trainerRecords
 
 static_assert(sizeof(stateRestoreDevice) <= sizeof(menuDynamicList),
     "Saved state data exceeds menu dynamic list storage");
