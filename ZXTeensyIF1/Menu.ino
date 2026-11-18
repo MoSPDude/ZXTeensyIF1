@@ -342,6 +342,11 @@ char* menuInsertEject(menu_action_t action, uint32_t index, char* ptr, const cha
         // Parse filename from the full path
         const char* name = strrchr(path, '/');
         name = ((name != 0) ? (name + 1) : path);
+        if (stricmp("/", path) == 0)
+        {
+            // A root path represents the physical SD card.
+            name = MENU_STRINGS[STRING_SD_CARD];
+        }
         if (snprintf(label, (MENU_STR_LEN + 1), "  \x16  %s %s",
             drive, name) >= (MENU_STR_LEN + 1))
         {
@@ -923,6 +928,27 @@ char* menuGenerateInGame(char* ptr)
                 ptr, label, 0);
         }
     }
+    if (divMmcState.enabled && divMmcState.inGameUnmount)
+    {
+        char* sdaPath = menuGetDivMmcSdaPath();
+        char* sdbPath = menuGetDivMmcSdbPath();
+        if ((sdaPath == 0) && ((sdbPath == 0) || (stricmp("/", sdbPath) != 0)))
+        {
+            ptr = menuInsertSetting(MENU_ACTION_IN_GAME_MOUNT_SD_SDA, 0,
+                ptr, MENU_STRINGS[STRING_MOUNT_SD_SDA], 0);
+        } else {
+            ptr = menuInsertEject(MENU_ACTION_IN_GAME_UNMOUNT_SDA, 0, ptr,
+                "sda", sdaPath);
+        }
+        if ((sdbPath == 0) && ((sdaPath == 0) || (stricmp("/", sdaPath) != 0)))
+        {
+            ptr = menuInsertSetting(MENU_ACTION_IN_GAME_MOUNT_SD_SDB, 0,
+                ptr, MENU_STRINGS[STRING_MOUNT_SD_SDB], 0);
+        } else {
+            ptr = menuInsertEject(MENU_ACTION_IN_GAME_UNMOUNT_SDB, 0, ptr,
+                "sdb", sdbPath);
+        }
+    }
     if (dskPresent)
     {
         ptr = menuInsertEject(MENU_ACTION_IN_GAME_UNMOUNT_FDA, 0, ptr,
@@ -1121,7 +1147,7 @@ char* menuGenerateBrowserOpen(char* ptr)
     }
     ptr = menuInsertSetting(MENU_ACTION_BROWSER_MOUNT_FDA, 0, ptr, MENU_STRINGS[STRING_MOUNT_FDA], 0);
     ptr = menuInsertSetting(MENU_ACTION_BROWSER_MOUNT_FDB, 0, ptr, MENU_STRINGS[STRING_MOUNT_FDB], 0);
-    if ((romArrayPresent & BANK_DIVMMC) != 0)
+    if (divMmcState.enabled || ((romArrayPresent & BANK_DIVMMC) != 0))
     {
         ptr = menuInsertSetting(MENU_ACTION_BROWSER_MOUNT_SDA, 0, ptr, MENU_STRINGS[STRING_MOUNT_SDA], 0);
         ptr = menuInsertSetting(MENU_ACTION_BROWSER_MOUNT_SDB, 0, ptr, MENU_STRINGS[STRING_MOUNT_SDB], 0);
@@ -2856,8 +2882,14 @@ bool menuPerformSelection(uint8_t index)
                 strncpy(((menuAction == MENU_ACTION_BROWSER_MOUNT_SDB) ?
                     cfgData.divMmcSdbPath : cfgData.divMmcSdaPath),
                     menuBrowserPath, MAX_PATH);
-                divMmcState.present = true;
-                menuConfigChanged = true;
+                if (menuTopMenu != MENU_TYPE_MAIN)
+                {
+                    menuCurrent = menuTopMenu;
+                    return false;
+                } else {
+                    divMmcState.present = true;
+                    menuConfigChanged = true;
+                }
             }
             menuCurrent = menuTopMenu;
             break;
@@ -2885,6 +2917,22 @@ bool menuPerformSelection(uint8_t index)
             }
             menuCurrent = menuTopMenu;
             break;
+        case MENU_ACTION_IN_GAME_MOUNT_SD_SDA :
+            strcpy(cfgData.divMmcSdaPath, "/");
+            menuCurrent = menuTopMenu;
+            return false;
+        case MENU_ACTION_IN_GAME_MOUNT_SD_SDB :
+            strcpy(cfgData.divMmcSdbPath, "/");
+            menuCurrent = menuTopMenu;
+            return false;
+        case MENU_ACTION_IN_GAME_UNMOUNT_SDA :
+            cfgData.divMmcSdaPath[0] = 0;
+            menuCurrent = menuTopMenu;
+            return false;
+        case MENU_ACTION_IN_GAME_UNMOUNT_SDB :
+            cfgData.divMmcSdbPath[0] = 0;
+            menuCurrent = menuTopMenu;
+            return false;
         case MENU_ACTION_IN_GAME_UNMOUNT_FDA :
             cfgData.dskFdaPath[0] = 0;
             menuCurrent = menuTopMenu;
@@ -3356,6 +3404,7 @@ void menuClearConfiguration()
     divMmcState.extRamPresent = true;
     divMmcState.allRamPresent = false;
     divMmcState.allRamClearOnReset = false;
+    divMmcState.inGameUnmount = false;
     divMmcState.sdReadOnly = true;
     divMmcState.romPresent = false;
     interface1Present = false;
@@ -3402,9 +3451,6 @@ void menuLoadBuiltinConfiguration()
 
 void menuLoadConfiguration(const char* cfgCfgName)
 {
-    // Older configurations preserve AllRAM across ordinary resets.
-    divMmcState.allRamClearOnReset = false;
-
     // Load the configuration from the SD card
     size_t count = 0;
     char cfgPath[MAX_PATH];
@@ -3456,6 +3502,10 @@ void menuLoadConfiguration(const char* cfgCfgName)
                     } else if (strncmp("divMmcSdReadOnly = ", cfgPtr, 19) == 0)
                     {
                         divMmcState.sdReadOnly = ((cfgPtr[19] == '1') ? true : false);
+                        ++count;
+                    } else if (strncmp("divMmcInGameUnmount = ", cfgPtr, 21) == 0)
+                    {
+                        divMmcState.inGameUnmount = ((cfgPtr[21] == '1') ? true : false);
                         ++count;
                     } else if (strncmp("divMmcSdaPath = ", cfgPtr, 16) == 0)
                     {
@@ -3641,6 +3691,7 @@ void menuSaveConfiguration()
             cfgFile.printf("divMmcAllRamClearOnReset = %0d\n", divMmcState.allRamClearOnReset);
             cfgFile.printf("divMmcSdReadOnly = %0d\n", divMmcState.sdReadOnly);
             cfgFile.printf("divMmcRomPresent = %0d\n", divMmcState.romPresent);
+            cfgFile.printf("divMmcInGameUnmount = %0d\n", divMmcState.inGameUnmount);
             cfgFile.printf("interface1Present = %0d\n", interface1Present);
             cfgFile.printf("mf128Present = %0d\n", mf128Present);
             cfgFile.printf("mf128LoadGenie = %0d\n", mf128LoadGenie);

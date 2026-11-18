@@ -69,7 +69,11 @@ typedef enum {
     MENU_ACTION_IN_GAME_NMI,
     MENU_ACTION_IN_GAME_MF128,
     MENU_ACTION_IN_GAME_DIVMMC,
-    MENU_ACTION_IN_GAME_RESET
+    MENU_ACTION_IN_GAME_RESET,
+    MENU_ACTION_IN_GAME_UNMOUNT_SDA,
+    MENU_ACTION_IN_GAME_UNMOUNT_SDB,
+    MENU_ACTION_IN_GAME_MOUNT_SD_SDA,
+    MENU_ACTION_IN_GAME_MOUNT_SD_SDB
 } menu_action_t;
 
 typedef enum {
@@ -496,6 +500,7 @@ typedef struct {
     bool preserveRam;
     bool extRamEnabled;
     bool allRamClearOnReset;
+    bool inGameUnmount;
 } div_mmc_state_t;
 volatile div_mmc_state_t divMmcState = {};
 volatile uint8_t* divMmcRomPtr = romArray[ROM_PAGE_DIVMMC];
@@ -3362,6 +3367,54 @@ FASTRUN void loop()
                             loadRomImage(menuGetBrowserPath(),
                                 (char*)&(romArray[ROM_PAGE_MF128][RAM_PAGE_SIZE]),
                                 RAM_PAGE_SIZE);
+                        }
+                        break;
+                    case MENU_ACTION_BROWSER_MOUNT_SDA :
+                    case MENU_ACTION_IN_GAME_MOUNT_SD_SDA :
+                    case MENU_ACTION_IN_GAME_UNMOUNT_SDA :
+                        if (divMmcState.enabled && (divMmcDrive == DIVMMC_NONE) &&
+                            beginSdfsSd())
+                        {
+                            divMmcHdf.reset(true);
+                            divMmcDriveSlot[0] = DIVMMC_NONE;
+                            char* path = menuGetDivMmcSdaPath();
+                            if (path != 0)
+                            {
+                                if (stricmp("/", path) == 0)
+                                {
+                                    if (divMmcDriveSlot[1] != DIVMMC_SDHC)
+                                    {
+                                        divMmcDriveSlot[0] = DIVMMC_SDHC;
+                                    }
+                                } else if (divMmcHdf.begin(path))
+                                {
+                                    divMmcDriveSlot[0] = DIVMMC_HDF_A;
+                                }
+                            }
+                        }
+                        break;
+                    case MENU_ACTION_BROWSER_MOUNT_SDB :
+                    case MENU_ACTION_IN_GAME_MOUNT_SD_SDB :
+                    case MENU_ACTION_IN_GAME_UNMOUNT_SDB :
+                        if (divMmcState.enabled && (divMmcDrive == DIVMMC_NONE) &&
+                            beginSdfsSd())
+                        {
+                            divMmcSecondHdf.reset(true);
+                            divMmcDriveSlot[1] = DIVMMC_NONE;
+                            char* path = menuGetDivMmcSdbPath();
+                            if (path != 0)
+                            {
+                                if (stricmp("/", path) == 0)
+                                {
+                                    if (divMmcDriveSlot[0] != DIVMMC_SDHC)
+                                    {
+                                        divMmcDriveSlot[1] = DIVMMC_SDHC;
+                                    }
+                                } else if (divMmcSecondHdf.begin(path))
+                                {
+                                    divMmcDriveSlot[1] = DIVMMC_HDF_B;
+                                }
+                            }
                         }
                         break;
                     case MENU_ACTION_BROWSER_MOUNT_FDA :
