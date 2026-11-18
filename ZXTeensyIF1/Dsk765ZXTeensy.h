@@ -50,11 +50,12 @@ class Dsk765ZXTeensy
             end();
 
             // Create the FDC, and attach drives with disks
+            // NOTE: FD_35 avoids lib765's FD_30 double-step emulation
             fdc = fdc_new();
             fdd_a = fd_newdsk();
-            fd_settype(fdd_a, FD_30);
-            fd_setheads(fdd_a, 1);
-            fd_setcyls(fdd_a, 42);
+            fd_settype(fdd_a, FD_35);
+            fd_setheads(fdd_a, 2);
+            fd_setcyls(fdd_a, 83);
             if (diskAPath != 0)
             {
                 fdd_setfilename(fdd_a, diskAPath);
@@ -65,9 +66,9 @@ class Dsk765ZXTeensy
             {
                 hasDriveB = true;
                 fdd_b = fd_newdsk();
-                fd_settype(fdd_b, FD_30);
-                fd_setheads(fdd_b, 1);
-                fd_setcyls(fdd_b, 42);
+                fd_settype(fdd_b, FD_35);
+                fd_setheads(fdd_b, 2);
+                fd_setcyls(fdd_b, 83);
                 if (diskBPath != 0)
                 {
                     fdd_setfilename(fdd_b, diskBPath);

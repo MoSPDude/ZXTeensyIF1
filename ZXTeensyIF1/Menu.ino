@@ -3503,9 +3503,9 @@ void menuLoadConfiguration(const char* cfgCfgName)
                     {
                         divMmcState.sdReadOnly = ((cfgPtr[19] == '1') ? true : false);
                         ++count;
-                    } else if (strncmp("divMmcInGameUnmount = ", cfgPtr, 21) == 0)
+                    } else if (strncmp("divMmcInGameUnmount = ", cfgPtr, 22) == 0)
                     {
-                        divMmcState.inGameUnmount = ((cfgPtr[21] == '1') ? true : false);
+                        divMmcState.inGameUnmount = ((cfgPtr[22] == '1') ? true : false);
                         ++count;
                     } else if (strncmp("divMmcSdaPath = ", cfgPtr, 16) == 0)
                     {
