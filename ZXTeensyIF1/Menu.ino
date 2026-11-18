@@ -334,7 +334,7 @@ inline __attribute__((always_inline)) char* menuInsertSpacer(char* ptr)
 }
 
 char* menuInsertEject(menu_action_t action, uint32_t index, char* ptr, const char* drive,
-    const char* path)
+    const bool locked, const char* path)
 {
     char label[(MENU_STR_LEN + 1)];
     if (path != 0)
@@ -347,7 +347,17 @@ char* menuInsertEject(menu_action_t action, uint32_t index, char* ptr, const cha
             // A root path represents the physical SD card.
             name = MENU_STRINGS[STRING_SD_CARD];
         }
-        if (snprintf(label, (MENU_STR_LEN + 1), "  \x16  %s %s",
+        if (locked)
+        {
+            // Disk is locked in-use
+            action = MENU_ACTION_SETTING;
+            index = SETTING_ACTION_NO_OP;
+            if (snprintf(label, (MENU_STR_LEN + 1), "  \x17  %s %s",
+                drive, name) >= (MENU_STR_LEN + 1))
+            {
+                label[MENU_STR_LEN] = 0;
+            }
+        } else if (snprintf(label, (MENU_STR_LEN + 1), "  \x16  %s %s",
             drive, name) >= (MENU_STR_LEN + 1))
         {
             label[MENU_STR_LEN] = 0;
@@ -467,8 +477,9 @@ char* menuInsertInGameStatus(char* ptr)
         }
         if (divMmcState.present)
         {
-            if (snprintf(divMmcLabel, (MENU_STR_LEN + 1), " DivMMC: %d%s", divMmcState.ramBank,
-                (divMmcState.mapRam ? " MAPRAM" : "")) >= (MENU_STR_LEN + 1))
+            if (snprintf(divMmcLabel, (MENU_STR_LEN + 1), " DivMMC: %d%s %s", divMmcState.ramBank,
+                (divMmcState.mapRam ? " MAPRAM" : ""), ((divMmcDrive != DIVMMC_NONE) ? "[*]" : "[.]"))
+                    >= (MENU_STR_LEN + 1))
             {
                 divMmcLabel[MENU_STR_LEN] = 0;
             }
@@ -489,12 +500,12 @@ char* menuInsertInGameStatus(char* ptr)
         {
             if (snprintf(label, (MENU_STR_LEN + 1), " > \x17 A: %d B: %d %s",
                 dskController.getCurCyl(false), dskController.getCurCyl(true),
-                (dskController.isMotorOn() ? "RUN" : "")) >= (MENU_STR_LEN + 1))
+                (dskController.isMotorOn() ? "[*]" : "[.]")) >= (MENU_STR_LEN + 1))
             {
                 label[MENU_STR_LEN] = 0;
             }
         } else if (snprintf(label, (MENU_STR_LEN + 1), " > \x17 A: %d %s",
-            dskController.getCurCyl(false), (dskController.isMotorOn() ? "RUN" : ""))
+            dskController.getCurCyl(false), (dskController.isMotorOn() ? "[*]" : "[.]"))
                 >= (MENU_STR_LEN + 1))
         {
             label[MENU_STR_LEN] = 0;
@@ -932,13 +943,14 @@ char* menuGenerateInGame(char* ptr)
     {
         char* sdaPath = menuGetDivMmcSdaPath();
         char* sdbPath = menuGetDivMmcSdbPath();
+        bool locked = (divMmcDrive != DIVMMC_NONE);
         if ((sdaPath == 0) && ((sdbPath == 0) || (stricmp("/", sdbPath) != 0)))
         {
             ptr = menuInsertSetting(MENU_ACTION_IN_GAME_MOUNT_SD_SDA, 0,
                 ptr, MENU_STRINGS[STRING_MOUNT_SD_SDA], 0);
         } else {
             ptr = menuInsertEject(MENU_ACTION_IN_GAME_UNMOUNT_SDA, 0, ptr,
-                "sda", sdaPath);
+                "sda", locked, sdaPath);
         }
         if ((sdbPath == 0) && ((sdaPath == 0) || (stricmp("/", sdaPath) != 0)))
         {
@@ -946,17 +958,18 @@ char* menuGenerateInGame(char* ptr)
                 ptr, MENU_STRINGS[STRING_MOUNT_SD_SDB], 0);
         } else {
             ptr = menuInsertEject(MENU_ACTION_IN_GAME_UNMOUNT_SDB, 0, ptr,
-                "sdb", sdbPath);
+                "sdb", locked, sdbPath);
         }
     }
     if (dskPresent)
     {
+        bool locked = dskController.isMotorOn();
         ptr = menuInsertEject(MENU_ACTION_IN_GAME_UNMOUNT_FDA, 0, ptr,
-            "A:", menuGetFdcFdaPath());
+            "A:", locked, menuGetFdcFdaPath());
         if (dskEnableDriveB)
         {
             ptr = menuInsertEject(MENU_ACTION_IN_GAME_UNMOUNT_FDB, 0, ptr,
-                "B:", menuGetFdcFdbPath());
+                "B:", locked, menuGetFdcFdbPath());
         }
     }
 
@@ -1119,10 +1132,13 @@ char* menuGenerateBrowserMountDsk(char* ptr)
 {
     ptr = menuInsertSetting(MENU_ACTION_BROWSER_CD, BROWSER_PARENT_INDEX,
         ptr, MENU_STRINGS[STRING_CANCEL], 0);
-    ptr = menuInsertSetting(MENU_ACTION_BROWSER_MOUNT_FDA, 0, ptr, MENU_STRINGS[STRING_MOUNT_FDA], 0);
-    if (dskEnableDriveB)
+    if (!dskController.isMotorOn() && ((menuTopMenu == MENU_TYPE_MAIN) || dskEnabled))
     {
-        ptr = menuInsertSetting(MENU_ACTION_BROWSER_MOUNT_FDB, 0, ptr, MENU_STRINGS[STRING_MOUNT_FDB], 0);
+        ptr = menuInsertSetting(MENU_ACTION_BROWSER_MOUNT_FDA, 0, ptr, MENU_STRINGS[STRING_MOUNT_FDA], 0);
+        if ((menuTopMenu == MENU_TYPE_MAIN) || dskEnableDriveB)
+        {
+            ptr = menuInsertSetting(MENU_ACTION_BROWSER_MOUNT_FDB, 0, ptr, MENU_STRINGS[STRING_MOUNT_FDB], 0);
+        }
     }
     return ptr;
 }
@@ -1131,8 +1147,12 @@ char* menuGenerateBrowserMountHdf(char* ptr)
 {
     ptr = menuInsertSetting(MENU_ACTION_BROWSER_CD, BROWSER_PARENT_INDEX,
         ptr, MENU_STRINGS[STRING_CANCEL], 0);
-    ptr = menuInsertSetting(MENU_ACTION_BROWSER_MOUNT_SDA, 0, ptr, MENU_STRINGS[STRING_MOUNT_SDA], 0);
-    ptr = menuInsertSetting(MENU_ACTION_BROWSER_MOUNT_SDB, 0, ptr, MENU_STRINGS[STRING_MOUNT_SDB], 0);
+    if ((divMmcDrive == DIVMMC_NONE) && ((menuTopMenu == MENU_TYPE_MAIN) ||
+        (divMmcState.enabled && divMmcState.inGameUnmount)))
+    {
+        ptr = menuInsertSetting(MENU_ACTION_BROWSER_MOUNT_SDA, 0, ptr, MENU_STRINGS[STRING_MOUNT_SDA], 0);
+        ptr = menuInsertSetting(MENU_ACTION_BROWSER_MOUNT_SDB, 0, ptr, MENU_STRINGS[STRING_MOUNT_SDB], 0);
+    }
     return ptr;
 }
 
@@ -1145,9 +1165,16 @@ char* menuGenerateBrowserOpen(char* ptr)
     {
         ptr = menuInsertSetting(MENU_ACTION_BROWSER_LOAD_MDR, 0, ptr, MENU_STRINGS[STRING_LOAD_MDR], 0);
     }
-    ptr = menuInsertSetting(MENU_ACTION_BROWSER_MOUNT_FDA, 0, ptr, MENU_STRINGS[STRING_MOUNT_FDA], 0);
-    ptr = menuInsertSetting(MENU_ACTION_BROWSER_MOUNT_FDB, 0, ptr, MENU_STRINGS[STRING_MOUNT_FDB], 0);
-    if (divMmcState.enabled || ((romArrayPresent & BANK_DIVMMC) != 0))
+    if (!dskController.isMotorOn() && ((menuTopMenu == MENU_TYPE_MAIN) || dskEnabled))
+    {
+        ptr = menuInsertSetting(MENU_ACTION_BROWSER_MOUNT_FDA, 0, ptr, MENU_STRINGS[STRING_MOUNT_FDA], 0);
+        if ((menuTopMenu == MENU_TYPE_MAIN) || dskEnableDriveB)
+        {
+            ptr = menuInsertSetting(MENU_ACTION_BROWSER_MOUNT_FDB, 0, ptr, MENU_STRINGS[STRING_MOUNT_FDB], 0);
+        }
+    }
+    if ((divMmcDrive == DIVMMC_NONE) && ((menuTopMenu == MENU_TYPE_MAIN) ||
+        (divMmcState.enabled && divMmcState.inGameUnmount)))
     {
         ptr = menuInsertSetting(MENU_ACTION_BROWSER_MOUNT_SDA, 0, ptr, MENU_STRINGS[STRING_MOUNT_SDA], 0);
         ptr = menuInsertSetting(MENU_ACTION_BROWSER_MOUNT_SDB, 0, ptr, MENU_STRINGS[STRING_MOUNT_SDB], 0);
@@ -1990,7 +2017,7 @@ char* menuGenerateSettings(char* ptr)
                 if (tmpFile)
                 {
                     ptr = menuInsertEject(MENU_ACTION_SETTING, SETTING_ACTION_UNMOUNT_SDA,
-                        ptr, "sda", tmpPath);
+                        ptr, "sda", false, tmpPath);
                     tmpFile.close();
                 } else {
                     cfgData.divMmcSdaPath[0] = 0;
@@ -1999,7 +2026,7 @@ char* menuGenerateSettings(char* ptr)
                 ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_DIVMMC_LOCK_SD,
                     ptr, MENU_STRINGS[STRING_DIVMMC_LOCK_SD], divMmcState.sdReadOnly);
                 ptr = menuInsertEject(MENU_ACTION_SETTING, SETTING_ACTION_UNMOUNT_SDA,
-                    ptr, "sda", MENU_STRINGS[STRING_SD_CARD]);
+                    ptr, "sda", false, MENU_STRINGS[STRING_SD_CARD]);
                 isSdSda = true;
             }
         }
@@ -2017,7 +2044,7 @@ char* menuGenerateSettings(char* ptr)
                 if (tmpFile)
                 {
                     ptr = menuInsertEject(MENU_ACTION_SETTING, SETTING_ACTION_UNMOUNT_SDB,
-                        ptr, "sdb", tmpPath);
+                        ptr, "sdb", false, tmpPath);
                     tmpFile.close();
                 } else {
                     cfgData.divMmcSdbPath[0] = 0;
@@ -2029,7 +2056,7 @@ char* menuGenerateSettings(char* ptr)
                 ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_DIVMMC_LOCK_SD,
                     ptr, MENU_STRINGS[STRING_DIVMMC_LOCK_SD], divMmcState.sdReadOnly);
                 ptr = menuInsertEject(MENU_ACTION_SETTING, SETTING_ACTION_UNMOUNT_SDB,
-                    ptr, "sdb", MENU_STRINGS[STRING_SD_CARD]);
+                    ptr, "sdb", false, MENU_STRINGS[STRING_SD_CARD]);
             }
         }
         if (!isSdSda && (menuGetDivMmcSdbPath() == 0))
@@ -2045,11 +2072,11 @@ char* menuGenerateSettings(char* ptr)
         ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_FDC_FDB,
             ptr, MENU_STRINGS[STRING_ENABLE_FDC_FDB], dskEnableDriveB);
         ptr = menuInsertEject(MENU_ACTION_SETTING, SETTING_ACTION_UNMOUNT_FDA, ptr,
-            "A:", menuGetFdcFdaPath());
+            "A:", false, menuGetFdcFdaPath());
         if (dskEnableDriveB)
         {
             ptr = menuInsertEject(MENU_ACTION_SETTING, SETTING_ACTION_UNMOUNT_FDB,
-                ptr, "B:", menuGetFdcFdbPath());
+                ptr, "B:", false, menuGetFdcFdbPath());
         }
     }
     if ((romArrayPresent & BANK_IF1) != 0)
