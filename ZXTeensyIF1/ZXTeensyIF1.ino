@@ -331,22 +331,27 @@ typedef struct {
     uint8_t selected;
 } poke_record_t;
 
-// Menu dynamic lists are not accessed while state data is being saved or
-// restored, so share their RAM2 allocation.
+typedef struct {
+    uint32_t dirIndex;
+    char sortKey[ROM_NAME_LEN];
+    bool isDirectory;
+} browser_sort_entry_t;
+
+// Menu dynamic lists and menu specific behaviours can share the same scratch RAM
+// buffers as they do not overlap, so share their RAM2 allocation
 typedef union {
-    char dynamicList[255][MENU_STR_LEN];
+    char dynamicList[BROWSER_SORT_ENTRY_LIMIT][MENU_STR_LEN];
     state_device_data_t restoreDevice;
     poke_record_t trainerRecords[POKE_MAX_RECORDS];
-} menu_state_storage_t;
+    browser_sort_entry_t sortEntries[BROWSER_SORT_ENTRY_LIMIT];
+} menu_scratch_storage_t;
 
-DMAMEM menu_state_storage_t menuStateStorage;
+DMAMEM menu_scratch_storage_t menuScratchStorage;
 
-#define menuDynamicList menuStateStorage.dynamicList
-#define stateRestoreDevice menuStateStorage.restoreDevice
-#define pokeTrainerRecords menuStateStorage.trainerRecords
-
-static_assert(sizeof(stateRestoreDevice) <= sizeof(menuDynamicList),
-    "Saved state data exceeds menu dynamic list storage");
+#define menuDynamicList menuScratchStorage.dynamicList
+#define stateRestoreDevice menuScratchStorage.restoreDevice
+#define pokeTrainerRecords menuScratchStorage.trainerRecords
+#define browserSortEntries menuScratchStorage.sortEntries
 
 // I/O pin assignments
 static const uint8_t LED_PIN = 13;
@@ -863,6 +868,23 @@ inline __attribute__((always_inline, optimize("O3"))) void traceDebug(uint16_t a
 }
 
 #endif
+
+extern unsigned long _heap_start;
+extern unsigned long _heap_end;
+extern char *__brkval;
+
+uint32_t freeRAMTeensy()
+{
+    return (char *)&_heap_end - __brkval;
+}
+
+uint32_t freeStackTeensy()
+{
+    extern char _ebss[];
+    auto sp = (char*) __builtin_frame_address(0);
+    const uint32_t stack = sp - _ebss;
+    return stack;
+}
 
 inline __attribute__((always_inline, optimize("O3"))) void writeData(uint8_t data)
 {

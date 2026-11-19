@@ -148,7 +148,6 @@ volatile menu_action_t menuAction;
 
 // Menu file browser
 static const uint8_t BROWSER_ENTRY_LIMIT = 254;
-static const uint8_t BROWSER_SORT_ENTRY_LIMIT = 255;
 static const uint32_t BROWSER_PARENT_INDEX = 0xFFFFFFFFUL;
 static const size_t BROWSER_PIXEL_WIDTH = 247 - (3 * 8);
 char menuBrowserPath[MAX_PATH];
@@ -161,12 +160,6 @@ uint8_t menuBrowserExpandedMenuLine = 0;
 
 // Menu saved state preview
 uint8_t menuPreviewSlot = 0;
-
-typedef struct {
-    uint32_t dirIndex;
-    char sortKey[ROM_NAME_LEN];
-    bool isDirectory;
-} browser_sort_entry_t;
 
 typedef struct {
     uint8_t start;
@@ -537,7 +530,8 @@ char* menuInsertStatus(char* ptr)
     int a = temp;
     temp *= 100;
     int b = (int)(temp) % 100;
-    if (snprintf(label, (MENU_STR_LEN + 1), " > %d.%02d degC", a, b) >= (MENU_STR_LEN + 1))
+    if (snprintf(label, (MENU_STR_LEN + 1), " > %d.%02d degC", a, b) >=
+        (MENU_STR_LEN + 1))
     {
         label[MENU_STR_LEN] = 0;
     }
@@ -1017,6 +1011,21 @@ char* menuGenerateInGame(char* ptr)
 
 char* menuGenerateDebug(char* ptr)
 {
+    // Add debug status line
+    char label[(MENU_STR_LEN + 1)];
+    double temp = freeRAMTeensy();
+    temp /= 1024.0;
+    int a = temp;
+    temp *= 100;
+    int b = (int)(temp) % 100;
+    if (snprintf(label, (MENU_STR_LEN + 1), "FreeRAM: %d.%02dKB",
+        a, b) >= (MENU_STR_LEN + 1))
+    {
+        label[MENU_STR_LEN] = 0;
+    }
+    ptr = menuInsertSetting(MENU_ACTION_TOP_MENU, 0, ptr, label, 0);
+
+    // Output the debug buffer
     size_t i = 0;
     menuDebugBuffer[(MENU_DEBUG_SIZE - 1)] = 0;
     while (menuEntries < 255)
@@ -1052,11 +1061,6 @@ char* menuGenerateDebug(char* ptr)
         } else {
             break;
         }
-    }
-    if (menuEntries == 0)
-    {
-        ptr = menuInsertSetting(MENU_ACTION_TOP_MENU, 0, ptr,
-            MENU_STRINGS[STRING_CANCEL], 0);
     }
     return ptr;
 }
@@ -1121,7 +1125,7 @@ char* menuGenerateBrowserOpenRom(char* ptr)
     ptr = menuInsertSetting(MENU_ACTION_BROWSER_LOAD_ZXC2, 0, ptr, MENU_STRINGS[STRING_LOAD_ZXC2], 0);
     ptr = menuInsertSetting(MENU_ACTION_BROWSER_LOAD_ZXC3, 0, ptr, MENU_STRINGS[STRING_LOAD_ZXC3], 0);
     ptr = menuInsertSetting(MENU_ACTION_BROWSER_LOAD_MLD, 0, ptr, MENU_STRINGS[STRING_LOAD_MLD], 0);
-    if ((menuTopMenu != MENU_TYPE_MAIN) && mf128Present)
+    if (menuIsInGameMenu() && mf128Present)
     {
         ptr = menuInsertSetting(MENU_ACTION_BROWSER_LOAD_MF128, 0, ptr, MENU_STRINGS[STRING_LOAD_MF128], 0);
     }
@@ -1132,10 +1136,10 @@ char* menuGenerateBrowserMountDsk(char* ptr)
 {
     ptr = menuInsertSetting(MENU_ACTION_BROWSER_CD, BROWSER_PARENT_INDEX,
         ptr, MENU_STRINGS[STRING_CANCEL], 0);
-    if (!dskController.isMotorOn() && ((menuTopMenu == MENU_TYPE_MAIN) || dskEnabled))
+    if (!dskController.isMotorOn() && (!menuIsInGameMenu() || dskEnabled))
     {
         ptr = menuInsertSetting(MENU_ACTION_BROWSER_MOUNT_FDA, 0, ptr, MENU_STRINGS[STRING_MOUNT_FDA], 0);
-        if ((menuTopMenu == MENU_TYPE_MAIN) || dskEnableDriveB)
+        if (!menuIsInGameMenu() || dskEnableDriveB)
         {
             ptr = menuInsertSetting(MENU_ACTION_BROWSER_MOUNT_FDB, 0, ptr, MENU_STRINGS[STRING_MOUNT_FDB], 0);
         }
@@ -1147,7 +1151,7 @@ char* menuGenerateBrowserMountHdf(char* ptr)
 {
     ptr = menuInsertSetting(MENU_ACTION_BROWSER_CD, BROWSER_PARENT_INDEX,
         ptr, MENU_STRINGS[STRING_CANCEL], 0);
-    if ((divMmcDrive == DIVMMC_NONE) && ((menuTopMenu == MENU_TYPE_MAIN) ||
+    if ((divMmcDrive == DIVMMC_NONE) && (!menuIsInGameMenu() ||
         (divMmcState.enabled && divMmcState.inGameUnmount)))
     {
         ptr = menuInsertSetting(MENU_ACTION_BROWSER_MOUNT_SDA, 0, ptr, MENU_STRINGS[STRING_MOUNT_SDA], 0);
@@ -1165,15 +1169,15 @@ char* menuGenerateBrowserOpen(char* ptr)
     {
         ptr = menuInsertSetting(MENU_ACTION_BROWSER_LOAD_MDR, 0, ptr, MENU_STRINGS[STRING_LOAD_MDR], 0);
     }
-    if (!dskController.isMotorOn() && ((menuTopMenu == MENU_TYPE_MAIN) || dskEnabled))
+    if (!dskController.isMotorOn() && (!menuIsInGameMenu() || dskEnabled))
     {
         ptr = menuInsertSetting(MENU_ACTION_BROWSER_MOUNT_FDA, 0, ptr, MENU_STRINGS[STRING_MOUNT_FDA], 0);
-        if ((menuTopMenu == MENU_TYPE_MAIN) || dskEnableDriveB)
+        if (!menuIsInGameMenu() || dskEnableDriveB)
         {
             ptr = menuInsertSetting(MENU_ACTION_BROWSER_MOUNT_FDB, 0, ptr, MENU_STRINGS[STRING_MOUNT_FDB], 0);
         }
     }
-    if ((divMmcDrive == DIVMMC_NONE) && ((menuTopMenu == MENU_TYPE_MAIN) ||
+    if ((divMmcDrive == DIVMMC_NONE) && (!menuIsInGameMenu() ||
         (divMmcState.enabled && divMmcState.inGameUnmount)))
     {
         ptr = menuInsertSetting(MENU_ACTION_BROWSER_MOUNT_SDA, 0, ptr, MENU_STRINGS[STRING_MOUNT_SDA], 0);
@@ -1727,12 +1731,10 @@ browser_page_batch_t menuBatchPreviousBrowserPage(FsFile& directory,
 
 char* menuGenerateBrowser(char* ptr)
 {
-    browser_sort_entry_t browserSortEntries[BROWSER_SORT_ENTRY_LIMIT];
-    char browserDisplayName[MAX_PATH];
-
     if (beginSdfsSd())
     {
         // Open the directory
+        char browserDisplayName[MAX_PATH];
         FsFile directory = SD.sdfs.open(menuBrowserPath, O_RDONLY);
         if (!directory)
         {
@@ -2865,7 +2867,7 @@ bool menuPerformSelection(uint8_t index)
             {
                 strncpy(cfgData.tapeFileName, menuBrowserPath, MAX_PATH);
                 cfgData.tapeFileName[(MAX_PATH - 1)] = 0;
-                if (menuTopMenu != MENU_TYPE_MAIN)
+                if (menuIsInGameMenu())
                 {
                     menuCurrent = menuTopMenu;
                     return false;
@@ -2909,7 +2911,7 @@ bool menuPerformSelection(uint8_t index)
                 strncpy(((menuAction == MENU_ACTION_BROWSER_MOUNT_SDB) ?
                     cfgData.divMmcSdbPath : cfgData.divMmcSdaPath),
                     menuBrowserPath, MAX_PATH);
-                if (menuTopMenu != MENU_TYPE_MAIN)
+                if (menuIsInGameMenu())
                 {
                     menuCurrent = menuTopMenu;
                     return false;
@@ -2929,7 +2931,7 @@ bool menuPerformSelection(uint8_t index)
                 strncpy(((menuAction == MENU_ACTION_BROWSER_MOUNT_FDB) ?
                     cfgData.dskFdbPath : cfgData.dskFdaPath),
                     menuBrowserPath, MAX_PATH);
-                if (menuTopMenu != MENU_TYPE_MAIN)
+                if (menuIsInGameMenu())
                 {
                     menuCurrent = menuTopMenu;
                     return false;

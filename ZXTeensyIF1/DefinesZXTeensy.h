@@ -2,7 +2,7 @@
 #ifndef DEFINES_ZX_TEENSY_H
 #define DEFINES_ZX_TEENSY_H
 
-#define ZXTEENSY_VERSION "20261118"
+#define ZXTEENSY_VERSION "20261119"
 
 #define ENABLE_BUILTIN_ROM_IF1
 #define ENABLE_BUILTIN_ROM_MF128
@@ -81,6 +81,9 @@
 
 // Maximum number of trainer records
 #define POKE_MAX_RECORDS 256
+
+// Maximum file browser entries
+#define BROWSER_SORT_ENTRY_LIMIT 255
 
 #define PAGE_IN_ROM(bit) (romPaged |= (1UL << (bit)))
 #define PAGE_OUT_ROM(bit) (romPaged &= ~(1UL << (bit)))
