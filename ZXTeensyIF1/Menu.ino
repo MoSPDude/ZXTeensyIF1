@@ -72,7 +72,8 @@ typedef enum {
     MENU_TYPE_LOAD_STATE_SLOT,
     MENU_TYPE_PREVIEW_STATE_SLOT,
     MENU_TYPE_IN_GAME_SETTINGS,
-    MENU_TYPE_DEBUG
+    MENU_TYPE_DEBUG,
+    MENU_TYPE_ABOUT
 } menu_type_t;
 
 typedef struct {
@@ -115,6 +116,7 @@ typedef enum {
     SETTING_ACTION_IN_GAME_TOGGLE_IF1,
     SETTING_ACTION_IN_GAME_TOGGLE_PRINTER,
     SETTING_ACTION_TOGGLE_HDMI_TIMEX,
+    SETTING_ACTION_OPEN_ABOUT = 0xF3,
     SETTING_ACTION_OPEN_DEBUG = 0xF4,
     SETTING_ACTION_OPEN_IN_GAME_SETTINGS = 0xF5,
     SETTING_ACTION_OPEN_SAVE_STATE_SLOT = 0xF6,
@@ -1018,7 +1020,7 @@ char* menuGenerateDebug(char* ptr)
     int a = temp;
     temp *= 100;
     int b = (int)(temp) % 100;
-    if (snprintf(label, (MENU_STR_LEN + 1), "FreeRAM: %d.%02dKB",
+    if (snprintf(label, (MENU_STR_LEN + 1), " > FreeRAM: %d.%02dKB",
         a, b) >= (MENU_STR_LEN + 1))
     {
         label[MENU_STR_LEN] = 0;
@@ -1038,7 +1040,7 @@ char* menuGenerateDebug(char* ptr)
         {
             menuInsertEntry(MENU_ACTION_TOP_MENU, 0);
             *ptr++ = CHAR_BORDER;
-            for (size_t j = 0; j < (ROM_NAME_LEN + 3); ++j)
+            for (size_t j = 0; ((j < MENU_TXT_LEN) && (i < MENU_DEBUG_SIZE)); ++j)
             {
                 if (menuDebugBuffer[i] >= ' ')
                 {
@@ -1049,15 +1051,9 @@ char* menuGenerateDebug(char* ptr)
                     break;
                 }
             }
-            if (menuPageLine < 20)
-            {
-                *ptr++ = 10;
-                ++menuPageLine;
-            } else {
-                *ptr = 0;
-                menuPageLine = 0;
-                ++menuPage;
-            }
+
+            // Add new line, and update menu dimensions
+            ptr = menuInsertLineEnd(ptr);
         } else {
             break;
         }
@@ -2247,6 +2243,51 @@ char* menuGenerateConfigurations(char* ptr)
     return ptr;
 }
 
+char* menuGenerateAbout(char* ptr)
+{
+    char label[(MENU_STR_LEN + 1)];
+    if (snprintf(label, (MENU_STR_LEN + 1), "ZXTeensyIF1 %s",
+        VERSION_STR) >= (MENU_STR_LEN + 1))
+    {
+        label[MENU_STR_LEN] = 0;
+    }
+    ptr = menuInsertSetting(MENU_ACTION_TOP_MENU, 0, ptr, label, 0);
+#ifdef ENABLE_BUILTIN_ROM_IF1
+    ptr = menuInsertSetting(MENU_ACTION_TOP_MENU, 0, ptr,
+        MENU_STRINGS[STRING_ABOUT_BUILTIN_ROM_IF1_1], 0);
+    ptr = menuInsertSetting(MENU_ACTION_TOP_MENU, 0, ptr,
+        MENU_STRINGS[STRING_ABOUT_BUILTIN_ROM_IF1_2], 0);
+#endif
+#ifdef ENABLE_BUILTIN_ROM_MF128
+    ptr = menuInsertSetting(MENU_ACTION_TOP_MENU, 0, ptr,
+        MENU_STRINGS[STRING_ABOUT_BUILTIN_ROM_MF128_1], 0);
+    ptr = menuInsertSetting(MENU_ACTION_TOP_MENU, 0, ptr,
+        MENU_STRINGS[STRING_ABOUT_BUILTIN_ROM_MF128_2], 0);
+#endif
+#ifdef ENABLE_BUILTIN_USB
+    ptr = menuInsertSetting(MENU_ACTION_TOP_MENU, 0, ptr,
+        MENU_STRINGS[STRING_ABOUT_BUILTIN_USB], 0);
+#endif
+#ifdef HDMI_CDC_OUTPUT
+    ptr = menuInsertSetting(MENU_ACTION_TOP_MENU, 0, ptr,
+        MENU_STRINGS[STRING_ABOUT_HDMI_CDC_OUTPUT], 0);
+#endif
+
+    // Load about text, using the debug buffer
+    menuHasDebug = false;
+    memset(menuDebugBuffer, 0, MENU_DEBUG_SIZE);
+    File txtFile = SD.open(ABOUT_TEXT_PATH, FILE_READ);
+    if (txtFile)
+    {
+        txtFile.readBytes(menuDebugBuffer, MENU_DEBUG_SIZE);
+        txtFile.close();
+    }
+    ptr = menuInsertSetting(MENU_ACTION_TOP_MENU, 0, ptr, "", 0);
+    ptr = menuGenerateDebug(ptr);
+    memset(menuDebugBuffer, 0, MENU_DEBUG_SIZE);
+    return ptr;
+}
+
 char* menuGenerateMain(char* ptr)
 {
     ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_RESTART,
@@ -2282,7 +2323,9 @@ char* menuGenerateMain(char* ptr)
         menuHasUpdateFw = false;
     }
 
-    // Add debug and status
+    // Add about, debug and status
+    ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_OPEN_ABOUT,
+        ptr, MENU_STRINGS[STRING_OPEN_ABOUT], 0);
     ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_OPEN_DEBUG,
         ptr, (menuHasDebug ? MENU_STRINGS[STRING_OPEN_DEBUG] : ""), 0);
     ptr = menuInsertStatus(ptr);
@@ -2369,6 +2412,9 @@ void menuGenerate()
             break;
         case MENU_TYPE_DEBUG :
             textPtr = menuGenerateDebug(textPtr);
+            break;
+        case MENU_TYPE_ABOUT :
+            textPtr = menuGenerateAbout(textPtr);
             break;
     }
 
@@ -2649,6 +2695,10 @@ bool menuPerformSelection(uint8_t index)
                     } else {
                         printerEnabled = true;
                     }
+                    break;
+                case SETTING_ACTION_OPEN_ABOUT :
+                    // Open about menu
+                    menuCurrent = MENU_TYPE_ABOUT;
                     break;
                 case SETTING_ACTION_OPEN_DEBUG :
                     // Open debug menu

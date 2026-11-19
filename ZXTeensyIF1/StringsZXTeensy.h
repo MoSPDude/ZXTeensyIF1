@@ -109,7 +109,18 @@ typedef enum {
     STRING_IN_GAME_RESET,
     STRING_IN_GAME_EXIT_TAPE,
     STRING_IN_GAME_EXIT_BASIC,
-    STRING_IN_GAME_APPLY_POK
+    STRING_IN_GAME_APPLY_POK,
+    STRING_OPEN_ABOUT,
+#ifdef ENABLE_BUILTIN_ROM_IF1
+    STRING_ABOUT_BUILTIN_ROM_IF1_1,
+    STRING_ABOUT_BUILTIN_ROM_IF1_2,
+#endif
+#ifdef ENABLE_BUILTIN_ROM_MF128
+    STRING_ABOUT_BUILTIN_ROM_MF128_1,
+    STRING_ABOUT_BUILTIN_ROM_MF128_2,
+#endif
+    STRING_ABOUT_BUILTIN_USB,
+    STRING_ABOUT_HDMI_CDC_OUTPUT
 } menu_string_t;
 
 static const char* const PROGMEM MENU_STRINGS[] = {
@@ -219,7 +230,18 @@ static const char* const PROGMEM MENU_STRINGS[] = {
     "Reset into Main Menu",
     "Back and Play Tape",
     "Break into BASIC",
-    "Apply Selected POKEs"
+    "Apply Selected POKEs",
+    "About ZXTeensyIF1",
+#ifdef ENABLE_BUILTIN_ROM_IF1
+    "Includes ZX Interface 1 ROM",
+    "   (C) Amstrad Plc.",
+#endif
+#ifdef ENABLE_BUILTIN_ROM_MF128
+    "Includes Multiface 128 ROM",
+    "   (C) Romantic Robot Ltd.",
+#endif
+    "USB input default enabled",
+    "HDMI over USB Serial enabled"
 };
 
 #endif

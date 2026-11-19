@@ -1,0 +1,25 @@
+https://github.com/MoSPDude/ZXTeensyIF1
+
+Full credits to the following projects - this project gathers and integrates from
+many various sources. 
+
+Without these projects, this would not have been possible!
+
+The ZXTeensyIF1 contains peripheral ROM images - the exact redistribution status
+of these is unknown, but they have been gathered from sources from the Internet,
+and provided for convenience and safe-keeping.
+
+It borrows content, ideas and inspiration from,
+
+* Teensyduino Core and SdFat libraries - provides all the Teensy 4.1 functionality
+* TeensyROM Initial code and parts for the Teensy 4.1 firmware
+* ZXPicoIF2Lite ROM menu source code, Z80 snapshot loader, and the idea of a soft ROM
+* ZXC2 and ZXC3, and Microdrive Emulator
+* ZX Dandantor Mini
+* Nihirash WiFi Network Manager
+* Velesoft RTC_SETUP and RTC.SYS for EsxDOS
+* lib765 FDC controller library
+* Teensy 4.x OTA upgrade library
+* liveboxandy ZX Interface 1 board layout and schematic
+* fruit-bat Pico 2 Spectrum ULA and AY emulation
+* Adafruit DVI-HSTX library and hardware
