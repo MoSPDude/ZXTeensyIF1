@@ -472,8 +472,30 @@ char* menuInsertInGameStatus(char* ptr)
         }
         if (divMmcState.present)
         {
-            if (snprintf(divMmcLabel, (MENU_STR_LEN + 1), " DivMMC: %d%s %s", divMmcState.ramBank,
-                (divMmcState.mapRam ? " MAPRAM" : ""), ((divMmcDrive != DIVMMC_NONE) ? "[*]" : "[.]"))
+            uint8_t page;
+            bool isAllRam;
+            if (divMmcState.allRamEnabled && divMmcState.allRam)
+            {
+                // NOTE: Mirrored from updateDivMmcRamPtrs
+                isAllRam = true;
+                if (!divMmcState.mapDisable)
+                {
+                    // Automapping restricts AllRAM to the top two 16KB pages
+                    page = divMmcState.extRamEnabled ? 0x1E : 0x06;
+                } else {
+                    // I/O 0xE3 bits 5-3, 0x1FFD bit 2 and 0x7FFD bit 4 select the 16KB page
+                    page = ((divMmcState.ramBank >> 1) & 0x1C) |
+                        (divMmcState.bankRom23 ? 0x02 : 0x00);
+                }
+                page |= (divMmcState.bankRom01 ? 0x01 : 0x00);
+            } else {
+                isAllRam = false;
+                page = divMmcState.ramBank;
+            }
+            if (snprintf(divMmcLabel, (MENU_STR_LEN + 1), " DivMMC: %s %s%d%s",
+                ((divMmcDrive != DIVMMC_NONE) ? "[*]" : "[.]"),
+                (isAllRam ? "D" : ""), page,
+                (divMmcState.mapRam ? " MAPRAM" : ""))
                     >= (MENU_STR_LEN + 1))
             {
                 divMmcLabel[MENU_STR_LEN] = 0;
@@ -493,14 +515,15 @@ char* menuInsertInGameStatus(char* ptr)
     {
         if (dskEnableDriveB)
         {
-            if (snprintf(label, (MENU_STR_LEN + 1), " > \x17 A: %d B: %d %s",
-                dskController.getCurCyl(false), dskController.getCurCyl(true),
-                (dskController.isMotorOn() ? "[*]" : "[.]")) >= (MENU_STR_LEN + 1))
+            if (snprintf(label, (MENU_STR_LEN + 1), " > \x17 %s A: %d B: %d",
+                (dskController.isMotorOn() ? "[*]" : "[.]"),
+                dskController.getCurCyl(false), dskController.getCurCyl(true))
+                    >= (MENU_STR_LEN + 1))
             {
                 label[MENU_STR_LEN] = 0;
             }
-        } else if (snprintf(label, (MENU_STR_LEN + 1), " > \x17 A: %d %s",
-            dskController.getCurCyl(false), (dskController.isMotorOn() ? "[*]" : "[.]"))
+        } else if (snprintf(label, (MENU_STR_LEN + 1), " > \x17 %s A: %d",
+            (dskController.isMotorOn() ? "[*]" : "[.]"), dskController.getCurCyl(false))
                 >= (MENU_STR_LEN + 1))
         {
             label[MENU_STR_LEN] = 0;
@@ -998,6 +1021,7 @@ char* menuGenerateInGame(char* ptr)
     // Add debug and status
     ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_OPEN_DEBUG,
         ptr, (menuHasDebug ? MENU_STRINGS[STRING_OPEN_DEBUG] : ""), 0);
+    ptr = menuInsertInGameStatus(ptr);
     ptr = menuInsertStatus(ptr);
     if (rtcHasTime)
     {
@@ -1007,7 +1031,6 @@ char* menuGenerateInGame(char* ptr)
             ptr, (wifiNtpEnabled ? MENU_STRINGS[STRING_WIFI_NTP_WAITING] :
                 MENU_STRINGS[STRING_RTC_NOT_SET]), 0);
     }
-    ptr = menuInsertInGameStatus(ptr);
     return ptr;
 }
 

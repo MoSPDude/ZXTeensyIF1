@@ -1,19 +1,71 @@
-# Pico2Hdmi
+# Pico2Hdmi - HDMI over USB Serial
 
 Arduino firmware for a Raspberry Pi Pico 2 and Adafruit PiCowBell HSTX DVI
 Output. It receives ZX Spectrum ULA, ULAplus, Timex-video, and AY writes from the
 ZXTeensyIF1 over USB CDC and produces 720x576p50 HDMI video with 44.1 kHz
 stereo audio.
 
+It supports many effects (such as Gigascreen) but does not implement sub-scanline
+positioning - so "in border effects" with sub-scanline precision are not emulated.
+
+## Upstream
+
+Credits to the following projects and sources,
+
+- [Adafruit DVI HSTX](https://github.com/adafruit/Adafruit-DVI-HSTX)
+- [Adafruit PiCowBell HSTX DVI Output guide](https://learn.adafruit.com/adafruit-picowbell-hstx-dvi-output)
+- [fruit-bat/pico-zxspectrum](https://github.com/fruit-bat/pico-zxspectrum)
+
+## Hardware
+
+Attach the Pico 2 directly to the Adafruit PiCowBell HSTX DVI Output board.
+
+The ZX Spectrum powers both the ZXTeensyIF1 and the Pico 2/Cowbell board.
+If USB is not initalising, then check the power arrangements, before attaching
+a separate powered USB hub.
+
+## Building
+
+Prerequisites:
+
+- Arduino CLI or Arduino IDE 2.x.
+- Earle Philhower's Arduino-Pico core 6.3.0.
+- Adafruit DVI HSTX 2.1.0 and its Adafruit GFX dependency.
+- Board: **Raspberry Pi Pico 2**, ARM architecture.
+- CPU Speed menu: **150 MHz**. Adafruit DVI HSTX requires this build setting and
+  configures the runtime clock itself.
+- USB stack: **Adafruit TinyUSB**.
+- Flash: **4MB (no FS)**.
+
+Install the display library through Arduino CLI if needed:
+
+```powershell
+arduino-cli lib install "Adafruit DVI HSTX@2.1.0"
+```
+
+From the ZXTeensyIF1 repository root:
+
+```powershell
+& "C:\Program Files\Arduino IDE\resources\app\lib\backend\resources\arduino-cli.exe" compile --clean `
+  --fqbn "rp2040:rp2040:rpipico2:arch=arm,freq=150,usbstack=tinyusb,flash=4194304_0" `
+  --build-path "build/Pico2Hdmi" `
+  "Pico2Hdmi"
+```
+
+The flashable artifact is `build/Pico2Hdmi/Pico2Hdmi.ino.uf2`.
+
+Adafruit DVI HSTX 2.1.0 emits a default-pinout warning while compiling its own
+source even though this sketch explicitly uses `ADAFRUIT_HSTXDVIBELL_CFG`. The
+warning does not affect the selected Cowbell mapping or the build.
+
 ## USB command protocol
 
-USB CDC is a byte stream. The experimental Teensy sender always transmits a
-complete 64-byte packet. After its commands and incremental runs, one
-`FF FF 00 00` header terminates the useful packet contents. The Pico discards
-that header and every remaining filler byte; when fewer than four bytes remain,
-it discards those bytes directly. Audio-bearing no-ops have a nonzero extension
-byte and do not terminate the packet. The Pico waits for all 64 bytes before
-parsing a packet. Every message begins with:
+USB CDC is a byte stream. The Teensy always transmits a complete 64-byte packet,
+and the Pico waits for all 64 bytes before parsing it.
+
+### Packet format
+
+Every 64 byte message begins with:
 
 | Byte | Meaning |
 | --- | --- |
@@ -30,7 +82,35 @@ data    = byte2
 flags   = byte3
 ```
 
-The extension bits are:
+Multiple messages exist in a packet, until terminated by one `FF FF 00 00` header
+(see below).
+
+### Encoded address format
+
+The address is not a direct ZX Spectrum bus address, but is translated into:
+
+| Encoded address | Size | Meaning |
+| --- | ---: | --- |
+| `0x0000`-`0x1AFF` | `0x1B00` | Screen 0 bitmap and attributes |
+| `0x2000`-`0x3AFF` | `0x1B00` | Screen 0 second Timex display file |
+| `0x7FFD` | 1 | Complete 128K memory-control value; bit 3 selects the screen |
+| `0x8000`-`0x9AFF` | `0x1B00` | Screen 1/shadow bitmap and attributes |
+| `0xA000`-`0xBAFF` | `0x1B00` | Screen 1/shadow second Timex display file |
+| `0xBF3B` | 1 | ULAplus register select |
+| `0xBFFD` | 1 | AY data for the selected register |
+| `0xFC00`-`0xFCFF` | 1 | Raster timestamp metadata; address low byte is timestamp bits 7-0 and data is bits 15-8 |
+| `0xFF3B` | 1 | ULAplus data |
+| `0xFFFA` | 1-60 | Beeper PCM block; data is the following raw sample count, flags must be zero |
+| `0xFFFB` | 1 | Timex video-control port `FF` |
+| `0xFFFC` | 1 | Source-frame marker; data is an 8-bit wrapping frame sequence |
+| `0xFFFD` | 1 | AY register select |
+| `0xFFFE` | 1 | ULA border colour in bits 2-0; EAR/MIC use separate PCM blocks |
+| `0xFFFF`, data `0x00` | 1 | Audio-only packet terminator |
+| `0xFFFF`, data `0xFF` | 1 | Reset notification |
+
+### Status/extension flags
+
+The status/extension bits are:
 
 | Bit | Meaning |
 | ---: | --- |
@@ -48,6 +128,13 @@ With bit 0 set, bytes following the message write to successive addresses. The
 sequence `B6 E0` ends the run. A data byte of `B6` is escaped as `B6 B6`.
 For example, `10 00 AA 01 FF B6 B6 CC B6 E0` writes `AA FF B6 CC` to addresses
 `0x0010` through `0x0013`. Runs always terminate within their 64-byte packet.
+
+### Packet protocol
+
+After its commands and incremental runs, one `FF FF 00 00` header terminates
+the useful packet contents. The Pico discards that header and every remaining
+filler byte; when fewer than four bytes remain, it discards those bytes directly.
+Audio-bearing no-ops have a nonzero extension byte and do not terminate the packet.
 
 The Teensy sends unsigned 8-bit beeper PCM in blocks. Header `FA FF nn 00`
 is followed by `nn` raw sample bytes (1-60), with no escaping. Every byte value,
@@ -72,25 +159,6 @@ Legacy extension samples remain supported: audio-only headers are
 They are converted to the same weighted PCM range and applied without prefill.
 New PCM-block senders require the updated Pico firmware.
 
-| Encoded address | Size | Meaning |
-| --- | ---: | --- |
-| `0x0000`-`0x1AFF` | `0x1B00` | Screen 0 bitmap and attributes |
-| `0x2000`-`0x3AFF` | `0x1B00` | Screen 0 second Timex display file |
-| `0x7FFD` | 1 | Complete 128K memory-control value; bit 3 selects the screen |
-| `0x8000`-`0x9AFF` | `0x1B00` | Screen 1/shadow bitmap and attributes |
-| `0xA000`-`0xBAFF` | `0x1B00` | Screen 1/shadow second Timex display file |
-| `0xBF3B` | 1 | ULAplus register select |
-| `0xBFFD` | 1 | AY data for the selected register |
-| `0xFC00`-`0xFCFF` | 1 | Raster timestamp metadata; address low byte is timestamp bits 7-0 and data is bits 15-8 |
-| `0xFFFA` | 1-60 | Beeper PCM block; data is the following raw sample count, flags must be zero |
-| `0xFFFB` | 1 | Timex video-control port `FF` |
-| `0xFFFC` | 1 | Source-frame marker; data is an 8-bit wrapping frame sequence |
-| `0xFF3B` | 1 | ULAplus data |
-| `0xFFFD` | 1 | AY register select |
-| `0xFFFE` | 1 | ULA border colour in bits 2-0; EAR/MIC use separate PCM blocks |
-| `0xFFFF`, data `0x00` | 1 | Audio-only no-op |
-| `0xFFFF`, data `0xFF` | 1 | Reset notification |
-
 The reset message is `FF FF FF 00`. It clears all display files and restores
 the ULA, ULAplus, Timex, AY, and beeper state without resetting protocol
 diagnostics or discarding bytes after that message.
@@ -114,34 +182,14 @@ the register port `BF3B` remains write-only. The selected ULAplus mode-group
 sub-register mirrors Timex mode and colour selection, including the bank-7
 extensions from the version 1.1 specification.
 
-Timex port `FF` reads and writes are enabled by default. The **Enable HDMI
-Timex port FF** option appears in **Edit Configuration** and the in-game
-settings only while HDMI CDC is connected. It is saved as
-`hdmiCdcTimexEnabled = 0` or `1`; startup configurations without this key use
-the enabled default. Apply main-menu changes with **Save and Reset**. The
-in-game toggle changes subsequent port accesses immediately; reset clears any
-Timex video mode already selected on the Pico.
-
-Loading an Interface 2, ZXC2, or ZXC3 ROM cartridge temporarily disables port
-`FF` emulation, leaving the saved preference unchanged. Selecting a system
-ROM, loading a Dandanator image, or loading a snapshot retains the current
-setting. Standard Spectrum software can write this otherwise unused port;
-ZX Diagnostics' ULA port-addressing test writes `2` and `7` to it, which switch
-video modes and flash the active screen if Timex port handling is enabled.
-Load the diagnostic ROM as an Interface 2/ZXC2/ZXC3 cartridge, or disable the
-option, for the expected border-only flash. Timex modes through the ULAplus
-mode-group register remain available with the option disabled.
-
 Timex port `FF` modes `0`, `1`, `2`, and `6` select the primary display file,
 second display file, 256x192 hi-colour, and 512x192 hi-res respectively.
 Hi-colour takes each 8x1 attribute byte from the corresponding offset in the
 second display file. Hi-res alternates eight-pixel columns from the two bitmap
 files and uses bits 5-3 for complementary ink/paper colours; with ULAplus on,
-those colours use palette entries 24-31. On configurations with the VTX modem
-enabled, the modem retains ownership of port `FF`; the ULAplus mode-group mirror
-remains available for Timex-mode selection.
+those colours use palette entries 24-31.
 
-## Hardware
+## Hardware details
 
 Adafruit DVI HSTX supplies the PiCowBell mapping as
 `ADAFRUIT_HSTXDVIBELL_CFG`:
@@ -156,10 +204,6 @@ Adafruit DVI HSTX supplies the PiCowBell mapping as
 The HSTX library owns DMA channels 0-2 for video and channel 3 when HDMI audio
 is enabled. HSTX is initialized on Arduino core 1, so its DMA interrupt and
 scanline renderer cannot delay TinyUSB command reception on core 0.
-
-In the intended system, the Spectrum powers the ZXTeensyIF1 and the Teensy's
-USB host connection powers the Pico 2/Cowbell assembly. Check the power
-arrangement before attaching a separate development USB supply.
 
 ## Video and audio path
 
@@ -311,87 +355,16 @@ individual missed boundaries cannot be recovered without edge history.
 `hdmiCdcAudioOverflows` counts samples discarded when the 256-byte transmit ring
 fills. Oldest samples are discarded to bound latency after a long USB stall.
 
-## Building
-
 ### Transport backlog investigation
 
-An experimental Teensy diagnostic build exposed the following HDMI readings in
-**Open Debug**, viewed using the Spectrum's normal video output. These counters
-are not included in the currently committed Teensy firmware:
+Previously had a strange issue where it worked via a USB hub, but was showing screen
+corruption when connected directly. After investigation, it was found that
+USBHost_t36 coalesces completions before refilling its two transmit buffers -
+and this was able to overflow and drop writes.
 
-- **HDMI lost** counts commands rejected because the Teensy capture ring lacked
-  space. It excludes writes made while the Pico was disconnected.
-- **HDMI queue peak** is the highest ring occupancy sampled by the foreground
-  sender, in bytes. The ring's usable capacity is 27,647 bytes. Interrupt-time
-  peaks can be higher than this sampled value; `HDMI lost` records actual loss.
-- **HDMI queued** is bytes accepted by the USB serial driver per second, including
-  beeper audio and packet padding. It is not a USB completion counter.
-- **HDMI send avg/max** are the average and longest 64-byte packet submission
-  times, including foreground services between bytes. The average covers the
-  last sampling interval, approximately one second.
-- **HDMI short writes** counts bytes the USB serial driver did not accept.
+Now, the Teensy selects immediate USB host completion interrupts (`USBCMD.ITC=0`)
+after starting the USB host in `setup()`. The register update masks only the USB
+host interrupt, preserving its enable state and allowing Spectrum GPIO bus
+interrupts throughout. The capture-ring size and 64-byte protocol are unchanged.
 
-Loss, peak and maximum counters persist until the Teensy restarts. The page is
-sampled when opened rather than continuously redrawn. Re-enter it to refresh;
-rates may fall after opening the menu because Spectrum program execution pauses.
-Compare direct USB and hub runs from separate cold starts with the same workload.
-
-The HDMI sender selects immediate USB host completion interrupts (`USBCMD.ITC=0`)
-after starting the USB host in `setup()`. USBHost_t36 otherwise coalesces
-completions before refilling its two transmit buffers. The register update masks
-only the USB host interrupt, preserving its enable state and allowing Spectrum
-GPIO bus interrupts throughout. The capture-ring size and 64-byte protocol are
-unchanged.
-
-Hardware retesting of the reported partial-update corruption gave these results:
-
-| Connection | Lost commands | Queue peak (bytes) | Longest send (us) |
-| --- | ---: | ---: | ---: |
-| Direct USB, before immediate completions | 74,187 | 27,645 | 2,700 |
-| USB hub, before immediate completions | 0 | 3,105 | 2,699 |
-| Direct USB, immediate completions | 0 | 2,820 | 963 |
-
-The direct-USB retest also confirmed that the partial-update corruption had gone.
-The EARSHAVE demo subsequently still lost the display on a direct connection;
-that workload and repeated cold-start reliability remain hardware regression
-cases.
-
-### Firmware build
-
-Prerequisites:
-
-- Arduino CLI or Arduino IDE 2.x.
-- Earle Philhower's Arduino-Pico core 6.3.0.
-- Adafruit DVI HSTX 2.1.0 and its Adafruit GFX dependency.
-- Board: **Raspberry Pi Pico 2**, ARM architecture.
-- CPU Speed menu: **150 MHz**. Adafruit DVI HSTX requires this build setting and
-  configures the runtime clock itself.
-- USB stack: **Adafruit TinyUSB**.
-- Flash: **4MB (no FS)**.
-
-Install the display library through Arduino CLI if needed:
-
-```powershell
-arduino-cli lib install "Adafruit DVI HSTX@2.1.0"
-```
-
-From the ZXTeensyIF1 repository root:
-
-```powershell
-& "C:\Program Files\Arduino IDE\resources\app\lib\backend\resources\arduino-cli.exe" compile --clean `
-  --fqbn "rp2040:rp2040:rpipico2:arch=arm,freq=150,usbstack=tinyusb,flash=4194304_0" `
-  --build-path "build/Pico2Hdmi" `
-  "Pico2Hdmi"
-```
-
-The flashable artifact is `build/Pico2Hdmi/Pico2Hdmi.ino.uf2`.
-
-Adafruit DVI HSTX 2.1.0 emits a default-pinout warning while compiling its own
-source even though this sketch explicitly uses `ADAFRUIT_HSTXDVIBELL_CFG`. The
-warning does not affect the selected Cowbell mapping or the build.
-
-## Upstream
-
-- [Adafruit DVI HSTX](https://github.com/adafruit/Adafruit-DVI-HSTX)
-- [Adafruit PiCowBell HSTX DVI Output guide](https://learn.adafruit.com/adafruit-picowbell-hstx-dvi-output)
-- [fruit-bat/pico-zxspectrum](https://github.com/fruit-bat/pico-zxspectrum)
+The direct-USB retest confirmed that the partial-update corruption had gone.
