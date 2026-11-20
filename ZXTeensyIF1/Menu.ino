@@ -116,6 +116,7 @@ typedef enum {
     SETTING_ACTION_IN_GAME_TOGGLE_IF1,
     SETTING_ACTION_IN_GAME_TOGGLE_PRINTER,
     SETTING_ACTION_TOGGLE_HDMI_TIMEX,
+    SETTING_ACTION_UNLOCK_DRIVES,
     SETTING_ACTION_OPEN_ABOUT = 0xF3,
     SETTING_ACTION_OPEN_DEBUG = 0xF4,
     SETTING_ACTION_OPEN_IN_GAME_SETTINGS = 0xF5,
@@ -136,6 +137,7 @@ DMAMEM cfg_data_t cfgData;
 bool menuConfigChanged = false;
 bool menuHasUpdateFw = false;
 bool menuHasMdrEmu = false;
+bool menuUnlockDrives = false;
 
 // Menu structure
 char* menuPtr;
@@ -331,11 +333,13 @@ inline __attribute__((always_inline)) char* menuInsertSpacer(char* ptr)
 char* menuInsertEject(menu_action_t action, uint32_t index, char* ptr, const char* drive,
     const bool locked, const char* path)
 {
+    const char* icon;
+    const char* name;
     char label[(MENU_STR_LEN + 1)];
     if (path != 0)
     {
         // Parse filename from the full path
-        const char* name = strrchr(path, '/');
+        name = strrchr(path, '/');
         name = ((name != 0) ? (name + 1) : path);
         if (stricmp("/", path) == 0)
         {
@@ -344,28 +348,35 @@ char* menuInsertEject(menu_action_t action, uint32_t index, char* ptr, const cha
         }
         if (locked)
         {
-            // Disk is locked in-use
-            action = MENU_ACTION_SETTING;
-            index = SETTING_ACTION_NO_OP;
-            if (snprintf(label, (MENU_STR_LEN + 1), "  \x17  %s %s",
-                drive, name) >= (MENU_STR_LEN + 1))
+            if (menuUnlockDrives)
             {
-                label[MENU_STR_LEN] = 0;
+                icon = ">>\x16";
+            } else {
+                // Disk is locked in-use
+                action = MENU_ACTION_SETTING;
+                index = SETTING_ACTION_UNLOCK_DRIVES;
+                icon = "[\x17]";
             }
-        } else if (snprintf(label, (MENU_STR_LEN + 1), "  \x16  %s %s",
-            drive, name) >= (MENU_STR_LEN + 1))
-        {
-            label[MENU_STR_LEN] = 0;
+        } else {
+            icon = " \x16 ";
         }
     } else {
         // Drive is empty
         action = MENU_ACTION_SETTING;
-        index = SETTING_ACTION_NO_OP;
-        if (snprintf(label, (MENU_STR_LEN + 1), "  \x17  %s %s",
-            drive, MENU_STRINGS[STRING_EMPTY_FDD]) >= (MENU_STR_LEN + 1))
+        name = MENU_STRINGS[STRING_EMPTY_FDD];
+        if (locked)
         {
-            label[MENU_STR_LEN] = 0;
+            icon = (menuUnlockDrives ? ">>\x17" : "[\x17]");
+        } else {
+            icon = " \x17 ";
         }
+        index = ((locked && !menuUnlockDrives) ? SETTING_ACTION_UNLOCK_DRIVES :
+            SETTING_ACTION_NO_OP);
+    }
+    if (snprintf(label, (MENU_STR_LEN + 1), " %s %s %s",
+        icon, drive, name) >= (MENU_STR_LEN + 1))
+    {
+        label[MENU_STR_LEN] = 0;
     }
     return menuInsertSetting(action, index, ptr, label, false);
 }
@@ -493,7 +504,7 @@ char* menuInsertInGameStatus(char* ptr)
                 page = divMmcState.ramBank;
             }
             if (snprintf(divMmcLabel, (MENU_STR_LEN + 1), " DivMMC: %s %s%d%s",
-                ((divMmcDrive != DIVMMC_NONE) ? "[*]" : "[.]"),
+                ((divMmcDrive != DIVMMC_NONE) ? "[*]" : "[o]"),
                 (isAllRam ? "D" : ""), page,
                 (divMmcState.mapRam ? " MAPRAM" : ""))
                     >= (MENU_STR_LEN + 1))
@@ -516,14 +527,14 @@ char* menuInsertInGameStatus(char* ptr)
         if (dskEnableDriveB)
         {
             if (snprintf(label, (MENU_STR_LEN + 1), " > \x17 %s A: %d B: %d",
-                (dskController.isMotorOn() ? "[*]" : "[.]"),
+                (dskController.isMotorOn() ? "[*]" : "[o]"),
                 dskController.getCurCyl(false), dskController.getCurCyl(true))
                     >= (MENU_STR_LEN + 1))
             {
                 label[MENU_STR_LEN] = 0;
             }
         } else if (snprintf(label, (MENU_STR_LEN + 1), " > \x17 %s A: %d",
-            (dskController.isMotorOn() ? "[*]" : "[.]"), dskController.getCurCyl(false))
+            (dskController.isMotorOn() ? "[*]" : "[o]"), dskController.getCurCyl(false))
                 >= (MENU_STR_LEN + 1))
         {
             label[MENU_STR_LEN] = 0;
@@ -1155,7 +1166,8 @@ char* menuGenerateBrowserMountDsk(char* ptr)
 {
     ptr = menuInsertSetting(MENU_ACTION_BROWSER_CD, BROWSER_PARENT_INDEX,
         ptr, MENU_STRINGS[STRING_CANCEL], 0);
-    if (!dskController.isMotorOn() && (!menuIsInGameMenu() || dskEnabled))
+    if ((menuUnlockDrives || !dskController.isMotorOn()) &&
+        (!menuIsInGameMenu() || dskEnabled))
     {
         ptr = menuInsertSetting(MENU_ACTION_BROWSER_MOUNT_FDA, 0, ptr, MENU_STRINGS[STRING_MOUNT_FDA], 0);
         if (!menuIsInGameMenu() || dskEnableDriveB)
@@ -1170,8 +1182,8 @@ char* menuGenerateBrowserMountHdf(char* ptr)
 {
     ptr = menuInsertSetting(MENU_ACTION_BROWSER_CD, BROWSER_PARENT_INDEX,
         ptr, MENU_STRINGS[STRING_CANCEL], 0);
-    if ((divMmcDrive == DIVMMC_NONE) && (!menuIsInGameMenu() ||
-        (divMmcState.enabled && divMmcState.inGameUnmount)))
+    if ((menuUnlockDrives || (divMmcDrive == DIVMMC_NONE)) &&
+        (!menuIsInGameMenu() || (divMmcState.enabled && divMmcState.inGameUnmount)))
     {
         ptr = menuInsertSetting(MENU_ACTION_BROWSER_MOUNT_SDA, 0, ptr, MENU_STRINGS[STRING_MOUNT_SDA], 0);
         ptr = menuInsertSetting(MENU_ACTION_BROWSER_MOUNT_SDB, 0, ptr, MENU_STRINGS[STRING_MOUNT_SDB], 0);
@@ -1188,7 +1200,8 @@ char* menuGenerateBrowserOpen(char* ptr)
     {
         ptr = menuInsertSetting(MENU_ACTION_BROWSER_LOAD_MDR, 0, ptr, MENU_STRINGS[STRING_LOAD_MDR], 0);
     }
-    if (!dskController.isMotorOn() && (!menuIsInGameMenu() || dskEnabled))
+    if ((menuUnlockDrives || !dskController.isMotorOn()) &&
+        (!menuIsInGameMenu() || dskEnabled))
     {
         ptr = menuInsertSetting(MENU_ACTION_BROWSER_MOUNT_FDA, 0, ptr, MENU_STRINGS[STRING_MOUNT_FDA], 0);
         if (!menuIsInGameMenu() || dskEnableDriveB)
@@ -1196,8 +1209,8 @@ char* menuGenerateBrowserOpen(char* ptr)
             ptr = menuInsertSetting(MENU_ACTION_BROWSER_MOUNT_FDB, 0, ptr, MENU_STRINGS[STRING_MOUNT_FDB], 0);
         }
     }
-    if ((divMmcDrive == DIVMMC_NONE) && (!menuIsInGameMenu() ||
-        (divMmcState.enabled && divMmcState.inGameUnmount)))
+    if ((menuUnlockDrives || (divMmcDrive == DIVMMC_NONE)) &&
+        (!menuIsInGameMenu() || (divMmcState.enabled && divMmcState.inGameUnmount)))
     {
         ptr = menuInsertSetting(MENU_ACTION_BROWSER_MOUNT_SDA, 0, ptr, MENU_STRINGS[STRING_MOUNT_SDA], 0);
         ptr = menuInsertSetting(MENU_ACTION_BROWSER_MOUNT_SDB, 0, ptr, MENU_STRINGS[STRING_MOUNT_SDB], 0);
@@ -2465,6 +2478,7 @@ void menuBeginInGame()
     menuCurrent = MENU_TYPE_IN_GAME;
     menuTopMenu = MENU_TYPE_IN_GAME;
     menuAction = MENU_ACTION_LOAD_ROM;
+    menuUnlockDrives = false;
 
     // Store border colour and bank selection
     menuRamArray[1][MEM_BORDER] = spectrumBorder;
@@ -2478,6 +2492,7 @@ void menuBeginMain()
 {
     // Reset the menu actions
     menuResetAction();
+    menuUnlockDrives = false;
 
     // Clear the machine type
     menuRamArray[0][MEM_MODE] = Z80_MODE_UNKNOWN;
@@ -2633,6 +2648,9 @@ bool menuPerformSelection(uint8_t index)
                 case SETTING_ACTION_TOGGLE_MODEM :
                     modemPresent = !modemPresent;
                     menuConfigChanged = true;
+                    break;
+                case SETTING_ACTION_UNLOCK_DRIVES :
+                    menuUnlockDrives = true;
                     break;
 #ifdef HDMI_CDC_OUTPUT
                 case SETTING_ACTION_TOGGLE_HDMI_TIMEX :

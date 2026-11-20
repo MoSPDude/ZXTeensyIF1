@@ -3405,8 +3405,7 @@ FASTRUN void loop()
                     case MENU_ACTION_BROWSER_MOUNT_SDA :
                     case MENU_ACTION_IN_GAME_MOUNT_SD_SDA :
                     case MENU_ACTION_IN_GAME_UNMOUNT_SDA :
-                        if (divMmcState.enabled && (divMmcDrive == DIVMMC_NONE) &&
-                            beginSdfsSd())
+                        if (divMmcState.enabled && beginSdfsSd())
                         {
                             divMmcHdf.reset(true);
                             divMmcDriveSlot[0] = DIVMMC_NONE;
@@ -3429,8 +3428,7 @@ FASTRUN void loop()
                     case MENU_ACTION_BROWSER_MOUNT_SDB :
                     case MENU_ACTION_IN_GAME_MOUNT_SD_SDB :
                     case MENU_ACTION_IN_GAME_UNMOUNT_SDB :
-                        if (divMmcState.enabled && (divMmcDrive == DIVMMC_NONE) &&
-                            beginSdfsSd())
+                        if (divMmcState.enabled && beginSdfsSd())
                         {
                             divMmcSecondHdf.reset(true);
                             divMmcDriveSlot[1] = DIVMMC_NONE;
@@ -3454,7 +3452,7 @@ FASTRUN void loop()
                     case MENU_ACTION_BROWSER_MOUNT_FDB :
                     case MENU_ACTION_IN_GAME_UNMOUNT_FDA :
                     case MENU_ACTION_IN_GAME_UNMOUNT_FDB :
-                        if (dskEnabled && !dskController.isMotorOn() && beginSdfsSd())
+                        if (dskEnabled && beginSdfsSd())
                         {
                             dskController.insertDisks(menuGetFdcFdaPath(),
                                 menuGetFdcFdbPath());
