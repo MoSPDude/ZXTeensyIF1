@@ -79,6 +79,7 @@ typedef enum {
 typedef enum {
     ICON_TYPE_NONE,
     ICON_TYPE_DSK,
+    ICON_TYPE_USD,
     ICON_TYPE_ZXC2,
     ICON_TYPE_CART,
     ICON_TYPE_Z80,

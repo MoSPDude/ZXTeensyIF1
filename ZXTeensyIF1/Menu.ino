@@ -2,10 +2,11 @@
 #include "StringsZXTeensy.h"
 #include "DefinesZXTeensy.h"
 
-static const uint8_t CHAR_BORDER = 19;
-static const uint8_t CHAR_DIR = 20;
-static const uint8_t CHAR_TICK = 21;
+static const uint8_t CHAR_BORDER = 18;
+static const uint8_t CHAR_DIR = 19;
+static const uint8_t CHAR_TICK = 20;
 // NOTE: The characters below are hard coded values in strings
+static const uint8_t CHAR_USD = 21;
 static const uint8_t CHAR_EJECT = 22;
 static const uint8_t CHAR_DSK = 23;
 static const uint8_t CHAR_ZXC_L = 24;
@@ -199,7 +200,6 @@ menu_action_t menuGetBrowserFileAction(const char* filename,
     bool isDirectory, icon_type_t* icon);
 bool menuSetBrowserExpandedAction(uint32_t fileIndex);
 size_t menuGetSettingTextLength(const char* label);
-size_t menuGetFileIconLength(icon_type_t icon);
 uint8_t menuGetCollapsedBrowserFileMetrics(size_t length, const char* filename,
     size_t* textLength);
 uint8_t menuGetExpandedBrowserFileMetrics(size_t length, const char* filename,
@@ -263,35 +263,37 @@ char* menuInsertLineEnd(char* ptr)
 
 char* menuInsertFileIcon(icon_type_t icon, char* ptr)
 {
-    switch (icon)
+    if (icon != ICON_TYPE_NONE)
     {
-        case ICON_TYPE_DSK :
-            *ptr++ = 9;
-            *ptr++ = ' ';
-            *ptr++ = CHAR_DSK;
-            break;
-        case ICON_TYPE_ZXC2 :
-            *ptr++ = 9;
-            *ptr++ = CHAR_ZXC_L;
-            *ptr++ = CHAR_ZXC_R;
-            break;
-        case ICON_TYPE_CART :
-            *ptr++ = 9;
-            *ptr++ = CHAR_IF2_L;
-            *ptr++ = CHAR_IF2_R;
-            break;
-        case ICON_TYPE_Z80 :
-            *ptr++ = 9;
-            *ptr++ = CHAR_Z80_L;
-            *ptr++ = CHAR_Z80_R;
-            break;
-        case ICON_TYPE_TZX :
-            *ptr++ = 9;
-            *ptr++ = CHAR_TZX_L;
-            *ptr++ = CHAR_TZX_R;
-            break;
-        default :
-            break;
+        // NOTE: Icons can only be 3 characters wide (TAB + 2 glyphs)
+        *ptr++ = 9;
+        switch (icon)
+        {
+            case ICON_TYPE_DSK :
+                *ptr++ = ' ';
+                *ptr++ = CHAR_DSK;
+                break;
+            case ICON_TYPE_USD :
+                *ptr++ = ' ';
+                *ptr++ = CHAR_USD;
+                break;
+            case ICON_TYPE_ZXC2 :
+                *ptr++ = CHAR_ZXC_L;
+                *ptr++ = CHAR_ZXC_R;
+                break;
+            case ICON_TYPE_CART :
+                *ptr++ = CHAR_IF2_L;
+                *ptr++ = CHAR_IF2_R;
+                break;
+            case ICON_TYPE_Z80 :
+                *ptr++ = CHAR_Z80_L;
+                *ptr++ = CHAR_Z80_R;
+                break;
+            default :
+                *ptr++ = CHAR_TZX_L;
+                *ptr++ = CHAR_TZX_R;
+                break;
+        }
     }
     return ptr;
 }
@@ -330,10 +332,10 @@ inline __attribute__((always_inline)) char* menuInsertSpacer(char* ptr)
         ptr, "", 0);
 }
 
-char* menuInsertEject(menu_action_t action, uint32_t index, char* ptr, const char* drive,
-    const bool locked, const char* path)
+char* menuInsertEject(menu_action_t action, uint32_t index, char* ptr, const char driveIcon,
+    const char* drive, const bool locked, const char* path)
 {
-    const char* icon;
+    char icon[4];
     const char* name;
     char label[(MENU_STR_LEN + 1)];
     if (path != 0)
@@ -350,29 +352,45 @@ char* menuInsertEject(menu_action_t action, uint32_t index, char* ptr, const cha
         {
             if (menuUnlockDrives)
             {
-                icon = ">>\x16";
+                icon[0] = ' ';
+                icon[1] = '\x16';
+                icon[2] = '>';
             } else {
                 // Disk is locked in-use
                 action = MENU_ACTION_SETTING;
                 index = SETTING_ACTION_UNLOCK_DRIVES;
-                icon = "[\x17]";
+                icon[0] = '>';
+                icon[1] = driveIcon;
+                icon[2] = ' ';
             }
         } else {
-            icon = " \x16 ";
+            icon[0] = ' ';
+            icon[1] = '\x16';
+            icon[2] = ' ';
         }
     } else {
         // Drive is empty
         action = MENU_ACTION_SETTING;
         name = MENU_STRINGS[STRING_EMPTY_FDD];
+        icon[1] = driveIcon;
         if (locked)
         {
-            icon = (menuUnlockDrives ? ">>\x17" : "[\x17]");
+            if (menuUnlockDrives)
+            {
+                icon[0] = ' ';
+                icon[2] = '>';
+            } else {
+                icon[0] = '>';
+                icon[2] = ' ';
+            }
         } else {
-            icon = " \x17 ";
+            icon[0] = ' ';
+            icon[2] = ' ';
         }
         index = ((locked && !menuUnlockDrives) ? SETTING_ACTION_UNLOCK_DRIVES :
             SETTING_ACTION_NO_OP);
     }
+    icon[3] = 0;
     if (snprintf(label, (MENU_STR_LEN + 1), " %s %s %s",
         icon, drive, name) >= (MENU_STR_LEN + 1))
     {
@@ -503,7 +521,7 @@ char* menuInsertInGameStatus(char* ptr)
                 isAllRam = false;
                 page = divMmcState.ramBank;
             }
-            if (snprintf(divMmcLabel, (MENU_STR_LEN + 1), " DivMMC: %s %s%d%s",
+            if (snprintf(divMmcLabel, (MENU_STR_LEN + 1), " \x15 %s %s%d%s",
                 ((divMmcDrive != DIVMMC_NONE) ? "[*]" : "[o]"),
                 (isAllRam ? "D" : ""), page,
                 (divMmcState.mapRam ? " MAPRAM" : ""))
@@ -765,7 +783,7 @@ menu_action_t menuGetBrowserFileAction(const char* filename, bool isDirectory,
             ((stricmp(fileext + 1, "img") == 0) ||
                 (stricmp(fileext + 1, "hdf") == 0)))
         {
-            *icon = ICON_TYPE_DSK;
+            *icon = ICON_TYPE_USD;
             action = MENU_ACTION_BROWSER_OPEN_HDF;
         } else if (stricmp(fileext + 1, "dsk") == 0)
         {
@@ -980,7 +998,7 @@ char* menuGenerateInGame(char* ptr)
                 ptr, MENU_STRINGS[STRING_MOUNT_SD_SDA], 0);
         } else {
             ptr = menuInsertEject(MENU_ACTION_IN_GAME_UNMOUNT_SDA, 0, ptr,
-                "sda", locked, sdaPath);
+                '\x15', "sda", locked, sdaPath);
         }
         if ((sdbPath == 0) && ((sdaPath == 0) || (stricmp("/", sdaPath) != 0)))
         {
@@ -988,18 +1006,18 @@ char* menuGenerateInGame(char* ptr)
                 ptr, MENU_STRINGS[STRING_MOUNT_SD_SDB], 0);
         } else {
             ptr = menuInsertEject(MENU_ACTION_IN_GAME_UNMOUNT_SDB, 0, ptr,
-                "sdb", locked, sdbPath);
+                '\x15', "sdb", locked, sdbPath);
         }
     }
     if (dskPresent)
     {
         bool locked = dskController.isMotorOn();
         ptr = menuInsertEject(MENU_ACTION_IN_GAME_UNMOUNT_FDA, 0, ptr,
-            "A:", locked, menuGetFdcFdaPath());
+            '\x17', "A:", locked, menuGetFdcFdaPath());
         if (dskEnableDriveB)
         {
             ptr = menuInsertEject(MENU_ACTION_IN_GAME_UNMOUNT_FDB, 0, ptr,
-                "B:", locked, menuGetFdcFdbPath());
+                '\x17', "B:", locked, menuGetFdcFdbPath());
         }
     }
 
@@ -1520,21 +1538,6 @@ uint8_t menuGetExpandedBrowserFileMetrics(size_t length, const char* filename,
     return lines;
 }
 
-size_t menuGetFileIconLength(icon_type_t icon)
-{
-    switch (icon)
-    {
-        case ICON_TYPE_DSK :
-        case ICON_TYPE_ZXC2 :
-        case ICON_TYPE_CART :
-        case ICON_TYPE_Z80 :
-        case ICON_TYPE_TZX :
-            return 3;
-        default :
-            return 0;
-    }
-}
-
 bool menuGetBrowserFileMetrics(FsFile& directory,
     const browser_sort_entry_t* browserEntry, char* displayName,
     bool allowExpanded, size_t* textLength, uint8_t* entryCount)
@@ -1550,7 +1553,7 @@ bool menuGetBrowserFileMetrics(FsFile& directory,
             icon_type_t icon;
             menuGetBrowserFileAction(displayName, browserEntry->isDirectory,
                 &icon);
-            size_t length = menuGetFileIconLength(icon);
+            size_t length = ((icon != ICON_TYPE_NONE) ? 3 : 0);
             if (allowExpanded &&
                 (menuBrowserExpandedIndex == browserEntry->dirIndex))
             {
@@ -2051,7 +2054,7 @@ char* menuGenerateSettings(char* ptr)
                 if (tmpFile)
                 {
                     ptr = menuInsertEject(MENU_ACTION_SETTING, SETTING_ACTION_UNMOUNT_SDA,
-                        ptr, "sda", false, tmpPath);
+                        ptr, '\x15', "sda", false, tmpPath);
                     tmpFile.close();
                 } else {
                     cfgData.divMmcSdaPath[0] = 0;
@@ -2060,7 +2063,7 @@ char* menuGenerateSettings(char* ptr)
                 ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_DIVMMC_LOCK_SD,
                     ptr, MENU_STRINGS[STRING_DIVMMC_LOCK_SD], divMmcState.sdReadOnly);
                 ptr = menuInsertEject(MENU_ACTION_SETTING, SETTING_ACTION_UNMOUNT_SDA,
-                    ptr, "sda", false, MENU_STRINGS[STRING_SD_CARD]);
+                    ptr, '\x15', "sda", false, MENU_STRINGS[STRING_SD_CARD]);
                 isSdSda = true;
             }
         }
@@ -2078,7 +2081,7 @@ char* menuGenerateSettings(char* ptr)
                 if (tmpFile)
                 {
                     ptr = menuInsertEject(MENU_ACTION_SETTING, SETTING_ACTION_UNMOUNT_SDB,
-                        ptr, "sdb", false, tmpPath);
+                        ptr, '\x15', "sdb", false, tmpPath);
                     tmpFile.close();
                 } else {
                     cfgData.divMmcSdbPath[0] = 0;
@@ -2090,7 +2093,7 @@ char* menuGenerateSettings(char* ptr)
                 ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_DIVMMC_LOCK_SD,
                     ptr, MENU_STRINGS[STRING_DIVMMC_LOCK_SD], divMmcState.sdReadOnly);
                 ptr = menuInsertEject(MENU_ACTION_SETTING, SETTING_ACTION_UNMOUNT_SDB,
-                    ptr, "sdb", false, MENU_STRINGS[STRING_SD_CARD]);
+                    ptr, '\x15', "sdb", false, MENU_STRINGS[STRING_SD_CARD]);
             }
         }
         if (!isSdSda && (menuGetDivMmcSdbPath() == 0))
@@ -2106,11 +2109,11 @@ char* menuGenerateSettings(char* ptr)
         ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_FDC_FDB,
             ptr, MENU_STRINGS[STRING_ENABLE_FDC_FDB], dskEnableDriveB);
         ptr = menuInsertEject(MENU_ACTION_SETTING, SETTING_ACTION_UNMOUNT_FDA, ptr,
-            "A:", false, menuGetFdcFdaPath());
+            '\x17', "A:", false, menuGetFdcFdaPath());
         if (dskEnableDriveB)
         {
             ptr = menuInsertEject(MENU_ACTION_SETTING, SETTING_ACTION_UNMOUNT_FDB,
-                ptr, "B:", false, menuGetFdcFdbPath());
+                ptr, '\x17', "B:", false, menuGetFdcFdbPath());
         }
     }
     if ((romArrayPresent & BANK_IF1) != 0)

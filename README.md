@@ -285,6 +285,10 @@ Z80 BBC BASIC for the ZX Spectrum can be downloaded from https://mdfs.net/Softwa
 Use the 32K combined BBC BASIC and ZX BASIC ROM - placing it in the ROMS folder, and
 selecting it as the system ROM.
 
+I have been using BOW Commander v1.6 from https://shrek128.itch.io/bow-commander
+to copy files from the real SD card to the HDF image - mount the SD card as DivMMC
+sda, mount the HDF image as DivMMC sdb, boot Esxdos from the SD card, and load BOW.TAP.
+
 ## Building the firmware
 
 * Setup the Arduino IDE 2.3.6 for the Teensy 4.1
