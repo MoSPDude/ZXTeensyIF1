@@ -134,7 +134,7 @@ typedef enum {
 } settings_menu_action_t;
 
 // Configuration data
-DMAMEM cfg_data_t cfgData;
+cfg_data_t cfgData;
 bool menuConfigChanged = false;
 bool menuHasUpdateFw = false;
 bool menuHasMdrEmu = false;
@@ -1953,9 +1953,7 @@ char* menuGenerateBrowserExpand(char* ptr)
 
 char* menuGenerateLoadRom(char* ptr)
 {
-    browser_sort_entry_t romSortEntries[BROWSER_ENTRY_LIMIT];
     char romDisplayName[MAX_PATH];
-
     ptr = menuInsertSetting(MENU_ACTION_TOP_MENU, 0, ptr, MENU_STRINGS[STRING_CANCEL], 0);
     ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_INTERNAL_ROM,
         ptr, MENU_STRINGS[STRING_INTERNAL_ROM], (cfgData.romName[0] == 0));
@@ -1972,7 +1970,7 @@ char* menuGenerateLoadRom(char* ptr)
                 {
                     if (!entry.isDirectory())
                     {
-                        browser_sort_entry_t* romEntry = &(romSortEntries[count]);
+                        browser_sort_entry_t* romEntry = &(browserSortEntries[count]);
                         if (menuSetFileSortEntry(romEntry, &entry,
                             romDisplayName))
                         {
@@ -1986,10 +1984,10 @@ char* menuGenerateLoadRom(char* ptr)
                 }
             }
 
-            menuSortBrowserFiles(romSortEntries, count);
+            menuSortBrowserFiles(browserSortEntries, count);
             for (uint8_t index = 0; index < count; ++index)
             {
-                const browser_sort_entry_t* romEntry = &(romSortEntries[index]);
+                const browser_sort_entry_t* romEntry = &(browserSortEntries[index]);
                 FsFile entry;
                 if (entry.open(&romDirectory, romEntry->dirIndex, O_RDONLY))
                 {
@@ -2217,7 +2215,6 @@ char* menuGenerateSettings(char* ptr)
 
 char* menuGenerateConfigurations(char* ptr)
 {
-    browser_sort_entry_t cfgSortEntries[BROWSER_ENTRY_LIMIT];
     char cfgDisplayName[MAX_PATH];
     ptr = menuInsertSetting(MENU_ACTION_TOP_MENU, 0, ptr, MENU_STRINGS[STRING_CANCEL], 0);
 
@@ -2236,7 +2233,7 @@ char* menuGenerateConfigurations(char* ptr)
                     if (!entry.isDirectory())
                     {
                         browser_sort_entry_t* cfgEntry =
-                            &(cfgSortEntries[count]);
+                            &(browserSortEntries[count]);
                         if (menuSetFileSortEntry(cfgEntry, &entry,
                             cfgDisplayName))
                         {
@@ -2255,11 +2252,11 @@ char* menuGenerateConfigurations(char* ptr)
                 }
             }
 
-            menuSortBrowserFiles(cfgSortEntries, count);
+            menuSortBrowserFiles(browserSortEntries, count);
             for (uint8_t index = 0; index < count; ++index)
             {
                 const browser_sort_entry_t* cfgEntry =
-                    &(cfgSortEntries[index]);
+                    &(browserSortEntries[index]);
                 FsFile entry;
                 if (entry.open(&cfgDirectory, cfgEntry->dirIndex, O_RDONLY))
                 {

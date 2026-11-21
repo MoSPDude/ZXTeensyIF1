@@ -73,6 +73,20 @@ static void fdd_reset(FLOPPY_DRIVE *fd)
 }
 
 
+/* Eject a DSK - close the image file */
+static void fdd_eject(FLOPPY_DRIVE *fd)
+{
+        DSK_FLOPPY_DRIVE *fdd = (DSK_FLOPPY_DRIVE *)fd;
+
+	if (fdd->fdd_fp)
+    {
+        fdd->fdd_fp->close();
+        delete(fdd->fdd_fp);
+        fdd->fdd_fp = 0;
+    }
+
+	fdd_reset(fd);
+}
 
 /* Return 1 if this drive is ready, else 0
  * Attempts to open the DSK and load its DSK header, and must
@@ -110,7 +124,7 @@ static int fdd_isready(FLOPPY_DRIVE *fd)
 	{
         fdc_dprintf(0, "Could not load DSK file header '%s'",
             fdd->fdd_filename);
-		fdd_reset(fd);
+		fdd_eject(fd);
 		return 0;
 	}
 	if (memcmp("MV - CPC", fdd->fdd_disk_header, 8) &&
@@ -118,7 +132,7 @@ static int fdd_isready(FLOPPY_DRIVE *fd)
 	{
         fdc_dprintf(0, "File '%s' is not in DSK or extended DSK format",
             fdd->fdd_filename);
-		fdd_reset(fd);
+		fdd_eject(fd);
 		return 0;
 	}
 /* File loaded OK. */
@@ -681,22 +695,6 @@ static int fdd_dirty(FLOPPY_DRIVE *fd)
 	return FD_D_CLEAN;
 }
 
-/* Eject a DSK - close the image file */
-static void fdd_eject(FLOPPY_DRIVE *fd)
-{
-        DSK_FLOPPY_DRIVE *fdd = (DSK_FLOPPY_DRIVE *)fd;
-
-	if (fdd->fdd_fp)
-    {
-        fdd->fdd_fp->close();
-        delete(fdd->fdd_fp);
-        fdd->fdd_fp = 0;
-    }
-
-	fdd_reset(fd);
-}
-
-
 static FLOPPY_DRIVE_VTABLE fdv_dsk =
 {
 	fdd_seek_cylinder,
@@ -722,9 +720,6 @@ FDRV_PTR fd_newdsk(void)
 	fd_reset(p);
 	return p;
 }
-
-
-
 
 /* Create a new DSK file. Not necessary for emulation but well worth having */
 fd_err_t fdd_new_dsk(FLOPPY_DRIVE *fd)
