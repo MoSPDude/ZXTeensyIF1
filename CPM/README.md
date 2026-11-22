@@ -41,8 +41,9 @@ checked by hash; the disk filename, whole-disk hash and other files are not
 required to match. Edited profiles, added files and removed utilities are
 accepted. Unrelated files and their contents are preserved.
 
-The patcher reclaims unused EMS allocation blocks before installing
-`DIVMMC.FID`. There must be enough allocation blocks and directory entries
+The patcher deletes the incompatible `RAMDISC.FID` and reclaims unused EMS
+allocation blocks before installing `DIVMMC.FID`. There must be enough allocation
+blocks and directory entries
 for the rebuilt EMS and driver; otherwise it reports an error and creates
 no output disk. An existing user-0 `DIVMMC.FID` is replaced by the built driver.
 
@@ -158,6 +159,11 @@ C:BASIC
 D: and E: work in the same way. The boot disk has little free space, so use
 B: or the IMG partitions for programs and files.
 
+Running a `.SUB` file also needs free space for SUBMIT's temporary file.
+If SUBMIT reports `Disk Write Error`, free space on the temporary drive or,
+when C: is available, run `SETDEF [TEMPORARY=C:]` before submitting the file.
+Automatic `PROFILE.SUB` execution needs working space on A: at startup.
+
 ### Drive B: and changing disks
 
 For a separate B: drive, enable it in the configuration **before booting**:
@@ -263,7 +269,7 @@ The following restrictions apply:
   CRT only, and `CD INFO` reports serial absent.
 - FID support covers disk devices. Character FID hooks/find and arbitrary
   application service exports from private FIDs are unsupported. The supplied
-  original RAMDISC is retained as `RAMDISC.OLD` and is not installed.
+  original `RAMDISC.FID` is deleted from the output disk to reclaim its space.
 - The rearranged memory map does not reproduce direct native `SELBNK 0/2`
   screen access. Applications should use the terminal or `SCR RUN ROUTINE`.
 - The software clock has no RTC synchronisation. Heavy rendering can slow it
@@ -284,11 +290,12 @@ The patcher rebuilds and compresses `S10CPM3.EMS`, releases unused trailing
 allocation blocks, patches the boot sector and adds the assembled `DIVMMC.FID`.
 It renames `PROFILE.SUB` to `PROFILE.OLD` to disable the automatic startup script;
 `--keep-profile` retains that script's automatic execution, including user
-edits. It also renames `RAMDISC.FID` to `RAMDISC.OLD` because that driver consumes
-the private heap and assumes the original +3 memory environment. If a backup
+edits. It deletes `RAMDISC.FID` before allocating the rebuilt EMS and driver,
+freeing its blocks and directory entries. That RAM disk driver consumes the
+private heap and assumes the original +3 memory environment. If a profile backup
 name already exists, the next unused `.001`, `.002`, etc. suffix is used without
-replacing old backups. Both files' contents, all other supplied files, and
-disk/track headers are preserved.
+replacing old backups. The profile's contents, all other supplied files, and
+disk/track headers are preserved, including existing `RAMDISC.OLD` backups.
 
 The boot-sector initialiser enables DivMMC AllRAM and disables automapping
 before the original disk loader writes the EMS into low memory. CP/M then

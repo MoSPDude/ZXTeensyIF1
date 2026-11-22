@@ -16,6 +16,7 @@ from test_patcher import ConsoleHarness
 from test_floppy import Media
 from reference_plus3 import OriginalBios
 from verify_boot import simulator_class, symbols, verify
+from disk import Disk
 
 
 class CompatibilityTests(unittest.TestCase):
@@ -80,6 +81,37 @@ class CompatibilityTests(unittest.TestCase):
                 # Supply a deterministic answer, retaining the real common gate.
                 machine.memory[entry:entry + 3] = [0x3e, ord(response), 0xc9]
         return prompts, observe
+
+    def test_warm_boot_preserves_rsx_entry_and_stack_boundary(self):
+        c = self.console
+        c.machine.memory[0xf9fe:0xfa00] = [6, 0xe6]
+        c.machine.memory[0xff2a] = 0  # FIDs have already been installed
+        result = self.call(0xfa03, stop=0x100)
+        self.assertEqual(c.machine.memory[5:8], [0xc3, 6, 0xe6])
+        self.assertEqual(result[12], 0xe600)
+
+    def test_submit_executes_startup_and_manual_scripts_across_warm_boots(self):
+        script = b'TYPE PROBE.SUB\r\nSETDEF [ORDER=(SUB,COM)]\r\nTYPE PROBE.SUB\r\n\x1a'
+        for startup in (True, False):
+            with self.subTest(startup=startup):
+                disk = Disk(self.image.read_bytes())
+                # Leave space for both nested SUBMIT temporary files.
+                for index, _ in disk.entries('BASIC.COM'):
+                    disk.write(4608 + index * 32, b'\xe5')
+                disk.put_file('PROBE.SUB', script)
+                if startup:
+                    disk.put_file('PROFILE.SUB', b'SUBMIT PROBE\r\n\x1a')
+                image = self.work / ('submit-startup.dsk' if startup else 'submit-manual.dsk')
+                image.write_bytes(disk.data)
+                commands = 'a:setdef.com\r'
+                if not startup:
+                    commands = 'submit probe\r' + commands
+                with contextlib.redirect_stdout(io.StringIO()):
+                    _, text, _ = verify(image, self.dependencies, 20000000, commands)
+                self.assertNotIn('Disk Write Error', text)
+                self.assertEqual(text.count('A>TYPE PROBE.SUB'), 2)
+                self.assertIn('Search Order         - SUB, COM', text)
+                self.assertTrue(text.endswith('A>'))
 
     @staticmethod
     def error(code, zero=True):

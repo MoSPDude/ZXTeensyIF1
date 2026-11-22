@@ -337,13 +337,13 @@ def patch_disk(data, assembler, work, keep_profile=False):
     validate_boot(boot)
     original = disk.read_file(EMS_NAME)
     patched, report = make_ems(original, assembler, work)
+    # The original RAM disk needs the +3 memory map and consumes the FID heap.
+    # Release its blocks and directory entries before allocating our files.
+    report["ramdisc_deleted"] = disk.delete_file("RAMDISC.FID")
     disk.put_file(EMS_NAME, patched)
     fid = make_fid(assembler, work)
     disk.put_file("DIVMMC.FID", fid)
     report["fid_bytes"] = len(fid)
-    # The supplied RAMDISC assumes the original +3 memory environment and
-    # consumes the entire FID heap. Retain its bytes, but don't auto-install it.
-    report["ramdisc_backup"] = disable_file(disk, "RAMDISC.FID")
     disk.write(0, patch_boot(boot, assembler, work))
     # Disable automatic startup without changing the profile's contents.
     # --keep-profile leaves a user's script active.
@@ -399,8 +399,8 @@ def main(argv=None):
         print("DSK SHA256: " + report["output_dsk_sha256"])
         if report["profile_renamed"]:
             print("Retained PROFILE.SUB as %s (automatic startup script is disabled)." % report["profile_backup"])
-        if report["ramdisc_backup"]:
-            print("Retained RAMDISC.FID as %s (original RAM disk driver is disabled)." % report["ramdisc_backup"])
+        if report["ramdisc_deleted"]:
+            print("Deleted RAMDISC.FID (reclaimed the original RAM disk driver's space).")
         print("Generated DSK/EMS files contain the original non-distributable software. Keep them local.")
         return 0
     except (OSError, ValueError, DiskError) as error:

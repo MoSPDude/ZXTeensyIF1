@@ -160,6 +160,13 @@ class Disk:
             entry[1:12] = encoded
             self.write(4608 + index * 32, entry)
 
+    def delete_file(self, name):
+        """Release a user-0 file's directory entries and allocation blocks."""
+        entries = self.entries(name)
+        for index, _ in entries:
+            self.write(4608 + index * 32, b"\xe5" * 32)
+        return bool(entries)
+
     def put_file(self, name, data):
         """Allocate a file, releasing surplus old blocks without touching others."""
         old = self.entries(name)

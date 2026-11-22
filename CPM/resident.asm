@@ -110,14 +110,15 @@ warm_boot:
     LD (5),A
     LD HL,$FA03
     LD (1),HL
-    LD HL,$F406
+    LD HL,($F9FE)                 ; SCB BDOS/RSX head, including SUBMIT's input handler
     LD (6),HL
     LD BC,$0080
     CALL set_dma
     XOR A
     LD (4),A
     LD C,A
-    LD SP,BDOS_BASE
+    LD L,0                        ; stack below resident extensions, as on the +3
+    LD SP,HL
     EI
     LD A,(BOOT_FIDS)
     OR A

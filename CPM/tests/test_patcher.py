@@ -268,6 +268,22 @@ class DiskTests(unittest.TestCase):
         self.assertEqual(disk.data, before)
         self.assertEqual(Disk(disk.data).read_file("FULL.DAT"), contents)
 
+    def test_delete_file_releases_all_extents_blocks_and_directory_entries(self):
+        disk = Disk(synthetic_disk())
+        payload = b"R" * (17 * 1024)
+        disk.put_file("RAMDISC.FID", payload)
+        disk.put_file("KEEP.DAT", b"Kept".ljust(1024, b"\0"))
+        entries = disk.entries("RAMDISC.FID")
+        self.assertEqual(len(entries), 2)
+        self.assertTrue(disk.delete_file("RAMDISC.FID"))
+        self.assertFalse(disk.delete_file("RAMDISC.FID"))
+        disk = Disk(disk.data)
+        self.assertFalse(disk.entries("RAMDISC.FID"))
+        disk.put_file("NEW.DAT", payload)
+        self.assertEqual([(index, entry[12:]) for index, entry in disk.entries("NEW.DAT")],
+                         [(index, entry[12:]) for index, entry in entries])
+        self.assertEqual(disk.read_file("KEEP.DAT"), b"Kept".ljust(1024, b"\0"))
+
 
 @unittest.skipUnless(patch_ems.DEFAULT_INPUT.exists() and shutil.which("sjasmplus"),
                      "Requires the user's local disk and sjasmplus")
@@ -318,6 +334,10 @@ class LocalDiskTests(unittest.TestCase):
                 self.assertEqual(result.read_file("USER.DAT"), extra)
                 self.assertEqual(result.read_file("PROFILE.SUB" if keep_profile else "PROFILE.OLD"), profile)
                 self.assertEqual(report["profile_renamed"], not keep_profile)
+                self.assertTrue(report["ramdisc_deleted"])
+                self.assertFalse(result.entries("RAMDISC.FID"))
+                occupied = {b for _, entry in result.directory() for b in entry[16:] if b}
+                self.assertLess(len(occupied), 173)  # leave working space for SUBMIT
                 self.assertEqual(result.read_file("DIVMMC.FID")[:report["fid_bytes"]],
                                  (self.work / "DIVMMC.FID").read_bytes())
                 for name in ("BASIC.COM", "RESET.KEY", "RPED.BAS"):
@@ -335,12 +355,13 @@ class LocalDiskTests(unittest.TestCase):
         result = Disk(patched)
         self.assertEqual(disk.data, original)
         self.assertEqual(report["profile_backup"], "PROFILE.002")
-        self.assertEqual(report["ramdisc_backup"], "RAMDISC.002")
+        self.assertTrue(report["ramdisc_deleted"])
+        self.assertFalse(result.entries("RAMDISC.002"))
         for name in backups:
             self.assertEqual(result.read_file(name), disk.read_file(name))
-        for name in ("PROFILE.SUB", "RAMDISC.FID"):
-            self.assertFalse(result.entries(name))
-            self.assertEqual(result.read_file(name.partition(".")[0] + ".002"), disk.read_file(name))
+        self.assertFalse(result.entries("PROFILE.SUB"))
+        self.assertFalse(result.entries("RAMDISC.FID"))
+        self.assertEqual(result.read_file("PROFILE.002"), disk.read_file("PROFILE.SUB"))
 
     def test_missing_optional_files_and_removed_utilities_are_accepted(self):
         disk = Disk(self.original)
@@ -350,7 +371,7 @@ class LocalDiskTests(unittest.TestCase):
         patched, report = patch_ems.patch_disk(bytes(disk.data), shutil.which("sjasmplus"), self.work)
         result = Disk(patched)
         self.assertIsNone(report["profile_backup"])
-        self.assertIsNone(report["ramdisc_backup"])
+        self.assertFalse(report["ramdisc_deleted"])
         self.assertFalse(report["profile_renamed"])
         for name in ("PROFILE.SUB", "RAMDISC.FID", "BASIC.COM"):
             self.assertFalse(result.entries(name))
@@ -365,6 +386,7 @@ class LocalDiskTests(unittest.TestCase):
 
     def test_no_directory_space_creates_no_output(self):
         disk = Disk(self.original)
+        disk.delete_file("RAMDISC.FID")
         for index in range(64):
             if disk.read(4608 + index * 32, 1) == b"\xe5":
                 entry = bytearray(32)
@@ -382,6 +404,23 @@ class LocalDiskTests(unittest.TestCase):
             self.assertIn(b"Insufficient free disk space or directory entries", result.stdout)
             self.assertFalse(output.exists())
             self.assertEqual(source.read_bytes(), original)
+
+    def test_ramdisc_directory_slot_is_reused_on_full_directory(self):
+        disk = Disk(self.original)
+        for index in range(64):
+            if disk.read(4608 + index * 32, 1) == b"\xe5":
+                entry = bytearray(32)
+                entry[1:12] = ("EMPTY%03dTXT" % index).encode("ascii")
+                disk.write(4608 + index * 32, entry)
+        original = bytes(disk.data)
+        self.assertEqual(len(list(disk.directory())), 64)
+        patched, report = patch_ems.patch_disk(original, shutil.which("sjasmplus"), self.work)
+        result = Disk(patched)
+        self.assertTrue(report["ramdisc_deleted"])
+        self.assertFalse(result.entries("RAMDISC.FID"))
+        self.assertEqual([index for index, _ in result.entries("DIVMMC.FID")],
+                         [index for index, _ in disk.entries("RAMDISC.FID")])
+        self.assertEqual(disk.data, original)
 
     def test_inspect_validates_boot_sector_as_well_as_ems(self):
         disk = Disk(self.original)
@@ -416,9 +455,11 @@ class LocalDiskTests(unittest.TestCase):
         self.assertFalse(changed - allowed)
         names = {(bytes(c & 127 for c in e[1:9]).decode().rstrip() + "." +
                   bytes(c & 127 for c in e[9:12]).decode().rstrip()) for _, e in original.directory()}
-        for name in names - {patch_ems.EMS_NAME}:
-            target = {"PROFILE.SUB": "PROFILE.OLD", "RAMDISC.FID": "RAMDISC.OLD"}.get(name, name)
+        for name in names - {patch_ems.EMS_NAME, "RAMDISC.FID"}:
+            target = {"PROFILE.SUB": "PROFILE.OLD"}.get(name, name)
             self.assertEqual(original.read_file(name), patched.read_file(target), name)
+        self.assertFalse(patched.entries("RAMDISC.FID"))
+        self.assertFalse(patched.entries("RAMDISC.OLD"))
         self.assertLess(len(patched.read_file(patch_ems.EMS_NAME)), 32640)
         Disk(patched.data)  # validate the new allocation lists for cross-links
 
