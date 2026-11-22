@@ -2493,6 +2493,7 @@ void menuBeginMain()
     // Reset the menu actions
     menuResetAction();
     menuUnlockDrives = false;
+    strncpy(menuBrowserPath, "/", MAX_PATH);
 
     // Clear the machine type
     menuRamArray[0][MEM_MODE] = Z80_MODE_UNKNOWN;
@@ -2772,7 +2773,7 @@ bool menuPerformSelection(uint8_t index)
                     break;
                 case SETTING_ACTION_OPEN_BROWSER :
                     // Start file browser
-                    strncpy(menuBrowserPath, "/", MAX_PATH);
+                    menuStartBrowser();
                     menuResetBrowserPage();
                     menuCurrent = MENU_TYPE_BROWSER;
                     break;
@@ -2889,7 +2890,7 @@ bool menuPerformSelection(uint8_t index)
             menuCurrent = MENU_TYPE_BROWSER;
             break;
         case MENU_ACTION_BROWSER_CD :
-            if (updateBrowserPath(entryIndex))
+            if (menuUpdateBrowserPath(entryIndex))
             {
                 menuCurrent = MENU_TYPE_BROWSER;
             } else {
@@ -2897,7 +2898,7 @@ bool menuPerformSelection(uint8_t index)
             }
             break;
         case MENU_ACTION_BROWSER_OPEN :
-            if (updateBrowserPath(entryIndex))
+            if (menuUpdateBrowserPath(entryIndex))
             {
                 menuCurrent = MENU_TYPE_BROWSER_OPEN;
             } else {
@@ -2905,7 +2906,7 @@ bool menuPerformSelection(uint8_t index)
             }
             break;
         case MENU_ACTION_BROWSER_OPEN_ROM :
-            if (updateBrowserPath(entryIndex))
+            if (menuUpdateBrowserPath(entryIndex))
             {
                 menuCurrent = MENU_TYPE_BROWSER_OPEN_ROM;
             } else {
@@ -2913,7 +2914,7 @@ bool menuPerformSelection(uint8_t index)
             }
             break;
         case MENU_ACTION_BROWSER_OPEN_HDF :
-            if (updateBrowserPath(entryIndex))
+            if (menuUpdateBrowserPath(entryIndex))
             {
                 menuCurrent = MENU_TYPE_BROWSER_MOUNT_HDF;
             } else {
@@ -2921,7 +2922,7 @@ bool menuPerformSelection(uint8_t index)
             }
             break;
         case MENU_ACTION_BROWSER_OPEN_DSK :
-            if (updateBrowserPath(entryIndex))
+            if (menuUpdateBrowserPath(entryIndex))
             {
                 menuCurrent = MENU_TYPE_BROWSER_MOUNT_DSK;
             } else {
@@ -2929,13 +2930,13 @@ bool menuPerformSelection(uint8_t index)
             }
             break;
         case MENU_ACTION_BROWSER_OPEN_POK :
-            if (updateBrowserPath(entryIndex))
+            if (menuUpdateBrowserPath(entryIndex))
             {
                 if (pokeOpenFile(menuBrowserPath))
                 {
                     menuCurrent = MENU_TYPE_POK_BROWSER;
                 } else {
-                    updateBrowserPath(BROWSER_PARENT_INDEX);
+                    menuUpdateBrowserPath(BROWSER_PARENT_INDEX);
                     menuCurrent = MENU_TYPE_BROWSER;
                 }
             } else {
@@ -2945,7 +2946,7 @@ bool menuPerformSelection(uint8_t index)
         case MENU_ACTION_BROWSER_LOAD_Z80 :
         case MENU_ACTION_BROWSER_LOAD_MDR :
             if ((menuCurrent == MENU_TYPE_BROWSER_OPEN) ||
-                updateBrowserPath(entryIndex))
+                menuUpdateBrowserPath(entryIndex))
             {
                 return true;
             } else {
@@ -2954,7 +2955,7 @@ bool menuPerformSelection(uint8_t index)
             break;
         case MENU_ACTION_BROWSER_LOAD_TZX :
             if ((menuCurrent == MENU_TYPE_BROWSER_OPEN) ||
-                updateBrowserPath(entryIndex))
+                menuUpdateBrowserPath(entryIndex))
             {
                 strncpy(cfgData.tapeFileName, menuBrowserPath, MAX_PATH);
                 cfgData.tapeFileName[(MAX_PATH - 1)] = 0;
@@ -2975,7 +2976,7 @@ bool menuPerformSelection(uint8_t index)
         case MENU_ACTION_BROWSER_LOAD_MLD :
             if ((menuCurrent == MENU_TYPE_BROWSER_OPEN) ||
                 (menuCurrent == MENU_TYPE_BROWSER_OPEN_ROM) ||
-                updateBrowserPath(entryIndex))
+                menuUpdateBrowserPath(entryIndex))
             {
                 return true;
             } else {
@@ -2985,7 +2986,7 @@ bool menuPerformSelection(uint8_t index)
         case MENU_ACTION_BROWSER_LOAD_MF128 :
             if ((menuCurrent == MENU_TYPE_BROWSER_OPEN) ||
                 (menuCurrent == MENU_TYPE_BROWSER_OPEN_ROM) ||
-                updateBrowserPath(entryIndex))
+                menuUpdateBrowserPath(entryIndex))
             {
                 menuCurrent = menuTopMenu;
                 return false;
@@ -2997,7 +2998,7 @@ bool menuPerformSelection(uint8_t index)
         case MENU_ACTION_BROWSER_MOUNT_SDB :
             if ((menuCurrent == MENU_TYPE_BROWSER_OPEN) ||
                 (menuCurrent == MENU_TYPE_BROWSER_MOUNT_HDF) ||
-                updateBrowserPath(entryIndex))
+                menuUpdateBrowserPath(entryIndex))
             {
                 strncpy(((menuAction == MENU_ACTION_BROWSER_MOUNT_SDB) ?
                     cfgData.divMmcSdbPath : cfgData.divMmcSdaPath),
@@ -3017,7 +3018,7 @@ bool menuPerformSelection(uint8_t index)
         case MENU_ACTION_BROWSER_MOUNT_FDB :
             if ((menuCurrent == MENU_TYPE_BROWSER_OPEN) ||
                 (menuCurrent == MENU_TYPE_BROWSER_MOUNT_DSK) ||
-                updateBrowserPath(entryIndex))
+                menuUpdateBrowserPath(entryIndex))
             {
                 strncpy(((menuAction == MENU_ACTION_BROWSER_MOUNT_FDB) ?
                     cfgData.dskFdbPath : cfgData.dskFdaPath),
@@ -3262,7 +3263,29 @@ void menuUpdateCfgFileName(uint32_t fileIndex)
     menuUpdateFileName(fileIndex, "/ZXTEENSY/CONFIGS");
 }
 
-bool updateBrowserPath(uint32_t fileIndex)
+void menuStartBrowser()
+{
+    bool isDirectory = false;
+    FsFile directory = SD.sdfs.open(menuBrowserPath, O_RDONLY);
+    if (directory)
+    {
+        isDirectory = directory.isDirectory();
+        directory.close();
+    }
+    if (!isDirectory)
+    {
+        char *fileext = strrchr(menuBrowserPath, '/');
+        if ((fileext != 0) && (fileext != menuBrowserPath))
+        {
+            // Remove last directory
+            *fileext = 0;
+        } else {
+            strncpy(menuBrowserPath, "/", MAX_PATH);
+        }
+    }
+}
+
+bool menuUpdateBrowserPath(uint32_t fileIndex)
 {
     bool resetBrowserStartIndex = false;
     FsFile directory = SD.sdfs.open(menuBrowserPath, O_RDONLY);
