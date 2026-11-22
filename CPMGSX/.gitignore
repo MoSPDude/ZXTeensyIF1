@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+*.dsk
+*.DSK
+*.prl
+*.PRL
+*.bin
+*.raw

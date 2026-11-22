@@ -583,7 +583,7 @@ The harness is a functional CPU/sector model. It does not model Teensy bus
 or SD/FDC timing cycle by cycle; automated coverage complements the hardware
 confirmation.
 
-### References
+## References
 
 [CP/M Plus on the +3](https://k1.spdns.de/Vintage/Sinclair/86/ZX%20Spectrum%2B3/ZX%20Spectrum%2B3%20CP:M%20Manual/appendix6.html),
 [terminal escape sequences](https://k1.spdns.de/Vintage/Sinclair/86/ZX%20Spectrum%2B3/ZX%20Spectrum%2B3%20CP:M%20Manual/appendix3.html),
