@@ -18,6 +18,7 @@ MEM_NMI     EQU MEM_ORG + 0x0066
 MEM_LTBL    EQU MEM_ORG + 0x1000 ; lookup table MEM_LTBLP-512
 MEM_LTBLP   EQU MEM_LTBL + 0x200 ; lookup table start
 MEM_OFFSET  EQU MEM_LTBLP - 12;
+MEM_TXTHDR  EQU MEM_OFFSET - 37;
 
 MEM_SP      EQU MEM_ORG + 0x3FF6  ; stack pointer start
 MEM_MODE    EQU MEM_ORG + 0x3FF8  ; detected state mode: 0=48K, 1=128K, 2=unknown
@@ -171,6 +172,11 @@ _sliderData:
 ; Show all the text (variable width)
 ; ------------------------------------------+----------------------------------
 _menuTxt:
+    ld de,MEM_SCR+32    ; start of text on screen
+    exx                 ; alt
+    ld de,MEM_TXTHDR    ; get text start
+    call _pltText       ; plot the text
+    exx                 ; norm
     ld de,MEM_SCR+64    ; start of text on screen
     exx                 ; alt
     ld de,(MEM_TXT)     ; get text start
@@ -895,7 +901,7 @@ _shiftedFontData:
     DEFB      0,  0, 68, 68, 68, 60,  4, 56
     DEFB      0,  0,124,  8, 16, 32,124,  0
     DEFB      0, 28, 16, 96, 16, 16, 28,  0
-    DEFB      0, 64, 64, 64, 64, 64, 64,  0
+    DEFB    128,128,128,128,128,128,128,128    ; 124 - narrow left border
     DEFB      0,112, 16, 12, 16, 16,112,  0
     DEFB      0, 40, 80,  0,  0,  0,  0,  0
     DEFB     28, 34, 93, 81, 93, 34, 28,  0    ; 127 - copyright
@@ -1187,6 +1193,9 @@ _nmiMenuExitDI :
     ; page out with interrupts disabled
     jp (_nmiMenuPageOut + 1)
 _codeend:
+
+    org MEM_TXTHDR
+    defb "|Main Menu",0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
     org MEM_OFFSET
     jp (_gapLengthData)
     jp (_verText)

@@ -18,6 +18,7 @@ static const uint8_t CHAR_Z80_R = 29;
 static const uint8_t CHAR_TZX_L = 30;
 static const uint8_t CHAR_TZX_R = 31;
 
+static const uint16_t MENU_HEADER_TEXT = 0x11CF;
 static const uint16_t MENU_TEXT_WIDTHS = 0x11F5;
 static const uint16_t MENU_VERSION_STR = 0x11F8;
 static const uint16_t MENU_NUM_ENTRIES = 0x11FB;
@@ -144,6 +145,7 @@ bool menuUnlockDrives = false;
 char* menuPtr;
 char* menuTxtPtr;
 char* menuEndPtr;
+char* menuHeaderPtr;
 uint8_t* menuTextWidths;
 uint8_t menuEntries;
 menu_type_t menuCurrent;
@@ -2376,6 +2378,28 @@ char* menuGenerateMain(char* ptr)
     return ptr;
 }
 
+inline void menuGenerateHeader(const char* label)
+{
+    menuHeaderPtr[0] = '|';
+    strncpy(&(menuHeaderPtr[1]), label, (MENU_STR_LEN - 1));
+    menuHeaderPtr[(MENU_STR_LEN - 1)] = 0;
+}
+
+void menuGenerateBrowserHeader()
+{
+    menuHeaderPtr[0] = '|';
+    size_t len = strlen(menuBrowserPath);
+    if (len > MENU_TXT_LEN)
+    {
+        menuHeaderPtr[1] = '<';
+        strncpy(&(menuHeaderPtr[2]), &(menuBrowserPath[(len - (MENU_TXT_LEN - 1))]),
+            (MENU_TXT_LEN - 1));
+    } else {
+        strncpy(&(menuHeaderPtr[1]), menuBrowserPath, (MENU_STR_LEN - 1));
+    }
+    menuHeaderPtr[(MENU_STR_LEN - 1)] = 0;
+}
+
 void menuGenerate()
 {
     // Reset the menu dimensions
@@ -2390,66 +2414,86 @@ void menuGenerate()
     switch (menuCurrent)
     {
         case MENU_TYPE_MAIN :
+            strncpy(menuHeaderPtr, MENU_STRINGS[STRING_HEADER_MAIN], MENU_STR_LEN);
             textPtr = menuGenerateMain(textPtr);
             break;
         case MENU_TYPE_SETTINGS :
+            menuGenerateHeader(MENU_STRINGS[STRING_OPEN_SETTINGS]);
             textPtr = menuGenerateSettings(textPtr);
             break;
         case MENU_TYPE_CONFIGS :
+            menuGenerateHeader(MENU_STRINGS[STRING_OPEN_CONFIGS]);
             textPtr = menuGenerateConfigurations(textPtr);
             break;
         case MENU_TYPE_LOAD_ROM :
+            menuGenerateHeader(MENU_STRINGS[STRING_OPEN_ROMS]);
             textPtr = menuGenerateLoadRom(textPtr);
             break;
         case MENU_TYPE_NTP_TZ :
+            strncpy(menuHeaderPtr, MENU_STRINGS[STRING_HEADER_NTP_TZ], MENU_STR_LEN);
             textPtr = menuGenerateNtpTz(textPtr);
             break;
         case MENU_TYPE_BROWSER :
+            menuGenerateBrowserHeader();
             textPtr = menuGenerateBrowser(textPtr);
             break;
         case MENU_TYPE_BROWSER_EXPAND :
+            menuGenerateBrowserHeader();
             textPtr = menuGenerateBrowserExpand(textPtr);
             break;
         case MENU_TYPE_BROWSER_OPEN :
+            menuGenerateBrowserHeader();
             textPtr = menuGenerateBrowserOpen(textPtr);
             break;
         case MENU_TYPE_BROWSER_OPEN_ROM :
+            menuGenerateBrowserHeader();
             textPtr = menuGenerateBrowserOpenRom(textPtr);
             break;
         case MENU_TYPE_BROWSER_MOUNT_HDF :
+            menuGenerateBrowserHeader();
             textPtr = menuGenerateBrowserMountHdf(textPtr);
             break;
         case MENU_TYPE_BROWSER_MOUNT_DSK :
+            menuGenerateBrowserHeader();
             textPtr = menuGenerateBrowserMountDsk(textPtr);
             break;
         case MENU_TYPE_HTTP_SERVER :
+            menuGenerateHeader(MENU_STRINGS[STRING_OPEN_HTTP_SERVER]);
             textPtr = menuGenerateHttpServer(textPtr);
             break;
         case MENU_TYPE_IN_GAME :
+            strncpy(menuHeaderPtr, MENU_STRINGS[STRING_HEADER_IN_GAME], MENU_STR_LEN);
             textPtr = menuGenerateInGame(textPtr);
             break;
         case MENU_TYPE_TAPE_BROWSER :
+            strncpy(menuHeaderPtr, MENU_STRINGS[STRING_HEADER_TAPE_BROWSER], MENU_STR_LEN);
             textPtr = menuGenerateTapeBrowser(textPtr);
             break;
         case MENU_TYPE_POK_BROWSER :
+            menuGenerateBrowserHeader();
             textPtr = menuGeneratePokBrowser(textPtr);
             break;
         case MENU_TYPE_SAVE_STATE_SLOT :
+            menuGenerateHeader(MENU_STRINGS[STRING_OPEN_SAVE_STATE_SLOT]);
             textPtr = menuGenerateSelectStateSlot(textPtr, false);
             break;
         case MENU_TYPE_LOAD_STATE_SLOT :
+            menuGenerateHeader(MENU_STRINGS[STRING_OPEN_LOAD_STATE_SLOT]);
             textPtr = menuGenerateSelectStateSlot(textPtr, true);
             break;
         case MENU_TYPE_PREVIEW_STATE_SLOT :
             textPtr = menuGeneratePreviewStateSlot(textPtr);
             break;
         case MENU_TYPE_IN_GAME_SETTINGS :
+            menuGenerateHeader(MENU_STRINGS[STRING_IN_GAME_SETTINGS]);
             textPtr = menuGenerateInGameSettings(textPtr);
             break;
         case MENU_TYPE_DEBUG :
+            strncpy(menuHeaderPtr, MENU_STRINGS[STRING_HEADER_DEBUG], MENU_STR_LEN);
             textPtr = menuGenerateDebug(textPtr);
             break;
         case MENU_TYPE_ABOUT :
+            menuGenerateHeader(MENU_STRINGS[STRING_OPEN_ABOUT]);
             textPtr = menuGenerateAbout(textPtr);
             break;
     }
@@ -2508,6 +2552,7 @@ void menuInitialise(volatile uint8_t* romPtr, volatile uint8_t* ramPtr)
     menuPtr = (char*)romPtr;
     menuTxtPtr = (char*)ramPtr;
     menuEndPtr = menuTxtPtr + RAM_PAGE_SIZE - MENU_STR_LEN;
+    menuHeaderPtr = &(menuPtr[MENU_HEADER_TEXT]);
 
     // Store the version information
     uint16_t address = ((menuPtr[(MENU_VERSION_STR + 1)] << 8) + menuPtr[MENU_VERSION_STR]);

@@ -110,6 +110,11 @@ typedef enum {
     STRING_IN_GAME_EXIT_TAPE,
     STRING_IN_GAME_EXIT_BASIC,
     STRING_IN_GAME_APPLY_POK,
+    STRING_HEADER_MAIN,
+    STRING_HEADER_NTP_TZ,
+    STRING_HEADER_IN_GAME,
+    STRING_HEADER_TAPE_BROWSER,
+    STRING_HEADER_DEBUG,
     STRING_OPEN_ABOUT,
 #ifdef ENABLE_BUILTIN_ROM_IF1
     STRING_ABOUT_BUILTIN_ROM_IF1_1,
@@ -231,6 +236,11 @@ static const char* const PROGMEM MENU_STRINGS[] = {
     "Back and Play Tape",
     "Break into BASIC",
     "Apply Selected POKEs",
+    "|Main Menu",
+    "|Set WiFi NTP timezone",
+    "|In-Game Menu",
+    "|Tape Browser",
+    "|Debug Menu",
     "About ZXTeensyIF1",
 #ifdef ENABLE_BUILTIN_ROM_IF1
     "Includes ZX Interface 1 ROM",
