@@ -244,11 +244,11 @@ static const char* const PROGMEM MENU_STRINGS[] = {
     "About ZXTeensyIF1",
 #ifdef ENABLE_BUILTIN_ROM_IF1
     "Includes ZX Interface 1 ROM",
-    "   (C) Amstrad Plc.",
+    "   \x7F Amstrad Plc.",
 #endif
 #ifdef ENABLE_BUILTIN_ROM_MF128
     "Includes Multiface 128 ROM",
-    "   (C) Romantic Robot Ltd.",
+    "   \x7F Romantic Robot Ltd.",
 #endif
     "USB input default enabled",
     "HDMI over USB Serial enabled"

@@ -2,7 +2,8 @@
 #include "StringsZXTeensy.h"
 #include "DefinesZXTeensy.h"
 
-static const uint8_t CHAR_BORDER = 18;
+static const uint8_t CHAR_BORDER = 17;
+static const uint8_t CHAR_BACK = 18;
 static const uint8_t CHAR_DIR = 19;
 static const uint8_t CHAR_TICK = 20;
 // NOTE: The characters below are hard coded values in strings
@@ -300,13 +301,13 @@ char* menuInsertFileIcon(icon_type_t icon, char* ptr)
     return ptr;
 }
 
-char* menuInsertSetting(menu_action_t action, uint32_t index, char* ptr, const char* label,
-    bool checked)
+char* menuInsertSettingIcon(menu_action_t action, uint32_t index, char* ptr, const char* label,
+    const char icon)
 {
     if (!menuSkipNextEntry())
     {
         menuInsertEntry(action, index);
-        *ptr++ = (checked ? CHAR_TICK : CHAR_BORDER);
+        *ptr++ = icon;
         unsigned int len = strlen(label);
         if (len > MENU_TXT_LEN)
         {
@@ -326,6 +327,17 @@ char* menuInsertSetting(menu_action_t action, uint32_t index, char* ptr, const c
         ptr = menuInsertLineEnd(ptr);
     }
     return ptr;
+}
+
+char* menuInsertSetting(menu_action_t action, uint32_t index, char* ptr, const char* label,
+    bool checked)
+{
+    return menuInsertSettingIcon(action, index, ptr, label, (checked ? CHAR_TICK : CHAR_BORDER));
+}
+
+char* menuInsertBack(menu_action_t action, uint32_t index, char* ptr, const char* label)
+{
+    return menuInsertSettingIcon(action, index, ptr, label, CHAR_BACK);
 }
 
 inline __attribute__((always_inline)) char* menuInsertSpacer(char* ptr)
@@ -822,7 +834,7 @@ char* menuGenerateTapeBrowser(char* ptr)
 {
     uint8_t count = ((tzxPlayer.tapeMarkCount >= 254) ?
         254 : tzxPlayer.tapeMarkCount);
-    ptr = menuInsertSetting(MENU_ACTION_TOP_MENU, 0, ptr, MENU_STRINGS[STRING_CANCEL], 0);
+    ptr = menuInsertBack(MENU_ACTION_TOP_MENU, 0, ptr, MENU_STRINGS[STRING_CANCEL]);
     for (uint8_t index = 0; index < count; ++index)
     {
         ptr = menuInsertSetting(MENU_ACTION_IN_GAME_SEEK_TAPE, index, ptr,
@@ -833,7 +845,7 @@ char* menuGenerateTapeBrowser(char* ptr)
 
 char* menuGenerateSelectStateSlot(char* ptr, bool loadNotSave)
 {
-    ptr = menuInsertSetting(MENU_ACTION_TOP_MENU, 0, ptr, MENU_STRINGS[STRING_CANCEL], 0);
+    ptr = menuInsertBack(MENU_ACTION_TOP_MENU, 0, ptr, MENU_STRINGS[STRING_CANCEL]);
     for (int8_t slot = 0; slot < STATE_POKE_SLOT; ++slot)
     {
         if (!loadNotSave || stateReadDeviceData(slot))
@@ -859,16 +871,16 @@ char* menuGeneratePreviewStateSlot(char* ptr)
 {
     // This menu is hidden behind the full-screen preview. The menu ROM
     // selects entry 0 for any direction, or entry 1 to confirm the load.
-    ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_OPEN_LOAD_STATE_SLOT,
-        ptr, MENU_STRINGS[STRING_CANCEL], 0);
+    ptr = menuInsertBack(MENU_ACTION_SETTING, SETTING_ACTION_OPEN_LOAD_STATE_SLOT,
+        ptr, MENU_STRINGS[STRING_CANCEL]);
     return menuInsertSetting(MENU_ACTION_LOAD_STATE_SLOT, menuPreviewSlot, ptr,
         MENU_STRINGS[STRINGS_LOAD_STATE], 0);
 }
 
 char* menuGeneratePokBrowser(char* ptr)
 {
-    ptr = menuInsertSetting(MENU_ACTION_BROWSER_CD, BROWSER_PARENT_INDEX,
-        ptr, MENU_STRINGS[STRING_CANCEL], 0);
+    ptr = menuInsertBack(MENU_ACTION_BROWSER_CD, BROWSER_PARENT_INDEX,
+        ptr, MENU_STRINGS[STRING_CANCEL]);
     if (pokeHasSelectedTrainers())
     {
         ptr = menuInsertSetting(MENU_ACTION_IN_GAME_APPLY_POK, 0, ptr,
@@ -892,7 +904,7 @@ char* menuGeneratePokBrowser(char* ptr)
 
 char* menuGenerateInGameSettings(char* ptr)
 {
-    ptr = menuInsertSetting(MENU_ACTION_TOP_MENU, 0, ptr, MENU_STRINGS[STRING_CANCEL], 0);
+    ptr = menuInsertBack(MENU_ACTION_TOP_MENU, 0, ptr, MENU_STRINGS[STRING_CANCEL]);
     if (!menuMachineIs48k() && ((spectrumBankM & 0x20) == 0x00) &&
         ((romArrayPresent & (BANK_ROM0 | BANK_ROM1)) == BANK_ROM0))
     {
@@ -936,11 +948,11 @@ char* menuGenerateInGameSettings(char* ptr)
 
 char* menuGenerateInGame(char* ptr)
 {
-    ptr = menuInsertSetting(MENU_ACTION_IN_GAME_EXIT, 0, ptr, MENU_STRINGS[STRING_CANCEL], 0);
+    ptr = menuInsertBack(MENU_ACTION_IN_GAME_EXIT, 0, ptr, MENU_STRINGS[STRING_CANCEL]);
     if (tzxEnabled)
     {
-        ptr = menuInsertSetting(MENU_ACTION_IN_GAME_EXIT_TAPE, 0, ptr,
-            MENU_STRINGS[STRING_IN_GAME_EXIT_TAPE], 0);
+        ptr = menuInsertBack(MENU_ACTION_IN_GAME_EXIT_TAPE, 0, ptr,
+            MENU_STRINGS[STRING_IN_GAME_EXIT_TAPE]);
     }
     ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_OPEN_BROWSER,
         ptr, MENU_STRINGS[STRING_OPEN_BROWSER], 0);
@@ -1117,7 +1129,7 @@ char* menuGenerateDebug(char* ptr)
 
 char* menuGenerateHttpServer(char* ptr)
 {
-    ptr = menuInsertSetting(MENU_ACTION_TOP_MENU, 0, ptr, MENU_STRINGS[STRING_CANCEL], 0);
+    ptr = menuInsertBack(MENU_ACTION_TOP_MENU, 0, ptr, MENU_STRINGS[STRING_CANCEL]);
     ptr = menuInsertSetting(MENU_ACTION_START_SERVER, 0, ptr, MENU_STRINGS[STRING_START_HTTP], 0);
     if (*httpServerStatus != 0)
     {
@@ -1130,7 +1142,7 @@ char* menuGenerateHttpServer(char* ptr)
 
 char* menuGenerateNtpTz(char* ptr)
 {
-    ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_OPEN_SETTINGS, ptr, MENU_STRINGS[STRING_CANCEL], 0);
+    ptr = menuInsertBack(MENU_ACTION_SETTING, SETTING_ACTION_OPEN_SETTINGS, ptr, MENU_STRINGS[STRING_CANCEL]);
     ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 0, ptr, MENU_STRINGS[STRING_MINUS_12_00_HOURS], (wifiNtpTz == 0));
     ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 4, ptr, MENU_STRINGS[STRING_MINUS_11_00_HOURS], (wifiNtpTz == 4));
     ptr = menuInsertSetting(MENU_ACTION_NTP_TZ, 8, ptr, MENU_STRINGS[STRING_MINUS_10_00_HOURS], (wifiNtpTz == 8));
@@ -1169,8 +1181,8 @@ char* menuGenerateNtpTz(char* ptr)
 
 char* menuGenerateBrowserOpenRom(char* ptr)
 {
-    ptr = menuInsertSetting(MENU_ACTION_BROWSER_CD, BROWSER_PARENT_INDEX,
-        ptr, MENU_STRINGS[STRING_CANCEL], 0);
+    ptr = menuInsertBack(MENU_ACTION_BROWSER_CD, BROWSER_PARENT_INDEX,
+        ptr, MENU_STRINGS[STRING_CANCEL]);
     ptr = menuInsertSetting(MENU_ACTION_BROWSER_LOAD_CART, 0, ptr, MENU_STRINGS[STRING_LOAD_ROM], 0);
     ptr = menuInsertSetting(MENU_ACTION_BROWSER_LOAD_ZXC2, 0, ptr, MENU_STRINGS[STRING_LOAD_ZXC2], 0);
     ptr = menuInsertSetting(MENU_ACTION_BROWSER_LOAD_ZXC3, 0, ptr, MENU_STRINGS[STRING_LOAD_ZXC3], 0);
@@ -1184,8 +1196,8 @@ char* menuGenerateBrowserOpenRom(char* ptr)
 
 char* menuGenerateBrowserMountDsk(char* ptr)
 {
-    ptr = menuInsertSetting(MENU_ACTION_BROWSER_CD, BROWSER_PARENT_INDEX,
-        ptr, MENU_STRINGS[STRING_CANCEL], 0);
+    ptr = menuInsertBack(MENU_ACTION_BROWSER_CD, BROWSER_PARENT_INDEX,
+        ptr, MENU_STRINGS[STRING_CANCEL]);
     if ((menuUnlockDrives || !dskController.isMotorOn()) &&
         (!menuIsInGameMenu() || dskEnabled))
     {
@@ -1200,8 +1212,8 @@ char* menuGenerateBrowserMountDsk(char* ptr)
 
 char* menuGenerateBrowserMountHdf(char* ptr)
 {
-    ptr = menuInsertSetting(MENU_ACTION_BROWSER_CD, BROWSER_PARENT_INDEX,
-        ptr, MENU_STRINGS[STRING_CANCEL], 0);
+    ptr = menuInsertBack(MENU_ACTION_BROWSER_CD, BROWSER_PARENT_INDEX,
+        ptr, MENU_STRINGS[STRING_CANCEL]);
     if ((menuUnlockDrives || (divMmcDrive == DIVMMC_NONE)) &&
         (!menuIsInGameMenu() || (divMmcState.enabled && divMmcState.inGameUnmount)))
     {
@@ -1794,8 +1806,8 @@ char* menuGenerateBrowser(char* ptr)
                 bool allowExpanded = (menuCurrent == MENU_TYPE_BROWSER_EXPAND);
                 bool updatePageState = !allowExpanded;
                 renderView = true;
-                ptr = menuInsertSetting(MENU_ACTION_BROWSER_CD,
-                    BROWSER_PARENT_INDEX, ptr, "..", 0);
+                ptr = menuInsertBack(MENU_ACTION_BROWSER_CD,
+                    BROWSER_PARENT_INDEX, ptr, "..");
                 if (menuBrowserPreviousPage && menuBrowserHasLowerBound)
                 {
                     // Moving backwards collects entries up to the current lower
@@ -1869,8 +1881,8 @@ char* menuGenerateBrowser(char* ptr)
                         MENU_STRINGS[STRING_NEXT_PAGE], 0);
                 }
             } else {
-                ptr = menuInsertSetting(MENU_ACTION_TOP_MENU, 0, ptr,
-                    MENU_STRINGS[STRING_CANCEL], 0);
+                ptr = menuInsertBack(MENU_ACTION_TOP_MENU, 0, ptr,
+                    MENU_STRINGS[STRING_CANCEL]);
             }
 
             // Close the directory before re-opening for render
@@ -1913,12 +1925,12 @@ char* menuGenerateBrowser(char* ptr)
                 }
             }
         } else {
-            ptr = menuInsertSetting(MENU_ACTION_TOP_MENU, 0, ptr,
-                MENU_STRINGS[STRING_CANCEL], 0);
+            ptr = menuInsertBack(MENU_ACTION_TOP_MENU, 0, ptr,
+                MENU_STRINGS[STRING_CANCEL]);
         }
     } else {
-        ptr = menuInsertSetting(MENU_ACTION_TOP_MENU, 0, ptr,
-            MENU_STRINGS[STRING_CANCEL], 0);
+        ptr = menuInsertBack(MENU_ACTION_TOP_MENU, 0, ptr,
+            MENU_STRINGS[STRING_CANCEL]);
     }
     return ptr;
 }
@@ -1956,7 +1968,7 @@ char* menuGenerateBrowserExpand(char* ptr)
 char* menuGenerateLoadRom(char* ptr)
 {
     char romDisplayName[MAX_PATH];
-    ptr = menuInsertSetting(MENU_ACTION_TOP_MENU, 0, ptr, MENU_STRINGS[STRING_CANCEL], 0);
+    ptr = menuInsertBack(MENU_ACTION_TOP_MENU, 0, ptr, MENU_STRINGS[STRING_CANCEL]);
     ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_INTERNAL_ROM,
         ptr, MENU_STRINGS[STRING_INTERNAL_ROM], (cfgData.romName[0] == 0));
     FsFile romDirectory = SD.sdfs.open("ROMS", O_RDONLY);
@@ -2014,7 +2026,7 @@ char* menuGenerateLoadRom(char* ptr)
 char* menuGenerateSettings(char* ptr)
 {
     // Add settings menu
-    ptr = menuInsertSetting(MENU_ACTION_TOP_MENU, 0, ptr, MENU_STRINGS[STRING_CANCEL], 0);
+    ptr = menuInsertBack(MENU_ACTION_TOP_MENU, 0, ptr, MENU_STRINGS[STRING_CANCEL]);
     ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_MENU,
         ptr, MENU_STRINGS[STRING_BOOT_MENU], bootIntoMenu);
     ptr = menuInsertSetting(MENU_ACTION_SETTING, SETTING_ACTION_TOGGLE_MENU_IN_GAME,
@@ -2218,7 +2230,7 @@ char* menuGenerateSettings(char* ptr)
 char* menuGenerateConfigurations(char* ptr)
 {
     char cfgDisplayName[MAX_PATH];
-    ptr = menuInsertSetting(MENU_ACTION_TOP_MENU, 0, ptr, MENU_STRINGS[STRING_CANCEL], 0);
+    ptr = menuInsertBack(MENU_ACTION_TOP_MENU, 0, ptr, MENU_STRINGS[STRING_CANCEL]);
 
     // List stored configurations for quick selection
     FsFile cfgDirectory = SD.sdfs.open("/ZXTEENSY/CONFIGS", O_RDONLY);

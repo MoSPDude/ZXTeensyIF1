@@ -245,7 +245,7 @@ I started using it in July 2026, and since then it has helped,
 See the [Menu ROM User Guide](USER_GUIDE.md) for illustrated instructions on
 loading files, configuring peripherals, and using the in-game menus.
 
-![image](./Images/menu-261124.png "Menu 20261124")
+![image](./Images/menu-261124.png "Menu 20261125")
 
 Inside the Menu ROM you can,
 

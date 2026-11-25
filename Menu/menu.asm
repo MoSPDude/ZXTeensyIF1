@@ -727,7 +727,7 @@ _lf100:
     ld c,0          ; reset rotation
     jr _pltTextLoop
 _noLf:
-    cp 36           ; check for invalid char <18
+    cp 34           ; check for invalid char <17
     ret c
     exx             ; norm
     ld l,a
@@ -793,7 +793,8 @@ _verText:
 ; Left Aligned Sinclair ZX Spectrum Font - used for variable width font routine
 ;   first are icons, then space (32) to copyright (127)
 ; ------------------------------------------+----------------------------------
-    DEFB    128,128,128,128,128,128,128,128 ; 18 - left border
+    DEFB    128,128,128,128,128,128,128,128 ; 17 - left border
+    DEFB    128,136,144,190,146,138,130,128 ; 18 - left back
     DEFB    128,176,174,177,161,161,191,128 ; 19 - left dir
     DEFB    128,130,132,132,136,168,144,128 ; 20 - left tick
 ; NOTE: The characters below are hard coded values in strings
@@ -908,7 +909,7 @@ _shiftedFontData:
 ; ------------------------------------------+----------------------------------
 ; Length of each Char - used for variable width font routine (100b)
 ; ------------------------------------------+----------------------------------
-    defb 8,8,8,8,8,8,8,8,8,8,8,8,8,8 ; icons
+    defb 8,8,8,8,8,8,8,8,8,8,8,8,8,8,8 ; icons
 _gapLengthData:                                ; start at space (32)
     defb 4,2,5,7,6,7,7,3,3,3,6,6,3,6,3,6,7,6,7,7,7,7,7,7,7,7,2,3,4,6,4,7
 ;          ! " # $ % & ' ( ) * + , - . / 0 1 2 3 4 5 6 7 8 9 : ; < = > ?
