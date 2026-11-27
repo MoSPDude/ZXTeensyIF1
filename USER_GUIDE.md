@@ -39,6 +39,9 @@ selected item. The bar on the right shows the current page within the menu.
 Moving down past the last entry on a page advances to the next page when one is
 available; moving up from the first entry returns to the previous page.
 
+Each page holds up to 22 menu entries on screen lines 2-23. The first line shows
+the menu header, and the last line is reserved for the footer.
+
 Select **Back** to return from a submenu. In the file browser, select **..** to
 move up a directory; selecting it at the root returns to the main or in-game
 menu.
@@ -77,9 +80,9 @@ Choose **Browse SD card** from the Main Menu or In-Game Menu.
 
 ![SD card file browser](Images/browser.png)
 
-The header shows the current directory. Select a folder to open it, or **..** to
-go up one level. Icons on the right identify cartridges, snapshots, disk images
-and tapes.
+The header shows the current directory. Long paths are shortened from the left,
+with **<** marking omitted text. Select a folder to open it, or **..** to go up one
+level. Icons on the right identify cartridges, snapshots, disk images and tapes.
 
 For very large directories, **Next Pages** and **Previous Pages** entries move
 between batches of files. Use left and right to move between pages at a time.

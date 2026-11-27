@@ -2,6 +2,8 @@
 #ifndef STRINGS_ZX_TEENSY_H
 #define STRINGS_ZX_TEENSY_H
 
+#include "DefinesZXTeensy.h"
+
 typedef enum {
     STRING_CANCEL,
     STRING_NEXT_PAGE,
@@ -236,11 +238,11 @@ static const char* const PROGMEM MENU_STRINGS[] = {
     "Back and Play Tape",
     "Break into BASIC",
     "Apply Selected POKEs",
-    "|Main Menu",
-    "|Set WiFi NTP timezone",
-    "|In-Game Menu",
-    "|Tape Browser",
-    "|Debug Menu",
+    " ZXTeensyIF1 " ZXTEENSY_VERSION,
+    " Set WiFi NTP timezone",
+    " In-Game Menu",
+    " Tape Browser",
+    " Debug Menu",
     "About ZXTeensyIF1",
 #ifdef ENABLE_BUILTIN_ROM_IF1
     "Includes ZX Interface 1 ROM",

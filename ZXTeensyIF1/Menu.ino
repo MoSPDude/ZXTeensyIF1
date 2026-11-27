@@ -19,7 +19,9 @@ static const uint8_t CHAR_Z80_R = 29;
 static const uint8_t CHAR_TZX_L = 30;
 static const uint8_t CHAR_TZX_R = 31;
 
-static const uint16_t MENU_HEADER_TEXT = 0x11CF;
+// Keep the header buffer and address in sync with MEM_TXTHDR in Menu/menu.asm.
+static const size_t MENU_HEADER_LEN = 103;
+static const uint16_t MENU_HEADER_TEXT = 0x118D;
 static const uint16_t MENU_TEXT_WIDTHS = 0x11F5;
 static const uint16_t MENU_VERSION_STR = 0x11F8;
 static const uint16_t MENU_NUM_ENTRIES = 0x11FB;
@@ -158,6 +160,8 @@ volatile menu_action_t menuAction;
 static const uint8_t BROWSER_ENTRY_LIMIT = 254;
 static const uint32_t BROWSER_PARENT_INDEX = 0xFFFFFFFFUL;
 static const size_t BROWSER_PIXEL_WIDTH = 247 - (3 * 8);
+// The rainbow starts at pixel 208; reserve a 4-pixel space at each end.
+static const size_t BROWSER_HEADER_PIXEL_WIDTH = 200;
 char menuBrowserPath[MAX_PATH];
 uint32_t menuBrowserStartIndex = 0;
 uint32_t menuBrowserExpandedIndex = BROWSER_PARENT_INDEX;
@@ -222,7 +226,8 @@ browser_page_batch_t menuBatchPreviousBrowserPage(FsFile& directory,
     char* ptr, bool allowExpanded);
 
 // Menu page creation
-static const uint8_t MENU_PAGE_ENTRY_COUNT = 21;
+// Screen lines 2-23; keep in sync with PAGE_ENTRIES in Menu/menu.asm.
+static const uint8_t MENU_PAGE_ENTRY_COUNT = 22;
 uint8_t menuPage;
 uint8_t menuPageLine;
 uint8_t menuRenderSourceEntry;
@@ -231,7 +236,7 @@ uint8_t menuRenderSkipStart;
 uint8_t menuRenderSkipEnd;
 
 // Debug menu text
-static const size_t MENU_DEBUG_SIZE = (21 * MENU_TXT_LEN * 2);
+static const size_t MENU_DEBUG_SIZE = (MENU_PAGE_ENTRY_COUNT * MENU_TXT_LEN * 2);
 DMAMEM char menuDebugBuffer[MENU_DEBUG_SIZE];
 volatile size_t menuDebugIndex = 0;
 volatile bool menuHasDebug = false;
@@ -252,7 +257,7 @@ void menuInsertEntry(menu_action_t action, uint32_t index)
 
 char* menuInsertLineEnd(char* ptr)
 {
-    if (menuPageLine < 20)
+    if (menuPageLine < (MENU_PAGE_ENTRY_COUNT - 1))
     {
         *ptr = 10;
         ++menuPageLine;
@@ -2392,24 +2397,56 @@ char* menuGenerateMain(char* ptr)
 
 inline void menuGenerateHeader(const char* label)
 {
-    menuHeaderPtr[0] = '|';
+    menuHeaderPtr[0] = ' ';
     strncpy(&(menuHeaderPtr[1]), label, (MENU_STR_LEN - 1));
     menuHeaderPtr[(MENU_STR_LEN - 1)] = 0;
 }
 
 void menuGenerateBrowserHeader()
 {
-    menuHeaderPtr[0] = '|';
     size_t len = strlen(menuBrowserPath);
-    if (len > MENU_TXT_LEN)
+    size_t width = 0;
+    for (size_t i = 0; i < len; ++i)
     {
-        menuHeaderPtr[1] = '<';
-        strncpy(&(menuHeaderPtr[2]), &(menuBrowserPath[(len - (MENU_TXT_LEN - 1))]),
-            (MENU_TXT_LEN - 1));
-    } else {
-        strncpy(&(menuHeaderPtr[1]), menuBrowserPath, (MENU_STR_LEN - 1));
+        uint8_t c = (uint8_t)menuBrowserPath[i];
+        if ((c < ' ') || (c >= 128))
+        {
+            c = '?';
+        }
+        width += menuTextWidths[(c - ' ')];
     }
-    menuHeaderPtr[(MENU_STR_LEN - 1)] = 0;
+
+    // Keep the end of a long path, allowing room for the truncation marker,
+    // both margin spaces and the string terminator.
+    size_t start = 0;
+    if ((len > (MENU_HEADER_LEN - 3)) || (width > BROWSER_HEADER_PIXEL_WIDTH))
+    {
+        width += menuTextWidths[('<' - ' ')];
+        while (((len - start + 1) > (MENU_HEADER_LEN - 3)) ||
+            (width > BROWSER_HEADER_PIXEL_WIDTH))
+        {
+            uint8_t c = (uint8_t)menuBrowserPath[start];
+            if ((c < ' ') || (c >= 128))
+            {
+                c = '?';
+            }
+            width -= menuTextWidths[(c - ' ')];
+            ++start;
+        }
+    }
+
+    size_t pos = 0;
+    menuHeaderPtr[pos++] = ' ';
+    if (start != 0)
+    {
+        menuHeaderPtr[pos++] = '<';
+    }
+    for (size_t i = start; i < len; ++i)
+    {
+        uint8_t c = (uint8_t)menuBrowserPath[i];
+        menuHeaderPtr[pos++] = (((c < ' ') || (c >= 128)) ? '?' : c);
+    }
+    menuHeaderPtr[pos] = 0;
 }
 
 void menuGenerate()

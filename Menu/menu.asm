@@ -7,6 +7,7 @@
 ; set _maxroms+1
 MAX_PAGES   EQU 2
 MAX_ROMS    EQU (29 - 1)
+PAGE_ENTRIES EQU 22 ; screen lines 2-23; line 1 is the header, line 24 the footer
 ; set _right+1 with maximum pages
 ; ------------------------------------------+----------------------------------
     DEVICE ZXSPECTRUM48
@@ -18,7 +19,8 @@ MEM_NMI     EQU MEM_ORG + 0x0066
 MEM_LTBL    EQU MEM_ORG + 0x1000 ; lookup table MEM_LTBLP-512
 MEM_LTBLP   EQU MEM_LTBL + 0x200 ; lookup table start
 MEM_OFFSET  EQU MEM_LTBLP - 12;
-MEM_TXTHDR  EQU MEM_OFFSET - 37;
+; 100 minimum-width (2-pixel) characters, two margin spaces and a terminator.
+MEM_TXTHDR  EQU MEM_OFFSET - 103;
 
 MEM_SP      EQU MEM_ORG + 0x3FF6  ; stack pointer start
 MEM_MODE    EQU MEM_ORG + 0x3FF8  ; detected state mode: 0=48K, 1=128K, 2=unknown
@@ -95,16 +97,16 @@ _menu2:
     jp _menu100
 _drawMenu:
     call _txtMem            ; set start txt mem for page
-    ld de,MEM_SCR+1         ; start of ZX Spectrum ROM Explorer vx.x text on screen
+    ld de,MEM_SCR           ; menu header on the first screen line
     exx                     ; alt
-    ld de,_menuHeader
+    ld de,MEM_TXTHDR
     call _pltText           ; plot the text
     exx                     ; norm
 ; ------------------------------------------+----------------------------------
 ; Plot Slider at RHS of Screen
-;   max 255 ROMs can be added which is 13 pages with 21 entries per page
+;   max 255 ROMs can be added which is 12 pages with 22 entries per page
 ; ------------------------------------------+----------------------------------
-    ld de,_sliderData - 13  ; get correct plot
+    ld de,_sliderData - 13  ; 13-byte rows: up to 12 segments plus zero terminator
     ld a,(_right+1)         ; get max pages
     ld b,a
     add a,a ; x2
@@ -152,7 +154,8 @@ _sliderChar:
     djnz _sliderLoop
     jr _pltSliderLoop
 ; ------------------------------------------+----------------------------------
-; pre-defined table to plot the slider
+; pre-defined table to plot the slider for 1-12 pages
+; each 13-byte row contains page segments followed by a zero terminator
 ; ------------------------------------------+----------------------------------
 _sliderData:
     defb 160,  0,  0,  0,  0,  0, 0, 0, 0, 0, 0, 0, 0            ; 1 page
@@ -161,23 +164,17 @@ _sliderData:
     defb  40, 40, 40, 40,  0,  0, 0, 0, 0, 0, 0, 0, 0            ; 4 pages
     defb  32, 32, 32, 32, 32,  0, 0, 0, 0, 0, 0, 0, 0            ; 5 pages
     defb  27, 27, 26, 26, 27, 27, 0, 0, 0, 0, 0, 0, 0            ; 6 pages
-    defb  22, 23, 23, 23, 23, 23, 23, 0, 0, 0, 0, 0, 0
-    defb  20, 20, 20, 20, 20, 20, 20, 20, 0, 0, 0, 0, 0
-    defb  17, 18, 18, 18, 18, 18, 18, 18, 17, 0, 0, 0, 0
-    defb  16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 0, 0, 0
-    defb  14, 14, 14, 15, 15, 15, 15, 15, 15, 14, 14, 0, 0
-    defb  13, 13, 13, 13, 14, 14, 14, 14, 13, 13, 13, 13, 0
-    defb  12, 12, 12, 12, 13, 13, 13, 13, 12, 12, 12, 12, 12
+    defb  22, 23, 23, 23, 23, 23, 23, 0, 0, 0, 0, 0, 0            ; 7 pages
+    defb  20, 20, 20, 20, 20, 20, 20, 20, 0, 0, 0, 0, 0           ; 8 pages
+    defb  17, 18, 18, 18, 18, 18, 18, 18, 17, 0, 0, 0, 0          ; 9 pages
+    defb  16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 0, 0, 0         ; 10 pages
+    defb  14, 14, 14, 15, 15, 15, 15, 15, 15, 14, 14, 0, 0        ; 11 pages
+    defb  13, 13, 13, 13, 14, 14, 14, 14, 13, 13, 13, 13, 0       ; 12 pages
 ; ------------------------------------------+----------------------------------
 ; Show all the text (variable width)
 ; ------------------------------------------+----------------------------------
 _menuTxt:
-    ld de,MEM_SCR+32    ; start of text on screen
-    exx                 ; alt
-    ld de,MEM_TXTHDR    ; get text start
-    call _pltText       ; plot the text
-    exx                 ; norm
-    ld de,MEM_SCR+64    ; start of text on screen
+    ld de,MEM_SCR+32    ; entries start on the second screen line
     exx                 ; alt
     ld de,(MEM_TXT)     ; get text start
     call _pltText       ; plot the text
@@ -248,7 +245,7 @@ _menu450:
 ; Down pressed - down one row or to next page if at bottom
 ; ------------------------------------------+----------------------------------
     ld a,c
-    cp 20               ; at bottom? (0-20 or 21 entries)
+    cp PAGE_ENTRIES-1    ; at bottom? (0-21 or 22 entries)
     jr nz,_down100      ; if at bottom jump to pgdn
     ld a,(_right+1)     ; max pages
     ld b,a
@@ -283,7 +280,7 @@ _up:
     dec a
     jp z,_menu300       ; if already at 1st then do nothing
     ld (MEM_PAGE),a     ; page down
-    ld a,20
+    ld a,PAGE_ENTRIES-1
     ld (MEM_POS),a      ; to bottom
     ld a,(MEM_ROM)
     dec a               ; back one rom
@@ -322,7 +319,7 @@ _right100:
     inc a
     ld (MEM_PAGE),a ; page down
     ld a,(MEM_ROM)
-    add a,21        ; add 21 roms
+    add a,PAGE_ENTRIES ; one page down but same position
     ld b,a          ; now need to check not > maxroms
     ld a,(_maxroms+1)
     cp b
@@ -351,7 +348,7 @@ _left:
 _left100:
     ld (MEM_PAGE),a
     ld a,(MEM_ROM)
-    sub 21                                    ; one page up but same position
+    sub PAGE_ENTRIES ; one page up but same position
     jr _right200
 ; ------------------------------------------+----------------------------------
 ; Write the menu index to the Teensy at port 0xeb, then redraw any changes
@@ -654,7 +651,7 @@ _colbar:
     ld d,%01101000  ; paper=cyan
 _colbar100:
     ld a,c
-    add a,2         ; 2-23
+    add a,1         ; screen rows 1-22 (lines 2-23)
     add a,a         ; x2
     add a,a         ; x4
     add a,a         ; x8 (max 23*8=184)
@@ -766,6 +763,7 @@ _rotatedVersion:
     dec h       ; back to lhs of rotation lookup table
     exx         ; norm
     inc hl
+    or (hl)     ; preserve background beyond the glyph, including the rainbow
     ld (hl),a
     dec hl
     inc h
@@ -1196,7 +1194,7 @@ _nmiMenuExitDI :
 _codeend:
 
     org MEM_TXTHDR
-    defb "|Main Menu",0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+    defb 0
     org MEM_OFFSET
     jp (_gapLengthData)
     jp (_verText)
