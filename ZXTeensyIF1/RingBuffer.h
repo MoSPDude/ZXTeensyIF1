@@ -115,6 +115,22 @@ template <size_t BUFFER_SIZE> class RingBuffer
             return buffer[index];
         }
 
+        inline __attribute__((always_inline)) uint8_t readOr(uint8_t defaultData)
+        {
+            size_t tail = bufferTail;
+            if (bufferHead == tail)
+            {
+                return defaultData;
+            }
+            uint8_t data = buffer[tail];
+            if (++tail == BUFFER_SIZE)
+            {
+                tail = 0;
+            }
+            bufferTail = tail;
+            return data;
+        }
+
         template <size_t BLOCK_SIZE>
         inline __attribute__((always_inline)) void readFixedBlock(
             uint8_t (&data)[BLOCK_SIZE])

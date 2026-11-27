@@ -312,7 +312,7 @@ template <size_t READ_BUFFER_SIZE> class SdSdioZXTeensy
 
         inline uint8_t readData() __attribute__((always_inline, hot, optimize("O3")))
         {
-            return (sdSpiReadBuffer.canRead() ? sdSpiReadBuffer.readRaw() : 0xFF);
+            return sdSpiReadBuffer.readOr(0xFF);
         }
 
         inline bool getSdIdle() const

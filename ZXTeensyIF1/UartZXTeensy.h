@@ -87,6 +87,11 @@ class UartZXTeensy
             return uartReadBuffer.readRaw();
         }
 
+        inline __attribute__((always_inline)) uint8_t readData(uint8_t defaultData)
+        {
+            return uartReadBuffer.readOr(defaultData);
+        }
+
         inline __attribute__((always_inline)) bool hasReadData()
         {
             return uartReadBuffer.canRead();
@@ -106,7 +111,7 @@ class UartZXTeensy
         inline uint8_t getUartStatusByte() __attribute__((always_inline, hot, optimize("O3")))
         {
             size_t count = uartReadBuffer.getSize();
-            uint8_t status = (hasReadData() ? 0x01 : 0x00);
+            uint8_t status = ((count != 0) ? 0x01 : 0x00);
             if (hasWriteData())
             {
                 status |= 0x02;

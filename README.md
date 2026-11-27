@@ -184,11 +184,11 @@ and planned by myself (to various extents), coded by Codex, and then reviewed/fi
 
 I started using it in July 2026, and since then it has helped,
 
-* File Browser alphabetical sorting
-* File Browser long name rendering
+* File Browser alphabetical sorting and long filename rendering
 * Initial POK loading support
-* HTTP Server ESP-01S multiple connections and stability
-* WebDAV LOCK and UNLOCK workaround for Windows 11
+* Support for multiple connections and stability in the HTTP Server
+* WebDAV support in the HTTP Server
+    * Also, adding the LOCK and UNLOCK workaround for Windows 11
 * Compiled binary analysis for ISR performance
     * This solved some spurious corruption I was seeing on my ZX Spectrum 128K
     * It would have been very difficult to debug without help
@@ -204,6 +204,8 @@ I started using it in July 2026, and since then it has helped,
 * Entirety of the "CPM" patcher and source code
 * Entirety of the "CPMGSX" patcher and source code
 * Menu ROM documentation and images
+* Further specific targetted ISR optimisations
+    * HDMI over USB Serial was triggering my ZX Spectrum 128K crashes with the DivMMC...
 
 ## Construction
 
